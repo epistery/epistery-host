@@ -29,7 +29,10 @@ export function createAuthRouter() {
 
             // Return existing challenge if one exists
             if (config.data && config.data.pending && config.data.challenge_token) {
-                return res.send(config.data.challenge_token);
+                return res.json({
+                    challenge_token: config.data.challenge_token,
+                    challenge_address: config.data.challenge_address
+                });
             }
 
             res.json(null);

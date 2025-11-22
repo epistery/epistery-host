@@ -425,10 +425,31 @@
         async function checkExistingChallenge() {
             try {
                 const response = await fetch('/account/claim');
-                const existingChallenge = await response.text();
-                if (existingChallenge && existingChallenge !== 'null') {
-                    challengeToken = existingChallenge;
-                    console.log('Restored existing challenge token');
+                const data = await response.json();
+
+                if (data && data.challenge_token) {
+                    // Restore claim state
+                    challengeToken = data.challenge_token;
+                    connectedWallet = data.challenge_address;
+
+                    console.log('Restored existing claim:', connectedWallet);
+
+                    // Try to connect wallet silently
+                    try {
+                        const WitnessModule = await import('/.well-known/epistery/lib/witness.js');
+                        const Witness = WitnessModule.default;
+                        window.epistery = await Witness.connect({ skipKeyExchange: true });
+
+                        // If connected wallet matches the claim address, show step 3
+                        if (window.epistery?.wallet?.address?.toLowerCase() === connectedWallet.toLowerCase()) {
+                            document.getElementById('address').textContent = connectedWallet;
+                            document.getElementById('challenge-token').textContent = challengeToken;
+                            showStep(3);
+                        }
+                    } catch (walletError) {
+                        console.log('Could not auto-connect wallet:', walletError);
+                        // User can still manually connect and continue
+                    }
                 }
             } catch (error) {
                 console.log('No existing claim state found');
