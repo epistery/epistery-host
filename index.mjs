@@ -48,7 +48,8 @@ let main = async function() {
     app.get('/', async (req, res) => {
         try {
             const domain = req.hostname || 'localhost';
-            const cfg = new Config(domain);
+            const cfg = new Config();
+            cfg.setPath(domain);
 
             // Check if domain is claimed/verified
             if (!cfg.data || !cfg.data.verified) {

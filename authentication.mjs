@@ -20,7 +20,8 @@ export function createAuthRouter() {
                 return res.status(400).json({ status: 'error', message: 'Domain not found' });
             }
 
-            const config = new Config(domain);
+            const config = new Config();
+            config.setPath(domain);
 
             if (config.data && config.data.verified) {
                 return res.status(400).json({ status: 'error', message: 'Domain already claimed' });
@@ -67,7 +68,8 @@ export function createAuthRouter() {
                 return res.status(400).json({ status: 'error', message: 'Invalid provider configuration' });
             }
 
-            const config = new Config(domain);
+            const config = new Config();
+            config.setPath(domain);
 
             if (config.data && config.data.verified) {
                 return res.status(400).json({ status: 'error', message: 'Domain already claimed' });
@@ -75,15 +77,11 @@ export function createAuthRouter() {
 
             // Return existing challenge if one already exists (idempotent)
             if (config.data && config.data.pending && config.data.challenge_token) {
-                console.log(`[debug] Returning existing challenge for domain: ${domain}`);
                 return res.send(config.data.challenge_token);
             }
 
             const challengeToken = crypto.randomBytes(32).toString('hex');
             const normalizedClientAddress = clientAddress.toLowerCase();
-
-            console.log(`[debug] Domain claim initiated: ${domain} by ${normalizedClientAddress} from ${req.ip}`);
-            console.log(`[debug] Provider config received:`, JSON.stringify(providerConfig, null, 2));
 
             // Save to domain config
             config.data.pending = true;
@@ -93,13 +91,8 @@ export function createAuthRouter() {
             config.data.challenge_requester_ip = req.ip;
             config.data.provider = providerConfig;
 
-            console.log(`[debug] Saving challenge for domain: ${domain}`);
-            console.log(`[debug] Config data before save:`, JSON.stringify({
-                provider: config.data.provider,
-                pending: config.data.pending
-            }, null, 2));
             config.save();
-            console.log(`[debug] Config saved successfully`);
+            console.log(`Domain claim initiated: ${domain} by ${normalizedClientAddress}`);
 
             res.send(challengeToken);
 
@@ -119,7 +112,8 @@ export function createAuthRouter() {
                 return res.status(400).json({ status: 'error', message: 'Domain not found' });
             }
 
-            const config = new Config(domain);
+            const config = new Config();
+            config.setPath(domain);
 
             if (!config.data.pending) {
                 return res.status(400).json({ status: 'error', message: 'No pending claim for this domain' });
@@ -177,7 +171,8 @@ export function createAuthRouter() {
                 return res.json({ isAdmin: false });
             }
 
-            const config = new Config(domain);
+            const config = new Config();
+            config.setPath(domain);
 
             if (!config.data || !config.data.verified || !config.data.admin_address) {
                 return res.json({ isAdmin: false });
