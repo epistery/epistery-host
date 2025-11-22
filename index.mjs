@@ -106,19 +106,40 @@ const gracefulShutdown = async (signal) => {
     console.log(`Received ${signal}, shutting down gracefully...`);
 
     try {
-        // Stop accepting new connections
-        if (https_server) {
-            await new Promise(resolve => https_server.close(resolve));
-            console.log('HTTPS server closed');
-        }
+        // Set a timeout to force exit if graceful shutdown takes too long
+        const forceExitTimer = setTimeout(() => {
+            console.log('Forced shutdown after timeout');
+            process.exit(1);
+        }, 5000); // 5 second timeout
 
-        if (http_server) {
-            await new Promise(resolve => http_server.close(resolve));
-            console.log('HTTP server closed');
-        }
+        // Stop accepting new connections
+        const closeServer = (server, name) => {
+            return Promise.race([
+                new Promise(resolve => {
+                    if (server) {
+                        server.close(() => {
+                            console.log(`${name} server closed`);
+                            resolve();
+                        });
+                        // Force close all connections
+                        server.closeAllConnections?.();
+                    } else {
+                        resolve();
+                    }
+                }),
+                new Promise(resolve => setTimeout(() => {
+                    console.log(`${name} server close timed out, forcing...`);
+                    resolve();
+                }, 3000))
+            ]);
+        };
+
+        await closeServer(https_server, 'HTTPS');
+        await closeServer(http_server, 'HTTP');
 
         // TODO: Cleanup spawned plugin modules when MultiSite is implemented
 
+        clearTimeout(forceExitTimer);
         console.log('Graceful shutdown complete');
         process.exit(0);
     } catch (error) {
