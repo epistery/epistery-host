@@ -1,0 +1,18 @@
+[Unit]
+Description=app-harness
+
+[Service]
+WorkingDirectory=/opt/app-harness
+ExecStart=/usr/bin/npm start
+Restart=always
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=app-harness
+Environment=PORT=80
+Environment=PORTSSL=443
+
+User=ubuntu
+Group=ubuntu
+
+[Install]
+WantedBy=multi-user.target

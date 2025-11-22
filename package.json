@@ -1,0 +1,30 @@
+{
+  "name": "@epistery/host",
+  "version": "0.0.5",
+  "description": "Identity and service host for an epistery domain",
+  "keywords": [
+    "epistery"
+  ],
+  "homepage": "https://github.com/epistery/host#readme",
+  "bugs": {
+    "url": "https://github.com/epistery/host/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/epistery/host.git"
+  },
+  "license": "MIT",
+  "author": "Rootz Corp",
+  "type": "module",
+  "main": "index.mjs",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "@metric-im/administrate": "^1.1.9",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "epistery": "^1.1.4",
+    "express": "^5.1.0"
+  }
+}

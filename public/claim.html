@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Claim Domain - {DOMAIN}</title>
+    <link rel="stylesheet" href="/style/static.css">
+    <style>
+        .claim-step {
+            display: none;
+        }
+        .claim-step.active {
+            display: block;
+        }
+        .claim-table {
+            width: 100%;
+            margin: var(--spacer) 0;
+            border-collapse: collapse;
+        }
+        .claim-table th,
+        .claim-table td {
+            padding: var(--spacer);
+            border: 1px solid var(--page-border);
+            text-align: left;
+        }
+        .claim-table th {
+            background: var(--bg-color-d);
+            font-weight: bold;
+        }
+        .claim-table td {
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+        }
+        .custom-fields {
+            display: none;
+            margin: var(--spacer) 0;
+        }
+        .custom-fields.active {
+            display: block;
+        }
+        .form-group {
+            margin-bottom: var(--spacer);
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: var(--spacerhalf);
+            font-weight: 500;
+            color: var(--primary);
+        }
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: var(--spacerhalf) var(--spacer);
+            border: 1px solid var(--page-border);
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <nav class="container">
+            <a href="/" class="logo">
+                <span class="logo-text">Epistery Host</span>
+            </a>
+        </nav>
+    </header>
+
+    <main class="console-layout">
+        <div class="console-main">
+            <div class="console-header">
+                <h1>Claim {DOMAIN}</h1>
+                <p class="console-tagline">Initialize epistery services for this domain</p>
+            </div>
+
+            <!-- Step 1: Welcome & Chain Selection -->
+            <section class="console-panel claim-step active" id="step-1">
+                <h2>Welcome to {DOMAIN}</h2>
+                <p>This domain has not yet been initialized for Epistery services. If you own this domain, you can become the administrator by completing the following steps.</p>
+
+                <div class="status-info">
+                    <p><strong>Not affiliated with this domain?</strong> There's nothing here for you to do.</p>
+                </div>
+
+                <h3>Step 1: Select Blockchain Network</h3>
+                <p>Choose the blockchain network for this domain. If you have a Web3 wallet like MetaMask, it will prompt you to connect. Otherwise, a wallet will be generated in your browser storage.</p>
+
+                <div class="form-group">
+                    <label for="provider-select">Blockchain Provider</label>
+                    <select id="provider-select" class="console-panel">
+                        <option value="polygon-mainnet">Polygon Mainnet (Chain ID: 137)</option>
+                        <option value="ethereum-mainnet">Ethereum Mainnet (Chain ID: 1)</option>
+                        <option value="japan-open-chain">Japan Open Chain (Chain ID: 81)</option>
+                        <option value="polygon-amoy">Polygon Amoy Testnet (Chain ID: 80002)</option>
+                        <option value="sepolia-testnet">Sepolia Testnet (Chain ID: 11155111)</option>
+                        <option value="custom">Custom Network</option>
+                    </select>
+                </div>
+
+                <div class="custom-fields" id="custom-fields">
+                    <div class="form-group">
+                        <label for="custom-name">Network Name</label>
+                        <input type="text" id="custom-name" placeholder="e.g., My Custom Network">
+                    </div>
+                    <div class="form-group">
+                        <label for="custom-chain-id">Chain ID</label>
+                        <input type="text" id="custom-chain-id" placeholder="e.g., 1337">
+                    </div>
+                    <div class="form-group">
+                        <label for="custom-rpc">RPC URL</label>
+                        <input type="text" id="custom-rpc" placeholder="e.g., https://my-rpc.example.com">
+                    </div>
+                </div>
+
+                <div class="panel-actions">
+                    <button id="connect-btn" class="console-btn">Connect Wallet</button>
+                </div>
+            </section>
+
+            <!-- Step 2: Wallet Connected -->
+            <section class="console-panel claim-step" id="step-2">
+                <h2>Step 2: Wallet Connected</h2>
+                <div class="status-row">
+                    <span class="status-label">Your wallet address:</span>
+                    <span class="status-value mono" id="wallet-address"></span>
+                </div>
+
+                <div class="status-info">
+                    <p>You can change your wallet by visiting <a href="/.well-known/epistery/status">/.well-known/epistery/status</a></p>
+                </div>
+
+                <div class="panel-actions">
+                    <button id="generate-btn" class="console-btn">Generate DNS Challenge</button>
+                </div>
+            </section>
+
+            <!-- Step 3: DNS Challenge -->
+            <section class="console-panel claim-step" id="step-3">
+                <h2>Step 3: DNS Verification</h2>
+                <p>To establish <span id="address" class="mono"></span> as the owner and administrator, add a TXT record to your domain:</p>
+
+                <table class="claim-table">
+                    <tr>
+                        <th>Record Type</th>
+                        <th>Name</th>
+                        <th>Value</th>
+                    </tr>
+                    <tr>
+                        <td>TXT</td>
+                        <td id="domain-name">{DOMAIN}</td>
+                        <td id="challenge-token"></td>
+                    </tr>
+                </table>
+
+                <div class="status-info">
+                    <p><strong>DNS Propagation:</strong> It may take a few minutes for the DNS record to propagate. Once added, click "Verify Domain" to complete the claim.</p>
+                </div>
+
+                <div class="panel-actions">
+                    <button id="copy-btn" class="console-btn">Copy TXT Value</button>
+                    <button id="verify-btn" class="console-btn">Verify Domain</button>
+                </div>
+            </section>
+        </div>
+
+        <aside class="console-sidebar">
+            <nav class="sidebar-nav">
+                <section class="sidebar-section">
+                    <h3 class="sidebar-heading">About Domain Claiming</h3>
+                    <div class="sidebar-content">
+                        <h4>Why claim this domain?</h4>
+                        <p>Claiming establishes cryptographic ownership and enables Epistery agent services for your domain.</p>
+
+                        <h4>What happens next?</h4>
+                        <ul>
+                            <li>Your wallet address becomes the domain administrator</li>
+                            <li>You can activate service modules</li>
+                            <li>Users visiting your domain get automatic wallet creation</li>
+                        </ul>
+
+                        <h4>Security</h4>
+                        <p>DNS verification ensures only the domain owner can claim it. Your admin address is stored securely in the domain configuration.</p>
+                    </div>
+                </section>
+            </nav>
+        </aside>
+    </main>
+
+    <footer>
+        <div class="container">
+            <div class="footer-bottom">
+                <p>&copy; 2025 Rootz Corp. Open source under MIT License.</p>
+                <div class="footer-links">
+                    <span>|</span>
+                    <a href="https://github.com/epistery/host" target="_blank">GitHub</a>
+                    <span>|</span>
+                    <a href="https://epistery.com">Epistery</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script type="module">
+        const PROVIDER_CONFIGS = {
+            'polygon-mainnet': {
+                name: 'Polygon Mainnet',
+                chainId: 137,
+                rpc: 'https://polygon-rpc.com',
+                nativeCurrencyName: 'POL',
+                nativeCurrencySymbol: 'POL',
+                nativeCurrencyDecimals: 18
+            },
+            'ethereum-mainnet': {
+                name: 'Ethereum Mainnet',
+                chainId: 1,
+                rpc: 'https://eth.llamarpc.com',
+                nativeCurrencySymbol: 'ETH',
+                nativeCurrencyName: 'Ether',
+                nativeCurrencyDecimals: 18
+            },
+            'japan-open-chain': {
+                name: 'Japan Open Chain',
+                chainId: 81,
+                rpc: 'https://rpc-2.japanopenchain.org:8545',
+                nativeCurrencyName: 'JOC',
+                nativeCurrencySymbol: 'JOC',
+                nativeCurrencyDecimals: 18
+            },
+            'polygon-amoy': {
+                name: 'Polygon Amoy Testnet',
+                chainId: 80002,
+                rpc: 'https://rpc-amoy.polygon.technology',
+                nativeCurrencySymbol: 'POL',
+                nativeCurrencyName: 'Polygon',
+                nativeCurrencyDecimals: 18
+            },
+            'sepolia-testnet': {
+                name: 'Sepolia',
+                chainId: 11155111,
+                rpc: 'https://eth-sepolia.g.alchemy.com/v2/NJPpVUeD8bVFjn_5fZcG3',
+                nativeCurrencySymbol: 'ETH',
+                nativeCurrencyName: 'Ether',
+                nativeCurrencyDecimals: 18
+            }
+        };
+
+        let connectedWallet = null;
+        let challengeToken = null;
+        let currentStep = 1;
+
+        // Provider selection handler
+        document.getElementById('provider-select').addEventListener('change', (e) => {
+            const customFields = document.getElementById('custom-fields');
+            if (e.target.value === 'custom') {
+                customFields.classList.add('active');
+            } else {
+                customFields.classList.remove('active');
+            }
+        });
+
+        // Connect wallet
+        document.getElementById('connect-btn').addEventListener('click', async () => {
+            const btn = document.getElementById('connect-btn');
+            btn.disabled = true;
+            btn.textContent = 'Connecting...';
+
+            try {
+                const providerValue = document.getElementById('provider-select').value;
+                let providerConfig = PROVIDER_CONFIGS[providerValue];
+
+                if (providerValue === 'custom') {
+                    const name = document.getElementById('custom-name').value;
+                    const chainId = document.getElementById('custom-chain-id').value;
+                    const rpc = document.getElementById('custom-rpc').value;
+
+                    if (!name || !chainId || !rpc) {
+                        throw new Error('Please fill in all custom network fields');
+                    }
+
+                    providerConfig = {
+                        name,
+                        chainId: parseInt(chainId),
+                        rpc
+                    };
+                }
+
+                // Initialize domain
+                try {
+                    const initResponse = await fetch('/.well-known/epistery/domain/initialize', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ provider: providerConfig })
+                    });
+
+                    if (!initResponse.ok) {
+                        const errorData = await initResponse.json();
+                        if (!errorData.error?.includes('already initialized')) {
+                            throw new Error(`Failed to initialize domain: ${errorData.error || 'Unknown error'}`);
+                        }
+                    }
+                } catch (initError) {
+                    console.warn('Domain initialization warning:', initError);
+                }
+
+                // Connect to wallet
+                const WitnessModule = await import('/.well-known/epistery/lib/witness.js');
+                const Witness = WitnessModule.default;
+                window.epistery = await Witness.connect({ skipKeyExchange: true });
+
+                if (!window.epistery?.wallet?.address) {
+                    throw new Error('Connection successful but no wallet address available');
+                }
+
+                connectedWallet = window.epistery.wallet.address;
+                console.log('Connected wallet:', connectedWallet);
+
+                // Show step 2
+                document.getElementById('wallet-address').textContent = connectedWallet;
+                showStep(2);
+
+                btn.textContent = 'Connected';
+                btn.style.background = '#28a745';
+
+            } catch (error) {
+                console.error('Wallet connection failed:', error);
+                let errorMessage = 'Failed to connect wallet';
+                if (error.message.includes('User rejected')) {
+                    errorMessage = 'Wallet connection was cancelled';
+                } else if (error.message.includes('No provider')) {
+                    errorMessage = 'No wallet found. Please install a Web3 wallet like MetaMask';
+                } else if (error.message) {
+                    errorMessage = error.message;
+                }
+                alert(errorMessage);
+
+                btn.disabled = false;
+                btn.textContent = 'Connect Wallet';
+                btn.style.background = '';
+            }
+        });
+
+        // Generate challenge
+        document.getElementById('generate-btn').addEventListener('click', async () => {
+            try {
+                const providerValue = document.getElementById('provider-select').value;
+                let providerConfig = PROVIDER_CONFIGS[providerValue];
+
+                if (providerValue === 'custom') {
+                    providerConfig = {
+                        name: document.getElementById('custom-name').value,
+                        chainId: parseInt(document.getElementById('custom-chain-id').value),
+                        rpc: document.getElementById('custom-rpc').value
+                    };
+                }
+
+                const response = await fetch('/account/claim', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        provider: providerConfig,
+                        clientAddress: connectedWallet
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to generate challenge');
+                }
+
+                challengeToken = await response.text();
+
+                // Show step 3
+                document.getElementById('address').textContent = connectedWallet;
+                document.getElementById('challenge-token').textContent = challengeToken;
+                showStep(3);
+
+            } catch (error) {
+                console.error('Challenge generation failed:', error);
+                alert('Failed to generate challenge: ' + error.message);
+            }
+        });
+
+        // Copy challenge token
+        document.getElementById('copy-btn').addEventListener('click', () => {
+            navigator.clipboard.writeText(challengeToken);
+            const btn = document.getElementById('copy-btn');
+            const originalText = btn.textContent;
+            btn.textContent = 'Copied!';
+            setTimeout(() => {
+                btn.textContent = originalText;
+            }, 2000);
+        });
+
+        // Verify domain
+        document.getElementById('verify-btn').addEventListener('click', async () => {
+            try {
+                if (!connectedWallet) {
+                    alert('Please connect your wallet first');
+                    return;
+                }
+
+                const response = await fetch(`/claim?address=${encodeURIComponent(connectedWallet)}`);
+                const result = await response.json();
+
+                if (result.status === 'success') {
+                    alert('Domain claimed successfully! Reloading...');
+                    location.reload();
+                } else {
+                    alert('Verification failed: ' + result.message);
+                }
+            } catch (error) {
+                alert('Verification error: ' + error.message);
+            }
+        });
+
+        function showStep(step) {
+            document.querySelectorAll('.claim-step').forEach(el => el.classList.remove('active'));
+            document.getElementById(`step-${step}`).classList.add('active');
+            currentStep = step;
+        }
+
+        // Check for existing challenge on load
+        async function checkExistingChallenge() {
+            try {
+                const response = await fetch('/account/claim');
+                const existingChallenge = await response.text();
+                if (existingChallenge && existingChallenge !== 'null') {
+                    challengeToken = existingChallenge;
+                    console.log('Restored existing challenge token');
+                }
+            } catch (error) {
+                console.log('No existing claim state found');
+            }
+        }
+
+        checkExistingChallenge();
+    </script>
+</body>
+</html>

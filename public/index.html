@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Epistery Host - {DOMAIN}</title>
+    <link rel="stylesheet" href="/style/static.css">
+</head>
+<body>
+    <header>
+        <nav class="container">
+            <a href="/" class="logo">
+                <span class="logo-text">Epistery Host</span>
+            </a>
+        </nav>
+    </header>
+
+    <main class="console-layout">
+        <div class="console-main">
+            <div class="console-header">
+                <h1>{DOMAIN}</h1>
+                <p class="console-tagline">Epistery agent services for this domain</p>
+            </div>
+
+            <!-- Server Status Panel -->
+            <section class="console-panel">
+                <div class="panel-header-row">
+                    <h2>Server Status</h2>
+                    <button id="admin-button" class="console-btn panel-header-btn">Administrate</button>
+                </div>
+                <div class="status-row">
+                    <span class="status-label">Domain:</span>
+                    <span class="status-value">{DOMAIN}</span>
+                </div>
+                <div class="status-row">
+                    <span class="status-label">Server Wallet:</span>
+                    <span class="status-value mono">{SERVER_WALLET}</span>
+                </div>
+                <div class="status-row">
+                    <span class="status-label">Status:</span>
+                    <span class="status-value">Active</span>
+                </div>
+            </section>
+
+            <!-- Browser Status Panel -->
+            <section class="console-panel">
+                <div class="panel-header-row">
+                    <h2>Browser Status</h2>
+                    <button id="browser-wallet-button" class="console-btn panel-header-btn">Browser Wallet</button>
+                </div>
+                <div class="status-info">
+                    <p><strong>Browser Wallet:</strong> Manage your domain-specific identity and data wallet</p>
+                    <p><strong>Administration:</strong> Available to authorized addresses only</p>
+                </div>
+            </section>
+
+            <!-- Active Modules Panel -->
+            <section class="console-panel">
+                <h2>Active Modules</h2>
+                <div id="modules-container">
+                    <div class="status-info">
+                        <p>No modules currently active. Modules can be activated through the administration interface.</p>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <aside class="console-sidebar">
+            <nav class="sidebar-nav">
+                <section class="sidebar-section">
+                    <h3 class="sidebar-heading">About This Host</h3>
+                    <div class="sidebar-content">
+                        <p>This is an Epistery Host providing agent services for <strong>{DOMAIN}</strong>.</p>
+
+                        <h4>What is this?</h4>
+                        <p>The Epistery Host implements a plugin model that launches chosen modules to add routes and wield the domain key.</p>
+
+                        <h4>Available Modules</h4>
+                        <ul>
+                            <li><strong>Secrets Manager</strong> - Secure credential storage</li>
+                            <li><strong>Auth Manager</strong> - Identity and access control</li>
+                            <li><strong>Advertising Network</strong> - Ad contract management</li>
+                            <li><strong>Domain Credits</strong> - Usage tracking and billing</li>
+                        </ul>
+
+                        <h4>For Developers</h4>
+                        <p>Learn more about Epistery and how to integrate with this host.</p>
+                        <a href="https://epistery.com" class="sidebar-link">Epistery Documentation →</a>
+                    </div>
+                </section>
+            </nav>
+        </aside>
+    </main>
+
+    <footer>
+        <div class="container">
+            <div class="footer-bottom">
+                <p>&copy; 2025 Rootz Corp. Open source under MIT License.</p>
+                <div class="footer-links">
+                    <span>|</span>
+                    <a href="https://github.com/epistery/host" target="_blank">GitHub</a>
+                    <span>|</span>
+                    <a href="https://epistery.com">Epistery</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script type="module">
+        // Check if user is whitelisted for admin access
+        async function checkAdminAccess() {
+            try {
+                // Try to load epistery witness
+                const WitnessModule = await import('/.well-known/epistery/lib/witness.js');
+                const Witness = WitnessModule.default;
+                const witness = await Witness.connect();
+                const status = witness.getStatus();
+
+                // Check if user address is whitelisted (this will be a server API call)
+                const response = await fetch('/api/check-admin', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ address: status.client.address })
+                });
+
+                const data = await response.json();
+                if (data.isAdmin) {
+                    document.getElementById('admin-button').style.display = 'inline-block';
+                }
+            } catch (error) {
+                console.log('Admin check not available:', error.message);
+            }
+        }
+
+        // Button handlers
+        document.getElementById('browser-wallet-button')?.addEventListener('click', () => {
+            window.location.href = '/.well-known/epistery/status';
+        });
+
+        document.getElementById('admin-button')?.addEventListener('click', () => {
+            window.location.href = '/admin';
+        });
+
+        // Check admin access on load
+        checkAdminAccess();
+    </script>
+</body>
+</html>
