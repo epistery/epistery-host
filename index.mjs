@@ -6,7 +6,8 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { readFileSync } from 'fs';
-import { Certify, MultiSite } from '@metric-im/administrate';
+import { Certify } from '@metric-im/administrate';
+// MultiSite will be used later to spawn plugin modules (adnet, secrets, auth, etc.)
 import { Epistery, Config } from 'epistery';
 import { createAuthRouter } from './authentication.mjs';
 
@@ -14,7 +15,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 let isShuttingDown = false;
-let app, https_server, http_server, multiSite, config;
+let app, https_server, http_server, config;
 
 let main = async function() {
     app = express();
@@ -79,7 +80,9 @@ let main = async function() {
     const http_port = parseInt(process.env.PORT || 4080);
     const https_port = parseInt(process.env.PORTSSL || 4443);
     const certify = await Certify.attach(app);
-    multiSite = await MultiSite.attach(app);
+
+    // TODO: MultiSite will be attached here later to spawn plugin modules
+
     https_server = https.createServer({...certify.SNI},app);
     https_server.listen(https_port);
     https_server.on('error', console.error);
@@ -114,11 +117,7 @@ const gracefulShutdown = async (signal) => {
             console.log('HTTP server closed');
         }
 
-        // Cleanup spawned processes
-        if (multiSite) {
-            await multiSite.cleanup();
-            console.log('MultiSite cleanup complete');
-        }
+        // TODO: Cleanup spawned plugin modules when MultiSite is implemented
 
         console.log('Graceful shutdown complete');
         process.exit(0);
