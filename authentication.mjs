@@ -83,6 +83,7 @@ export function createAuthRouter() {
             const normalizedClientAddress = clientAddress.toLowerCase();
 
             console.log(`[debug] Domain claim initiated: ${domain} by ${normalizedClientAddress} from ${req.ip}`);
+            console.log(`[debug] Provider config received:`, JSON.stringify(providerConfig, null, 2));
 
             // Save to domain config
             config.data.pending = true;
@@ -93,7 +94,12 @@ export function createAuthRouter() {
             config.data.provider = providerConfig;
 
             console.log(`[debug] Saving challenge for domain: ${domain}`);
+            console.log(`[debug] Config data before save:`, JSON.stringify({
+                provider: config.data.provider,
+                pending: config.data.pending
+            }, null, 2));
             config.save();
+            console.log(`[debug] Config saved successfully`);
 
             res.send(challengeToken);
 

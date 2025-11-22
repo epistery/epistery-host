@@ -284,7 +284,8 @@
                     };
                 }
 
-                // Initialize domain
+                // Initialize domain with selected provider
+                console.log('[claim] Initializing domain with provider:', providerConfig);
                 try {
                     const initResponse = await fetch('/.well-known/epistery/domain/initialize', {
                         method: 'POST',
@@ -294,12 +295,13 @@
 
                     if (!initResponse.ok) {
                         const errorData = await initResponse.json();
+                        console.warn('[claim] Domain initialization response:', errorData);
                         if (!errorData.error?.includes('already initialized')) {
                             throw new Error(`Failed to initialize domain: ${errorData.error || 'Unknown error'}`);
                         }
                     }
                 } catch (initError) {
-                    console.warn('Domain initialization warning:', initError);
+                    console.warn('[claim] Domain initialization warning:', initError);
                 }
 
                 // Connect to wallet
@@ -353,6 +355,7 @@
                     };
                 }
 
+                console.log('[claim] Generating challenge with provider:', providerConfig);
                 const response = await fetch('/account/claim', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
