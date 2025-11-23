@@ -8,12 +8,15 @@ import express from 'express';
  *
  * Agent modules are located in ~/.epistery/.agents/
  * Each agent has an epistery.json manifest describing its capabilities
- * Agents are automatically namespaced under /.well-known/epistery/agent/{agentName}/*
+ * Agents are automatically namespaced under:
+ *   - /.well-known/epistery/agent/{name}/*
+ *   - /agent/{name}/*
+ * where {name} is derived from the npm package name with @ removed
+ * (e.g., "@geistm/adnet-agent" → "geistm/adnet-agent")
  *
  * Manifest fields:
- * - name: npm package name (e.g., "@geistm/adnet-agent")
+ * - name: npm package name (e.g., "@geistm/adnet-agent") - used for routing
  * - version: semantic version
- * - agentName: short name for routing (e.g., "adnet")
  * - main: entry point file (e.g., "index.mjs")
  * - command: shell command to start agent (defaults to "npm start")
  * - config: configuration passed to agent constructor
@@ -23,7 +26,6 @@ export class AgentManager {
     constructor(agentsPath) {
         this.agentsPath = agentsPath;
         this.agents = new Map();
-        this.baseRoute = '/.well-known/epistery/agent';
     }
 
     /**
@@ -96,10 +98,13 @@ export class AgentManager {
     async loadAgent(agentInfo, app) {
         const { name, manifest, entryPath } = agentInfo;
 
-        if (!manifest.agentName) {
-            console.error(`Agent ${name} missing agentName in epistery.json, skipping`);
+        if (!manifest.name) {
+            console.error(`Agent ${name} missing name in epistery.json, skipping`);
             return;
         }
+
+        // Derive route path from npm package name (remove @ for URL safety)
+        const routeName = manifest.name.replace(/^@/, '');
 
         // Import the agent module
         const moduleUrl = pathToFileURL(entryPath).href;
@@ -110,24 +115,31 @@ export class AgentManager {
 
         // Create a namespaced router for this agent
         const agentRouter = express.Router();
-        const agentBasePath = `${this.baseRoute}/${manifest.agentName}`;
 
         // Attach agent to its namespaced router
         if (typeof agentInstance.attach === 'function') {
             agentInstance.attach(agentRouter);
-            console.log(`Agent ${manifest.name} attached to ${agentBasePath}/*`);
         } else {
             console.warn(`Agent ${name} has no attach() method`);
         }
 
-        // Mount the agent's router at its namespaced path
-        app.use(agentBasePath, agentRouter);
+        // Mount the agent's router at both paths
+        const wellKnownPath = `/.well-known/epistery/agent/${routeName}`;
+        const shortPath = `/agent/${routeName}`;
+
+        app.use(wellKnownPath, agentRouter);
+        app.use(shortPath, agentRouter);
+
+        console.log(`Agent ${manifest.name} v${manifest.version} mounted at:`);
+        console.log(`  - ${wellKnownPath}/*`);
+        console.log(`  - ${shortPath}/*`);
 
         // Store reference
         this.agents.set(name, {
             manifest,
             instance: agentInstance,
-            basePath: agentBasePath
+            wellKnownPath,
+            shortPath
         });
     }
 
