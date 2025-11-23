@@ -29,6 +29,12 @@ let main = async function() {
     app.use(express.json({limit: '50mb'}));
     app.use(cookieParser());
 
+    // Alias /lib/* to /.well-known/epistery/lib/*
+    app.use('/lib', (req, res, next) => {
+        req.url = '/.well-known/epistery/lib' + req.url;
+        next();
+    });
+
     const epistery = await Epistery.connect();
     await epistery.attach(app);
 
@@ -38,6 +44,26 @@ let main = async function() {
 
     app.get('/health', (req, res) => {
         res.status(200).send()
+    });
+
+    // API endpoint to list active agents
+    app.get('/api/agents', (req, res) => {
+        if (!agentManager) {
+            return res.json({ agents: [] });
+        }
+
+        const agents = [];
+        for (const [, agentData] of agentManager.agents) {
+            agents.push({
+                name: agentData.manifest.name,
+                version: agentData.manifest.version,
+                description: agentData.manifest.description,
+                wellKnownPath: agentData.wellKnownPath,
+                shortPath: agentData.shortPath
+            });
+        }
+
+        res.json({ agents });
     });
 
     app.get('/agent', (req,res) => {
@@ -60,11 +86,13 @@ let main = async function() {
             }
 
             // Domain is claimed - show regular status page
-            const wallet = cfg.wallet || { address: 'Not configured' };
+            const wallet = cfg.data.wallet || {};
+            const walletAddress = wallet.address || 'Not configured';
+
             const template = readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
             const html = template
                 .replace(/{DOMAIN}/g, domain)
-                .replace(/{SERVER_WALLET}/g, wallet.address);
+                .replace(/{SERVER_WALLET}/g, walletAddress);
 
             res.send(html);
         } catch (error) {

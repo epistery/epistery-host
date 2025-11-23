@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Epistery Host - {DOMAIN}</title>
     <link rel="stylesheet" href="/style/static.css">
+    <style>
+        .agent-name {
+            white-space: nowrap;
+        }
+    </style>
 </head>
 <body>
     <header>
@@ -48,18 +53,21 @@
                     <h2>Browser Status</h2>
                     <button id="browser-wallet-button" class="console-btn panel-header-btn">Browser Wallet</button>
                 </div>
-                <div class="status-info">
-                    <p><strong>Browser Wallet:</strong> Manage your domain-specific identity and data wallet</p>
-                    <p><strong>Administration:</strong> Available to authorized addresses only</p>
+                <div class="status-row">
+                    <span class="status-label">Client Wallet:</span>
+                    <span class="status-value mono" id="client-wallet">Loading...</span>
+                </div>
+                <div class="status-info" id="owner-notice" style="display: none;">
+                    <p><strong>✓ Domain Owner</strong> - This address is authorized to administrate this domain</p>
                 </div>
             </section>
 
-            <!-- Active Modules Panel -->
+            <!-- Active Agents Panel -->
             <section class="console-panel">
-                <h2>Active Modules</h2>
-                <div id="modules-container">
+                <h2>Active Agents</h2>
+                <div id="agents-container">
                     <div class="status-info">
-                        <p>No modules currently active. Modules can be activated through the administration interface.</p>
+                        <p>Loading agents...</p>
                     </div>
                 </div>
             </section>
@@ -116,19 +124,25 @@
                 const witness = await Witness.connect();
                 const status = witness.getStatus();
 
+                // Display client wallet
+                const clientWallet = status.client.address;
+                document.getElementById('client-wallet').textContent = clientWallet;
+
                 // Check if user address is whitelisted (this will be a server API call)
                 const response = await fetch('/api/check-admin', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ address: status.client.address })
+                    body: JSON.stringify({ address: clientWallet })
                 });
 
                 const data = await response.json();
                 if (data.isAdmin) {
                     document.getElementById('admin-button').style.display = 'inline-block';
+                    document.getElementById('owner-notice').style.display = 'block';
                 }
             } catch (error) {
                 console.log('Admin check not available:', error.message);
+                document.getElementById('client-wallet').textContent = 'Not connected';
             }
         }
 
@@ -141,8 +155,46 @@
             window.location.href = '/admin';
         });
 
+        // Load and display active agents
+        async function loadAgents() {
+            try {
+                const response = await fetch('/api/agents');
+                const data = await response.json();
+                const container = document.getElementById('agents-container');
+
+                if (!data.agents || data.agents.length === 0) {
+                    container.innerHTML = '<div class="status-info"><p>No agents currently active.</p></div>';
+                    return;
+                }
+
+                let html = '';
+                for (const agent of data.agents) {
+                    html += `
+                        <div style="padding: var(--spacerhalf) 0; border-bottom: 1px solid var(--page-border);">
+                            <div style="margin-bottom: var(--spacerhalf);">
+                                <span class="status-label" style="white-space: nowrap;">${agent.name}</span>
+                                <span class="status-value">v${agent.version}</span>
+                            </div>
+                            <div class="status-info">
+                                <p>${agent.description}</p>
+                                <p><small>
+                                    <a href="${agent.shortPath}/status" target="_blank">${agent.shortPath}/*</a>
+                                </small></p>
+                            </div>
+                        </div>
+                    `;
+                }
+                container.innerHTML = html;
+            } catch (error) {
+                console.error('Failed to load agents:', error);
+                document.getElementById('agents-container').innerHTML =
+                    '<div class="status-info"><p>Failed to load agent information.</p></div>';
+            }
+        }
+
         // Check admin access on load
         checkAdminAccess();
+        loadAgents();
     </script>
 </body>
 </html>
