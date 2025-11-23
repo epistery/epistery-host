@@ -7,15 +7,15 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { readFileSync } from 'fs';
 import { Certify } from '@metric-im/administrate';
-// MultiSite will be used later to spawn plugin modules (adnet, secrets, auth, etc.)
 import { Epistery, Config } from 'epistery';
 import { createAuthRouter } from './authentication.mjs';
+import { AgentManager } from './AgentManager.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 let isShuttingDown = false;
-let app, https_server, http_server, config;
+let app, https_server, http_server, config, agentManager;
 
 let main = async function() {
     app = express();
@@ -82,7 +82,10 @@ let main = async function() {
     const https_port = parseInt(process.env.PORTSSL || 4443);
     const certify = await Certify.attach(app);
 
-    // TODO: MultiSite will be attached here later to spawn plugin modules
+    // Load and attach agent modules from ~/.epistery/.agents
+    const agentsPath = path.join(config.configDir, '.agents');
+    agentManager = new AgentManager(agentsPath);
+    await agentManager.loadAll(app);
 
     https_server = https.createServer({...certify.SNI},app);
     https_server.listen(https_port);
@@ -138,7 +141,11 @@ const gracefulShutdown = async (signal) => {
         await closeServer(https_server, 'HTTPS');
         await closeServer(http_server, 'HTTP');
 
-        // TODO: Cleanup spawned plugin modules when MultiSite is implemented
+        // Cleanup agent modules
+        if (agentManager) {
+            await agentManager.cleanup();
+            console.log('Agent modules cleaned up');
+        }
 
         clearTimeout(forceExitTimer);
         console.log('Graceful shutdown complete');
