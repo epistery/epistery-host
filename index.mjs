@@ -30,8 +30,11 @@ let main = async function() {
     app.use(cookieParser());
 
     // Alias /lib/* to /.well-known/epistery/lib/*
-    app.use('/lib', (req, res, next) => {
-        req.url = '/.well-known/epistery/lib' + req.url;
+    app.use((req, res, next) => {
+        if (req.path.startsWith('/lib/')) {
+            console.log('ALIAS: Rewriting', req.url, 'to', req.url.replace(/^\/lib\//, '/.well-known/epistery/lib/'));
+            req.url = req.url.replace(/^\/lib\//, '/.well-known/epistery/lib/');
+        }
         next();
     });
 
