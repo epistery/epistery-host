@@ -29,18 +29,6 @@ let main = async function() {
     app.use(express.json({limit: '50mb'}));
     app.use(cookieParser());
 
-    // Alias /lib/* to /.well-known/epistery/lib/*
-    app.use((req, res, next) => {
-        if (req.path.startsWith('/lib/')) {
-            console.log('ALIAS: Rewriting', req.url, 'to', req.url.replace(/^\/lib\//, '/.well-known/epistery/lib/'));
-            req.url = req.url.replace(/^\/lib\//, '/.well-known/epistery/lib/');
-        }
-        next();
-    });
-
-    const epistery = await Epistery.connect();
-    await epistery.attach(app);
-
     // Mount authentication routes
     const authRouter = createAuthRouter();
     app.use(authRouter);
@@ -69,17 +57,49 @@ let main = async function() {
         res.json({ agents });
     });
 
-    app.get('/agent', (req,res) => {
-        res.redirect('/.well-known/epistery/lib/client.js');
-    });
+    // Build status JSON - shared by both HTML and API responses
+    function buildStatus(domain, cfg) {
+        const wallet = cfg.data?.wallet || {};
+        const provider = cfg.data?.provider || {};
 
-    // Main status page
+        return {
+            server: {
+                walletAddress: wallet.address || null,
+                publicKey: wallet.publicKey || null,
+                provider: provider.name || 'Polygon Mainnet',
+                chainId: provider.chainId?.toString() || '137',
+                rpc: provider.rpc || 'https://polygon-rpc.com',
+                nativeCurrency: {
+                    symbol: provider.nativeCurrency?.symbol || 'POL',
+                    name: provider.nativeCurrency?.name || 'POL',
+                    decimals: provider.nativeCurrency?.decimals || 18
+                }
+            },
+            client: {},
+            ipfs: {
+                url: process.env.IPFS_URL || 'https://rootz.digital/api/v0'
+            },
+            timestamp: new Date().toISOString()
+        };
+    }
+
+    // Main status page - returns HTML or JSON based on Accept header
     app.get('/', async (req, res) => {
         try {
             const domain = req.hostname || 'localhost';
             const cfg = new Config();
             cfg.setPath(domain);
 
+            // Check if client wants JSON (API request)
+            const acceptsJson = req.accepts('json') && !req.accepts('html');
+
+            if (acceptsJson) {
+                // Return JSON status
+                const status = buildStatus(domain, cfg);
+                return res.json(status);
+            }
+
+            // Return HTML for browsers
             // Check if domain is claimed/verified
             if (!cfg.data || !cfg.data.verified) {
                 // Domain not claimed - show claim page
@@ -104,9 +124,37 @@ let main = async function() {
         }
     });
 
+    // Alias for /.well-known/epistery - same behavior as /
+    app.get('/.well-known/epistery', async (req, res) => {
+        try {
+            const domain = req.hostname || 'localhost';
+            const cfg = new Config();
+            cfg.setPath(domain);
+
+            // Check if client wants JSON (API request)
+            const acceptsJson = req.accepts('json') && !req.accepts('html');
+
+            if (acceptsJson) {
+                // Return JSON status
+                const status = buildStatus(domain, cfg);
+                return res.json(status);
+            }
+
+            // Return HTML - redirect to main page
+            res.redirect('/');
+        } catch (error) {
+            console.error('Error serving /.well-known/epistery:', error);
+            res.status(500).send('Error loading page');
+        }
+    });
+
     // Static files (after specific routes)
     app.use('/style', express.static(path.join(__dirname, 'public/style')));
     app.use('/image', express.static(path.join(__dirname, 'public/image')));
+
+    // Now, Attach epistery to root
+    const epistery = await Epistery.connect();
+    await epistery.attach(app,'/');
 
     config = new Config();
     const http_port = parseInt(process.env.PORT || 4080);

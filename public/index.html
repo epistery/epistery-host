@@ -119,7 +119,7 @@
         async function checkAdminAccess() {
             try {
                 // Try to load epistery witness
-                const WitnessModule = await import('/.well-known/epistery/lib/witness.js');
+                const WitnessModule = await import('/lib/witness.js');
                 const Witness = WitnessModule.default;
                 const witness = await Witness.connect();
                 const status = witness.getStatus();
@@ -148,7 +148,7 @@
 
         // Button handlers
         document.getElementById('browser-wallet-button')?.addEventListener('click', () => {
-            window.location.href = '/.well-known/epistery/status';
+            window.location.href = '/status';
         });
 
         document.getElementById('admin-button')?.addEventListener('click', () => {

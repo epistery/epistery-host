@@ -126,7 +126,7 @@
                 </div>
 
                 <div class="status-info">
-                    <p>You can change your wallet by visiting <a href="/.well-known/epistery/status">/.well-known/epistery/status</a></p>
+                    <p>You can change your wallet by visiting <a href="/status">/status</a></p>
                 </div>
 
                 <div class="panel-actions">
@@ -287,7 +287,7 @@
                 // Initialize domain with selected provider
                 console.log('[claim] Initializing domain with provider:', providerConfig);
                 try {
-                    const initResponse = await fetch('/.well-known/epistery/domain/initialize', {
+                    const initResponse = await fetch('/domain/initialize', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ provider: providerConfig })
@@ -305,7 +305,7 @@
                 }
 
                 // Connect to wallet
-                const WitnessModule = await import('/.well-known/epistery/lib/witness.js');
+                const WitnessModule = await import('/lib/witness.js');
                 const Witness = WitnessModule.default;
                 window.epistery = await Witness.connect({ skipKeyExchange: true });
 
@@ -436,7 +436,7 @@
 
                     // Try to connect wallet silently
                     try {
-                        const WitnessModule = await import('/.well-known/epistery/lib/witness.js');
+                        const WitnessModule = await import('/lib/witness.js');
                         const Witness = WitnessModule.default;
                         window.epistery = await Witness.connect({ skipKeyExchange: true });
 
