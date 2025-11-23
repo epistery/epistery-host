@@ -9,6 +9,15 @@ import express from 'express';
  * Agent modules are located in ~/.epistery/.agents/
  * Each agent has an epistery.json manifest describing its capabilities
  * Agents are automatically namespaced under /.well-known/epistery/agent/{agentName}/*
+ *
+ * Manifest fields:
+ * - name: npm package name (e.g., "@geistm/adnet-agent")
+ * - version: semantic version
+ * - agentName: short name for routing (e.g., "adnet")
+ * - main: entry point file (e.g., "index.mjs")
+ * - command: shell command to start agent (defaults to "npm start")
+ * - config: configuration passed to agent constructor
+ * - permissions: array of epistery permissions required
  */
 export class AgentManager {
     constructor(agentsPath) {
