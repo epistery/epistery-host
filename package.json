@@ -26,7 +26,7 @@
     "@metric-im/administrate": "^1.1.9",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
-    "epistery": "^1.1.4",
+    "epistery": "file:../../rootz/epistery",
     "express": "^5.1.0"
   }
 }
