@@ -49,6 +49,7 @@ let main = async function() {
                 name: agentData.manifest.name,
                 version: agentData.manifest.version,
                 description: agentData.manifest.description,
+                icon: agentData.manifest.icon || null,
                 wellKnownPath: agentData.wellKnownPath,
                 shortPath: agentData.shortPath
             });

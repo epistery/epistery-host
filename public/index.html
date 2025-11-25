@@ -169,11 +169,15 @@
 
                 let html = '';
                 for (const agent of data.agents) {
+                    const iconHtml = agent.icon
+                        ? `<img src="${agent.icon}" alt="" style="width: 24px; height: 24px; object-fit: contain; margin-right: 8px; vertical-align: middle;">`
+                        : '';
                     html += `
                         <div style="padding: var(--spacerhalf) 0; border-bottom: 1px solid var(--page-border);">
-                            <div style="margin-bottom: var(--spacerhalf);">
+                            <div style="margin-bottom: var(--spacerhalf); display: flex; align-items: center;">
+                                ${iconHtml}
                                 <span class="status-label" style="white-space: nowrap;">${agent.name}</span>
-                                <span class="status-value">v${agent.version}</span>
+                                <span class="status-value" style="margin-left: 8px;">v${agent.version}</span>
                             </div>
                             <div class="status-info">
                                 <p>${agent.description}</p>
