@@ -124,37 +124,17 @@ let main = async function() {
         }
     });
 
-    // Alias for /.well-known/epistery - same behavior as /
-    app.get('/.well-known/epistery', async (req, res) => {
-        try {
-            const domain = req.hostname || 'localhost';
-            const cfg = new Config();
-            cfg.setPath(domain);
-
-            // Check if client wants JSON (API request)
-            const acceptsJson = req.accepts('json') && !req.accepts('html');
-
-            if (acceptsJson) {
-                // Return JSON status
-                const status = buildStatus(domain, cfg);
-                return res.json(status);
-            }
-
-            // Return HTML - redirect to main page
-            res.redirect('/');
-        } catch (error) {
-            console.error('Error serving /.well-known/epistery:', error);
-            res.status(500).send('Error loading page');
-        }
-    });
-
     // Static files (after specific routes)
     app.use('/style', express.static(path.join(__dirname, 'public/style')));
     app.use('/image', express.static(path.join(__dirname, 'public/image')));
 
-    // Now, Attach epistery to root
+    // Attach epistery at both root and well-known paths
     const epistery = await Epistery.connect();
     await epistery.attach(app,'/');
+
+    // Also mount at RFC 8615 well-known path
+    const episteryWellKnown = await Epistery.connect();
+    await episteryWellKnown.attach(app,'/.well-known/epistery');
 
     config = new Config();
     const http_port = parseInt(process.env.PORT || 4080);
