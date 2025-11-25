@@ -128,13 +128,13 @@ let main = async function() {
     app.use('/style', express.static(path.join(__dirname, 'public/style')));
     app.use('/image', express.static(path.join(__dirname, 'public/image')));
 
-    // Attach epistery at both root and well-known paths
+    // Attach epistery at root
     const epistery = await Epistery.connect();
     await epistery.attach(app,'/');
 
-    // Also mount at RFC 8615 well-known path
-    const episteryWellKnown = await Epistery.connect();
-    await episteryWellKnown.attach(app,'/.well-known/epistery');
+    // Also mount the same routes at RFC 8615 well-known path
+    // Note: We reuse the routes() to avoid duplicate middleware
+    app.use('/.well-known/epistery', epistery.routes());
 
     config = new Config();
     const http_port = parseInt(process.env.PORT || 4080);
