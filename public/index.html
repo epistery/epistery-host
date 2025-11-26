@@ -172,6 +172,16 @@
                     const iconHtml = agent.icon
                         ? `<img src="${agent.icon}" alt="" style="width: 24px; height: 24px; object-fit: contain; margin-right: 8px; vertical-align: middle;">`
                         : '';
+
+                    const widgetHtml = agent.widget
+                        ? `<iframe src="${agent.widget}" style="width: 100%; border: none; margin-top: var(--spacerhalf); border-radius: 8px; min-height: 200px;" scrolling="no" onload="this.style.height = this.contentWindow.document.body.scrollHeight + 'px'"></iframe>`
+                        : `<div class="status-info">
+                               <p>${agent.description}</p>
+                               <p><small>
+                                   <a href="${agent.shortPath}/status" target="_blank">${agent.shortPath}/*</a>
+                               </small></p>
+                           </div>`;
+
                     html += `
                         <div style="padding: var(--spacerhalf) 0; border-bottom: 1px solid var(--page-border);">
                             <div style="margin-bottom: var(--spacerhalf); display: flex; align-items: center;">
@@ -179,12 +189,7 @@
                                 <span class="status-label" style="white-space: nowrap;">${agent.name}</span>
                                 <span class="status-value" style="margin-left: 8px;">v${agent.version}</span>
                             </div>
-                            <div class="status-info">
-                                <p>${agent.description}</p>
-                                <p><small>
-                                    <a href="${agent.shortPath}/status" target="_blank">${agent.shortPath}/*</a>
-                                </small></p>
-                            </div>
+                            ${widgetHtml}
                         </div>
                     `;
                 }

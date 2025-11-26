@@ -50,6 +50,7 @@ let main = async function() {
                 version: agentData.manifest.version,
                 description: agentData.manifest.description,
                 icon: agentData.manifest.icon || null,
+                widget: agentData.manifest.widget || null,
                 wellKnownPath: agentData.wellKnownPath,
                 shortPath: agentData.shortPath
             });
