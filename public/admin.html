@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Domain Administration - Epistery Host</title>
+    <link rel="stylesheet" href="/style/static.css">
+    <style>
+        .admin-section {
+            background: var(--panel-background);
+            border: 1px solid var(--page-border);
+            border-radius: 8px;
+            padding: var(--spacer);
+            margin-bottom: var(--spacer);
+        }
+        .whitelist-item {
+            display: grid;
+            grid-template-columns: 2fr 1fr auto auto;
+            gap: var(--spacerhalf);
+            align-items: center;
+            padding: var(--spacerhalf);
+            border-bottom: 1px solid var(--page-border);
+        }
+        .whitelist-item:last-child {
+            border-bottom: none;
+        }
+        .address-info {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .address-text {
+            font-family: monospace;
+            font-size: 14px;
+            word-break: break-all;
+        }
+        .name-input {
+            padding: 4px 8px;
+            border: 1px solid var(--page-border);
+            border-radius: 4px;
+            background: var(--page-background);
+            color: var(--page-text-primary);
+            font-size: 14px;
+        }
+        .admin-toggle {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .admin-toggle input[type="checkbox"] {
+            margin: 0;
+        }
+        .admin-toggle-label {
+            min-width: 45px;
+            display: inline-block;
+        }
+        .admin-badge {
+            background: #007bff;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .action-buttons {
+            display: flex;
+            gap: var(--spacerhalf);
+        }
+        .console-btn.small {
+            padding: 4px 12px;
+            font-size: 14px;
+        }
+        .console-btn.danger {
+            background: #dc3545;
+        }
+        .console-btn.danger:hover {
+            background: #c82333;
+        }
+        .add-address-form {
+            display: flex;
+            gap: var(--spacerhalf);
+            margin-top: var(--spacer);
+        }
+        .add-address-form input {
+            flex: 1;
+            padding: 8px 12px;
+            border: 1px solid var(--page-border);
+            border-radius: 4px;
+            background: var(--page-background);
+            color: var(--page-text-primary);
+            font-family: monospace;
+        }
+        .policy-selector {
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacerhalf);
+        }
+        .policy-option {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: var(--spacerhalf);
+            border: 1px solid var(--page-border);
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .policy-option:hover {
+            background: var(--panel-background);
+        }
+        .policy-option input[type="radio"] {
+            margin: 0;
+        }
+        .policy-description {
+            font-size: 14px;
+            color: var(--page-text-secondary);
+        }
+        .spinner {
+            border: 3px solid var(--page-border);
+            border-top-color: #007bff;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .info-box {
+            background: linear-gradient(135deg, rgba(74, 144, 226, 0.08) 0%, rgba(46, 92, 138, 0.12) 100%);
+            border: 1px solid rgba(74, 144, 226, 0.2);
+            border-radius: 6px;
+            padding: var(--spacer);
+            margin: var(--spacer) 0;
+        }
+        .error-box {
+            background: linear-gradient(135deg, rgba(220, 53, 69, 0.08) 0%, rgba(220, 53, 69, 0.12) 100%);
+            border: 1px solid rgba(220, 53, 69, 0.3);
+            border-radius: 6px;
+            padding: var(--spacer);
+            margin: var(--spacer) 0;
+        }
+        .icon-svg {
+            width: 16px;
+            height: 16px;
+            fill: currentColor;
+            vertical-align: middle;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <nav class="container">
+            <a href="/" class="logo">
+                <span class="logo-text">Epistery Host</span>
+            </a>
+        </nav>
+    </header>
+
+    <main class="console-layout no-sidebar">
+        <div class="console-main">
+            <div class="console-header">
+                <h1>Domain Administration</h1>
+                <p class="console-tagline">Manage whitelist and access policy for <span id="domain-name">...</span></p>
+            </div>
+
+            <div id="not-authorized" class="error-box" style="display: none;">
+                <h3>⚠️ Not Authorized</h3>
+                <p>Your wallet is not whitelisted as an admin for this domain.</p>
+                <button class="console-btn" onclick="window.location.href='/'">Return to Home</button>
+            </div>
+
+            <div id="admin-content" style="display: none;">
+                <!-- Access Policy Section -->
+                <section class="admin-section">
+                    <h2>Access Policy</h2>
+                    <p>Control who can access this domain's services</p>
+
+                    <div class="policy-selector">
+                        <label class="policy-option">
+                            <input type="radio" name="policy" value="public" checked>
+                            <div>
+                                <strong>Public</strong>
+                                <div class="policy-description">Anyone can access services without restrictions</div>
+                            </div>
+                        </label>
+
+                        <label class="policy-option">
+                            <input type="radio" name="policy" value="public-id">
+                            <div>
+                                <strong>Public with Identity</strong>
+                                <div class="policy-description">Requires identity verification but allows all verified users</div>
+                            </div>
+                        </label>
+
+                        <label class="policy-option">
+                            <input type="radio" name="policy" value="public-req">
+                            <div>
+                                <strong>Public with Request</strong>
+                                <div class="policy-description">Users can request access, admins must approve</div>
+                            </div>
+                        </label>
+
+                        <label class="policy-option">
+                            <input type="radio" name="policy" value="private">
+                            <div>
+                                <strong>Private</strong>
+                                <div class="policy-description">Only whitelisted addresses can access services</div>
+                            </div>
+                        </label>
+                    </div>
+
+                    <button class="console-btn" style="margin-top: var(--spacer);" onclick="savePolicy()">Save Policy</button>
+                </section>
+
+                <!-- Whitelist Management Section -->
+                <section class="admin-section">
+                    <h2>Whitelist Management</h2>
+                    <p>Manage addresses authorized to access this domain</p>
+
+                    <div id="whitelist-loading" style="display: block;">
+                        <div class="spinner"></div>
+                        <span>Loading whitelist...</span>
+                    </div>
+
+                    <div id="whitelist-error" class="error-box" style="display: none;">
+                        <p id="whitelist-error-text"></p>
+                    </div>
+
+                    <div id="whitelist-container" style="display: none;">
+                        <div id="whitelist-items"></div>
+
+                        <div class="add-address-form">
+                            <input type="text" id="new-address" placeholder="0x..." />
+                            <input type="text" id="new-name" placeholder="Name (optional)" style="flex: 1 0 200px;" />
+                            <label class="admin-toggle">
+                                <input type="checkbox" id="new-is-admin" checked onchange="updateNewAdminLabel(this)" />
+                                <span class="admin-toggle-label" id="new-admin-label">Admin</span>
+                            </label>
+                            <button class="console-btn" id="add-address-btn" onclick="addAddress()">Add Address</button>
+                        </div>
+                        <div id="add-progress" style="display: none; margin-top: var(--spacerhalf);">
+                            <div class="spinner"></div>
+                            <span id="add-progress-text">Adding address to whitelist...</span>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        <div class="container">
+            <div class="footer-bottom">
+                <p>&copy; 2025 Rootz Corp. Open source under MIT License.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script type="module">
+        let currentPolicy = 'public';
+        let whitelist = [];
+        let whitelistMetadata = {}; // {address: {name: string, isAdmin: boolean}}
+        let contractAddress = null;
+
+        async function checkAdminAccess() {
+            try {
+                // Get domain info
+                const statusResponse = await fetch('/', {
+                    headers: { 'Accept': 'application/json' }
+                });
+                const statusData = await statusResponse.json();
+
+                document.getElementById('domain-name').textContent = window.location.hostname;
+                contractAddress = statusData.server.contractAddress;
+
+                if (!contractAddress) {
+                    showNotAuthorized('Domain not initialized');
+                    return;
+                }
+
+                // Load epistery witness to get client wallet
+                const WitnessModule = await import('/lib/witness.js');
+                const Witness = WitnessModule.default;
+                const witness = await Witness.connect();
+                const status = witness.getStatus();
+                const clientAddress = status.client.address;
+
+                // Check if user is admin
+                const checkResponse = await fetch('/api/check-admin', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ address: clientAddress })
+                });
+
+                const checkData = await checkResponse.json();
+
+                if (!checkData.isAdmin) {
+                    showNotAuthorized();
+                    return;
+                }
+
+                // User is authorized, show admin content
+                document.getElementById('admin-content').style.display = 'block';
+                await loadWhitelist();
+                await loadPolicy();
+
+            } catch (error) {
+                console.error('Failed to check admin access:', error);
+                showNotAuthorized('Error checking authorization');
+            }
+        }
+
+        function showNotAuthorized(message = null) {
+            document.getElementById('not-authorized').style.display = 'block';
+            if (message) {
+                document.getElementById('not-authorized').querySelector('p').textContent = message;
+            }
+        }
+
+        async function loadWhitelist() {
+            try {
+                const response = await fetch('/api/whitelist');
+                const data = await response.json();
+
+                whitelist = data.whitelist || [];
+                whitelistMetadata = data.metadata || {};
+
+                document.getElementById('whitelist-loading').style.display = 'none';
+                document.getElementById('whitelist-container').style.display = 'block';
+
+                renderWhitelist();
+            } catch (error) {
+                console.error('Failed to load whitelist:', error);
+                document.getElementById('whitelist-loading').style.display = 'none';
+                document.getElementById('whitelist-error').style.display = 'block';
+                document.getElementById('whitelist-error-text').textContent = 'Failed to load whitelist. Check console for details.';
+            }
+        }
+
+        function renderWhitelist() {
+            const container = document.getElementById('whitelist-items');
+
+            if (whitelist.length === 0) {
+                container.innerHTML = '<div class="info-box"><p>No addresses in whitelist</p></div>';
+                return;
+            }
+
+            // Count admin addresses
+            let adminCount = 0;
+            for (const address of whitelist) {
+                const meta = whitelistMetadata[address.toLowerCase()] || {};
+                if (meta.isAdmin !== false) { // Default to admin if not specified
+                    adminCount++;
+                }
+            }
+
+            let html = '';
+            for (const address of whitelist) {
+                const meta = whitelistMetadata[address.toLowerCase()] || {};
+                const isAdmin = meta.isAdmin !== false; // Default to admin
+                const name = meta.name || '';
+                const canRemove = !(isAdmin && adminCount === 1); // Can't remove last admin
+                const canToggleAdmin = !(isAdmin && adminCount === 1); // Can't toggle last admin to non-admin
+
+                html += `
+                    <div class="whitelist-item" data-address="${address}">
+                        <div class="address-info">
+                            <span class="address-text">${address}</span>
+                        </div>
+                        <div class="name-display">
+                            <span class="name-text">${name || '—'}</span>
+                            <input type="text" class="name-input" value="${name}" style="display: none;" />
+                        </div>
+                        <div class="admin-display">
+                            <label class="admin-toggle">
+                                <input type="checkbox" ${isAdmin ? 'checked' : ''} disabled data-editable="${canToggleAdmin}" />
+                                <span class="admin-toggle-label">${isAdmin ? 'Admin' : ''}</span>
+                            </label>
+                        </div>
+                        <div class="action-buttons">
+                            <button class="console-btn small" onclick="toggleEdit('${address}')" title="Edit">
+                                <span class="edit-icon"><svg class="icon-svg" viewBox="0 0 20 20"><path d="M17.561 2.439c-1.442-1.443-2.525-1.227-2.525-1.227L8.984 7.264 2.21 14.037 1.2 18.799l4.763-1.01 6.774-6.771 6.052-6.052c-.001 0 .216-1.083-1.228-2.527zM5.68 17.32l-1.394.261a3.475 3.475 0 0 0-.261-1.394l1.655 1.133z"/></svg></span>
+                                <span class="save-icon" style="display: none;"><svg class="icon-svg" viewBox="0 0 20 20"><path d="M15.173 2H4c-1.101 0-2 .9-2 2v12c0 1.1.899 2 2 2h12c1.101 0 2-.9 2-2V5.127L15.173 2zM14 8c0 .549-.45 1-1 1H7c-.55 0-1-.451-1-1V3h8v5zm-1-4h-2v4h2V4z"/></svg></span>
+                            </button>
+                            <button class="console-btn small danger" onclick="removeAddress('${address}')" ${!canRemove ? 'disabled title="Cannot remove last admin"' : 'title="Remove"'}>
+                                <svg class="icon-svg" viewBox="0 0 20 20"><path d="M6 2l2-2h4l2 2h4v2H2V2h4zM3 6h14l-1 14H4L3 6zm5 2v10h1V8H8zm3 0v10h1V8h-1z"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }
+
+            container.innerHTML = html;
+        }
+
+        async function loadPolicy() {
+            try {
+                const response = await fetch('/api/policy');
+                const data = await response.json();
+
+                currentPolicy = data.policy || 'public';
+                document.querySelector(`input[name="policy"][value="${currentPolicy}"]`).checked = true;
+            } catch (error) {
+                console.error('Failed to load policy:', error);
+            }
+        }
+
+        window.addAddress = async function() {
+            const addressInput = document.getElementById('new-address');
+            const nameInput = document.getElementById('new-name');
+            const isAdminCheckbox = document.getElementById('new-is-admin');
+            const addButton = document.getElementById('add-address-btn');
+            const progressDiv = document.getElementById('add-progress');
+            const progressText = document.getElementById('add-progress-text');
+
+            const address = addressInput.value.trim();
+            const name = nameInput.value.trim();
+            const isAdmin = isAdminCheckbox.checked;
+
+            if (!address || !address.startsWith('0x')) {
+                alert('Please enter a valid Ethereum address');
+                return;
+            }
+
+            if (whitelist.some(a => a.toLowerCase() === address.toLowerCase())) {
+                alert('Address already in whitelist');
+                return;
+            }
+
+            try {
+                // Show loading state
+                addButton.disabled = true;
+                addressInput.disabled = true;
+                nameInput.disabled = true;
+                isAdminCheckbox.disabled = true;
+                progressDiv.style.display = 'block';
+                progressText.textContent = 'Adding address to blockchain...';
+
+                const response = await fetch('/api/whitelist/add', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        address: address,
+                        name: name,
+                        isAdmin: isAdmin,
+                        contractAddress: contractAddress
+                    })
+                });
+
+                if (!response.ok) {
+                    const data = await response.json();
+                    throw new Error(data.error || 'Failed to add address');
+                }
+
+                progressText.textContent = 'Address added successfully!';
+
+                // Reload whitelist to get updated data
+                await loadWhitelist();
+
+                // Clear inputs
+                addressInput.value = '';
+                nameInput.value = '';
+                isAdminCheckbox.checked = true;
+
+                // Hide progress after a short delay
+                setTimeout(() => {
+                    progressDiv.style.display = 'none';
+                }, 2000);
+            } catch (error) {
+                console.error('Failed to add address:', error);
+                progressDiv.style.display = 'none';
+                alert('Failed to add address. Check console for details.');
+            } finally {
+                // Re-enable inputs
+                addButton.disabled = false;
+                addressInput.disabled = false;
+                nameInput.disabled = false;
+                isAdminCheckbox.disabled = false;
+            }
+        };
+
+        window.removeAddress = async function(address) {
+            // Check if this is the last admin
+            const meta = whitelistMetadata[address.toLowerCase()] || {};
+            const isAdmin = meta.isAdmin !== false;
+            let adminCount = 0;
+            for (const addr of whitelist) {
+                const m = whitelistMetadata[addr.toLowerCase()] || {};
+                if (m.isAdmin !== false) adminCount++;
+            }
+
+            if (isAdmin && adminCount === 1) {
+                alert('Cannot remove the last admin address');
+                return;
+            }
+
+            if (!confirm(`Remove ${address} from whitelist?`)) {
+                return;
+            }
+
+            // Find the remove button for this address
+            const buttons = document.querySelectorAll('.console-btn.small.danger');
+            let removeButton = null;
+            for (const btn of buttons) {
+                if (btn.getAttribute('onclick')?.includes(address)) {
+                    removeButton = btn;
+                    break;
+                }
+            }
+
+            try {
+                // Show working indicator
+                if (removeButton) {
+                    const originalHTML = removeButton.innerHTML;
+                    removeButton.innerHTML = '<span style="font-size: 10px;">Removing...</span>';
+                    removeButton.disabled = true;
+
+                    const response = await fetch('/api/whitelist/remove', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            address: address,
+                            contractAddress: contractAddress
+                        })
+                    });
+
+                    if (!response.ok) {
+                        const data = await response.json();
+                        // Restore button on error
+                        removeButton.innerHTML = originalHTML;
+                        removeButton.disabled = false;
+                        throw new Error(data.error || 'Failed to remove address');
+                    }
+
+                    // Reload whitelist (button will be re-rendered)
+                    await loadWhitelist();
+                } else {
+                    // Fallback if button not found
+                    const response = await fetch('/api/whitelist/remove', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            address: address,
+                            contractAddress: contractAddress
+                        })
+                    });
+
+                    if (!response.ok) {
+                        const data = await response.json();
+                        throw new Error(data.error || 'Failed to remove address');
+                    }
+
+                    await loadWhitelist();
+                }
+            } catch (error) {
+                console.error('Failed to remove address:', error);
+                alert('Failed to remove address. Check console for details.');
+            }
+        };
+
+        window.updateAdminLabel = function(checkbox) {
+            const label = checkbox.parentElement.querySelector('.admin-toggle-label');
+            label.textContent = checkbox.checked ? 'Admin' : '';
+        };
+
+        window.updateNewAdminLabel = function(checkbox) {
+            const label = document.getElementById('new-admin-label');
+            label.textContent = checkbox.checked ? 'Admin' : '';
+        };
+
+        window.toggleEdit = async function(address) {
+            const item = document.querySelector(`.whitelist-item[data-address="${address}"]`);
+            const nameText = item.querySelector('.name-text');
+            const nameInput = item.querySelector('.name-input');
+            const adminCheckbox = item.querySelector('.admin-toggle input[type="checkbox"]');
+            const adminLabel = item.querySelector('.admin-toggle-label');
+            const editIcon = item.querySelector('.edit-icon');
+            const saveIcon = item.querySelector('.save-icon');
+
+            // Check if we're in edit mode (save icon is visible)
+            if (saveIcon.style.display !== 'none') {
+                // Save mode - save changes
+                const newName = nameInput.value.trim();
+                const newIsAdmin = adminCheckbox.checked;
+
+                // Show working indicator
+                const button = item.querySelector('.action-buttons button');
+                const originalHTML = saveIcon.innerHTML;
+                saveIcon.innerHTML = '<span style="font-size: 10px;">Saving...</span>';
+                button.disabled = true;
+
+                try {
+                    const response = await fetch('/api/whitelist/update', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            address: address,
+                            name: newName,
+                            isAdmin: newIsAdmin
+                        })
+                    });
+
+                    if (!response.ok) {
+                        const data = await response.json();
+                        throw new Error(data.error || 'Failed to update metadata');
+                    }
+
+                    // Update local data
+                    whitelistMetadata[address.toLowerCase()] = {
+                        name: newName,
+                        isAdmin: newIsAdmin
+                    };
+
+                    // Switch back to view mode
+                    nameText.textContent = newName || '—';
+                    nameText.style.display = '';
+                    nameInput.style.display = 'none';
+
+                    adminCheckbox.disabled = true;
+                    adminCheckbox.removeAttribute('onchange');
+                    adminLabel.textContent = newIsAdmin ? 'Admin' : '';
+
+                    editIcon.style.display = '';
+                    saveIcon.style.display = 'none';
+                    saveIcon.innerHTML = originalHTML;
+                    button.disabled = false;
+
+                } catch (error) {
+                    // Restore button on error
+                    saveIcon.innerHTML = originalHTML;
+                    button.disabled = false;
+                    console.error('Failed to update metadata:', error);
+                    alert('Failed to update. Check console for details.');
+                }
+            } else {
+                // Edit mode - enable inputs
+                nameText.style.display = 'none';
+                nameInput.style.display = 'block';
+
+                const canToggleAdmin = adminCheckbox.getAttribute('data-editable') === 'true';
+                if (canToggleAdmin) {
+                    adminCheckbox.disabled = false;
+                    adminCheckbox.setAttribute('onchange', 'updateAdminLabel(this)');
+                }
+
+                editIcon.style.display = 'none';
+                saveIcon.style.display = '';
+            }
+        };
+
+        window.savePolicy = async function() {
+            const selectedPolicy = document.querySelector('input[name="policy"]:checked').value;
+
+            try {
+                // TODO: Implement API endpoint to save policy
+                const response = await fetch('/api/policy/set', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ policy: selectedPolicy })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to save policy');
+                }
+
+                currentPolicy = selectedPolicy;
+                alert('Policy saved successfully');
+            } catch (error) {
+                console.error('Failed to save policy:', error);
+                alert('Failed to save policy. Check console for details.');
+            }
+        };
+
+        // Check admin access on load
+        checkAdminAccess();
+    </script>
+</body>
+</html>

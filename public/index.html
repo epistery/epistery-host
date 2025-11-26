@@ -38,6 +38,10 @@
                     <span class="status-value">{DOMAIN}</span>
                 </div>
                 <div class="status-row">
+                    <span class="status-label">Chain:</span>
+                    <span class="status-value" id="chain-name">Loading...</span>
+                </div>
+                <div class="status-row">
                     <span class="status-label">Server Wallet:</span>
                     <span class="status-value mono">{SERVER_WALLET}</span>
                 </div>
@@ -125,6 +129,9 @@
                     headers: { 'Accept': 'application/json' }
                 });
                 const data = await response.json();
+
+                // Update chain name
+                document.getElementById('chain-name').textContent = data.server.provider || 'Unknown';
 
                 if (data.server.initialized) {
                     document.getElementById('contract-address').textContent = data.server.contractAddress;

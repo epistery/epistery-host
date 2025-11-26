@@ -147,6 +147,11 @@ let main = async function() {
         res.sendFile(path.join(__dirname, 'public', 'initialize.html'));
     });
 
+    // Admin page route
+    app.get('/admin', (req, res) => {
+        res.sendFile(path.join(__dirname, 'public', 'admin.html'));
+    });
+
     // API: Deploy Agent contract
     app.post('/api/deploy-agent', async (req, res) => {
         try {
@@ -183,10 +188,10 @@ let main = async function() {
             const maxFeePerGas = networkMax.gt(minGasPrice.mul(2)) ? networkMax : minGasPrice.mul(2);
 
             const factory = new ethers.ContractFactory(AgentArtifact.abi, AgentArtifact.bytecode, wallet);
-            console.log('Deploying Agent contract...');
+            console.log(`Deploying Agent contract for domain: ${domain}, sponsor: ${wallet.address}...`);
 
-            // Deploy with EIP-1559 gas settings
-            const contract = await factory.deploy({
+            // Deploy with domain and sponsor parameters, plus EIP-1559 gas settings
+            const contract = await factory.deploy(domain, wallet.address, {
                 maxPriorityFeePerGas: maxPriorityFeePerGas,
                 maxFeePerGas: maxFeePerGas
             });
@@ -274,6 +279,304 @@ let main = async function() {
             });
         } catch (error) {
             console.error('Error initializing whitelist:', error);
+            res.status(500).json({ error: error.message });
+        }
+    });
+
+    // API: Check if address is admin
+    app.post('/api/check-admin', async (req, res) => {
+        try {
+            const { address } = req.body;
+            const domain = req.hostname || 'localhost';
+            const cfg = new Config();
+            cfg.setPath(domain);
+
+            const contractAddress = cfg.data?.agent_contract_address || process.env.AGENT_CONTRACT_ADDRESS;
+            if (!contractAddress) {
+                return res.json({ isAdmin: false, reason: 'Contract not deployed' });
+            }
+
+            const serverWallet = cfg.data?.wallet;
+            const provider = cfg.data?.provider;
+
+            if (!serverWallet || !provider) {
+                return res.status(500).json({ error: 'Server not configured' });
+            }
+
+            const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc);
+            const wallet = ethers.Wallet.fromMnemonic(serverWallet.mnemonic).connect(ethersProvider);
+            const contract = new ethers.Contract(contractAddress, AgentArtifact.abi, wallet);
+
+            const isWhitelisted = await contract.isWhitelisted(address, domain);
+
+            res.json({ isAdmin: isWhitelisted });
+        } catch (error) {
+            console.error('Error checking admin status:', error);
+            res.status(500).json({ error: error.message });
+        }
+    });
+
+    // API: Get whitelist
+    app.get('/api/whitelist', async (req, res) => {
+        try {
+            const domain = req.hostname || 'localhost';
+            const cfg = new Config();
+            cfg.setPath(domain);
+
+            const contractAddress = cfg.data?.agent_contract_address || process.env.AGENT_CONTRACT_ADDRESS;
+            if (!contractAddress) {
+                return res.status(400).json({ error: 'Contract not deployed' });
+            }
+
+            const serverWallet = cfg.data?.wallet;
+            const provider = cfg.data?.provider;
+
+            if (!serverWallet || !provider) {
+                return res.status(500).json({ error: 'Server not configured' });
+            }
+
+            const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc);
+            const wallet = ethers.Wallet.fromMnemonic(serverWallet.mnemonic).connect(ethersProvider);
+            const contract = new ethers.Contract(contractAddress, AgentArtifact.abi, wallet);
+
+            // Get whitelist from contract (returns WhitelistEntry[] with addr, name, role, meta)
+            const whitelistEntries = await contract.getWhitelist(serverWallet.address);
+
+            // Transform to simple format for API response
+            const whitelist = whitelistEntries.map(entry => entry.addr);
+            const metadata = {};
+            whitelistEntries.forEach(entry => {
+                metadata[entry.addr.toLowerCase()] = {
+                    name: entry.name,
+                    isAdmin: entry.role >= 3  // role 3=admin, 4=owner
+                };
+            });
+
+            res.json({
+                domain: domain,
+                whitelist: whitelist,
+                metadata: metadata,
+                count: whitelist.length
+            });
+        } catch (error) {
+            console.error('Error getting whitelist:', error);
+            res.status(500).json({ error: error.message });
+        }
+    });
+
+    // API: Add address to whitelist
+    app.post('/api/whitelist/add', async (req, res) => {
+        try {
+            const { address, name, isAdmin, contractAddress: reqContractAddress } = req.body;
+            const domain = req.hostname || 'localhost';
+            const cfg = new Config();
+            cfg.setPath(domain);
+
+            const contractAddress = reqContractAddress || cfg.data?.agent_contract_address || process.env.AGENT_CONTRACT_ADDRESS;
+            if (!contractAddress) {
+                return res.status(400).json({ error: 'Contract not deployed' });
+            }
+
+            const serverWallet = cfg.data?.wallet;
+            const provider = cfg.data?.provider;
+
+            if (!serverWallet || !provider) {
+                return res.status(500).json({ error: 'Server not configured' });
+            }
+
+            const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc);
+            const wallet = ethers.Wallet.fromMnemonic(serverWallet.mnemonic).connect(ethersProvider);
+
+            // Get gas prices with minimum
+            const feeData = await ethersProvider.getFeeData();
+            const minGasPrice = ethers.utils.parseUnits("30", "gwei");
+            const networkPriority = feeData.maxPriorityFeePerGas ? feeData.maxPriorityFeePerGas.mul(120).div(100) : minGasPrice;
+            const maxPriorityFeePerGas = networkPriority.gt(minGasPrice) ? networkPriority : minGasPrice;
+            const networkMax = feeData.maxFeePerGas ? feeData.maxFeePerGas.mul(120).div(100) : minGasPrice.mul(2);
+            const maxFeePerGas = networkMax.gt(minGasPrice.mul(2)) ? networkMax : minGasPrice.mul(2);
+
+            const contract = new ethers.Contract(contractAddress, AgentArtifact.abi, wallet);
+
+            console.log(`Adding ${address} to whitelist for domain ${domain}...`);
+
+            // Convert isAdmin to role: 3=admin, 0=none
+            const role = isAdmin ? 3 : 0;
+            const meta = JSON.stringify({ addedBy: 'admin-ui', addedAt: new Date().toISOString() });
+
+            const tx = await contract.addToWhitelist(address, name || '', role, meta, {
+                maxPriorityFeePerGas: maxPriorityFeePerGas,
+                maxFeePerGas: maxFeePerGas
+            });
+            await tx.wait();
+
+            console.log('Address added to whitelist successfully');
+
+            res.json({
+                success: true,
+                address: address,
+                domain: domain
+            });
+        } catch (error) {
+            console.error('Error adding to whitelist:', error);
+            res.status(500).json({ error: error.message });
+        }
+    });
+
+    // API: Remove address from whitelist
+    app.post('/api/whitelist/remove', async (req, res) => {
+        try {
+            const { address, contractAddress: reqContractAddress } = req.body;
+            const domain = req.hostname || 'localhost';
+            const cfg = new Config();
+            cfg.setPath(domain);
+
+            const contractAddress = reqContractAddress || cfg.data?.agent_contract_address || process.env.AGENT_CONTRACT_ADDRESS;
+            if (!contractAddress) {
+                return res.status(400).json({ error: 'Contract not deployed' });
+            }
+
+            const serverWallet = cfg.data?.wallet;
+            const provider = cfg.data?.provider;
+
+            if (!serverWallet || !provider) {
+                return res.status(500).json({ error: 'Server not configured' });
+            }
+
+            const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc);
+            const wallet = ethers.Wallet.fromMnemonic(serverWallet.mnemonic).connect(ethersProvider);
+
+            // Get gas prices with minimum
+            const feeData = await ethersProvider.getFeeData();
+            const minGasPrice = ethers.utils.parseUnits("30", "gwei");
+            const networkPriority = feeData.maxPriorityFeePerGas ? feeData.maxPriorityFeePerGas.mul(120).div(100) : minGasPrice;
+            const maxPriorityFeePerGas = networkPriority.gt(minGasPrice) ? networkPriority : minGasPrice;
+            const networkMax = feeData.maxFeePerGas ? feeData.maxFeePerGas.mul(120).div(100) : minGasPrice.mul(2);
+            const maxFeePerGas = networkMax.gt(minGasPrice.mul(2)) ? networkMax : minGasPrice.mul(2);
+
+            const contract = new ethers.Contract(contractAddress, AgentArtifact.abi, wallet);
+
+            console.log(`Removing ${address} from whitelist for domain ${domain}...`);
+            const tx = await contract.removeFromWhitelist(address, {
+                maxPriorityFeePerGas: maxPriorityFeePerGas,
+                maxFeePerGas: maxFeePerGas
+            });
+            await tx.wait();
+
+            console.log('Address removed from whitelist successfully');
+
+            res.json({
+                success: true,
+                address: address,
+                domain: domain
+            });
+        } catch (error) {
+            console.error('Error removing from whitelist:', error);
+            res.status(500).json({ error: error.message });
+        }
+    });
+
+    // API: Update whitelist metadata (name and admin status)
+    app.post('/api/whitelist/update', async (req, res) => {
+        try {
+            const { address, name, isAdmin, contractAddress: reqContractAddress } = req.body;
+            const domain = req.hostname || 'localhost';
+            const cfg = new Config();
+            cfg.setPath(domain);
+
+            const contractAddress = reqContractAddress || cfg.data?.agent_contract_address || process.env.AGENT_CONTRACT_ADDRESS;
+            if (!contractAddress) {
+                return res.status(400).json({ error: 'Contract not deployed' });
+            }
+
+            const serverWallet = cfg.data?.wallet;
+            const provider = cfg.data?.provider;
+
+            if (!serverWallet || !provider) {
+                return res.status(500).json({ error: 'Server not configured' });
+            }
+
+            const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc);
+            const wallet = ethers.Wallet.fromMnemonic(serverWallet.mnemonic).connect(ethersProvider);
+
+            // Get gas prices with minimum
+            const feeData = await ethersProvider.getFeeData();
+            const minGasPrice = ethers.utils.parseUnits("30", "gwei");
+            const networkPriority = feeData.maxPriorityFeePerGas ? feeData.maxPriorityFeePerGas.mul(120).div(100) : minGasPrice;
+            const maxPriorityFeePerGas = networkPriority.gt(minGasPrice) ? networkPriority : minGasPrice;
+            const networkMax = feeData.maxFeePerGas ? feeData.maxFeePerGas.mul(120).div(100) : minGasPrice.mul(2);
+            const maxFeePerGas = networkMax.gt(minGasPrice.mul(2)) ? networkMax : minGasPrice.mul(2);
+
+            const contract = new ethers.Contract(contractAddress, AgentArtifact.abi, wallet);
+
+            console.log(`Updating whitelist entry for ${address}...`);
+
+            // Use sentinel values to update only the fields that are provided
+            // "\x00KEEP" for strings means don't update, 255 for role means don't update
+            const role = isAdmin !== undefined ? (isAdmin ? 3 : 0) : 255;
+            const nameToUpdate = name !== undefined ? name : '\x00KEEP';
+            const metaToUpdate = '\x00KEEP'; // Don't update meta for now
+
+            const tx = await contract.updateWhitelistEntry(address, nameToUpdate, role, metaToUpdate, {
+                maxPriorityFeePerGas: maxPriorityFeePerGas,
+                maxFeePerGas: maxFeePerGas
+            });
+            await tx.wait();
+
+            console.log('Whitelist entry updated successfully');
+
+            res.json({
+                success: true,
+                address: address,
+                name: name,
+                isAdmin: isAdmin
+            });
+        } catch (error) {
+            console.error('Error updating whitelist metadata:', error);
+            res.status(500).json({ error: error.message });
+        }
+    });
+
+    // API: Get access policy
+    app.get('/api/policy', async (req, res) => {
+        try {
+            const domain = req.hostname || 'localhost';
+            const cfg = new Config();
+            cfg.setPath(domain);
+
+            const policy = cfg.data?.access_policy || 'public';
+
+            res.json({ policy: policy });
+        } catch (error) {
+            console.error('Error getting policy:', error);
+            res.status(500).json({ error: error.message });
+        }
+    });
+
+    // API: Set access policy
+    app.post('/api/policy/set', async (req, res) => {
+        try {
+            const { policy } = req.body;
+            const domain = req.hostname || 'localhost';
+            const cfg = new Config();
+            cfg.setPath(domain);
+
+            const validPolicies = ['public', 'public-id', 'public-req', 'private'];
+            if (!validPolicies.includes(policy)) {
+                return res.status(400).json({ error: 'Invalid policy' });
+            }
+
+            cfg.data.access_policy = policy;
+            cfg.save();
+
+            console.log(`Access policy for ${domain} set to: ${policy}`);
+
+            res.json({
+                success: true,
+                policy: policy,
+                domain: domain
+            });
+        } catch (error) {
+            console.error('Error setting policy:', error);
             res.status(500).json({ error: error.message });
         }
     });

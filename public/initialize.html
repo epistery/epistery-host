@@ -342,7 +342,7 @@
             } catch (error) {
                 console.error('Failed to deploy contract:', error);
                 document.getElementById('deploy-progress').style.display = 'none';
-                document.getElementById('deploy-status').textContent = `Error: ${error.message}`;
+                document.getElementById('deploy-status').textContent = 'Deployment failed. Check console for details.';
                 document.getElementById('deploy-status').style.display = 'block';
             }
         }
@@ -378,7 +378,7 @@
             } catch (error) {
                 console.error('Failed to initialize whitelist:', error);
                 document.getElementById('whitelist-progress').style.display = 'none';
-                document.getElementById('whitelist-status').textContent = `Error: ${error.message}`;
+                document.getElementById('whitelist-status').textContent = 'Whitelist initialization failed. Check console for details.';
                 document.getElementById('whitelist-status').style.display = 'block';
             }
         }
