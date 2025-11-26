@@ -26,7 +26,7 @@
     "@metric-im/administrate": "^1.1.9",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
-    "epistery": "file:../../rootz/epistery",
+    "epistery": "file:../epistery",
     "ethers": "^5.7.2",
     "express": "^5.1.0",
     "qrcode-generator": "^2.0.4"
