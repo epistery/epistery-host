@@ -263,7 +263,13 @@ let main = async function() {
             const contract = new ethers.Contract(contractAddress, AgentArtifact.abi, wallet);
 
             console.log(`Adding ${adminAddress} to whitelist for domain ${domain}...`);
-            const tx = await contract.addToWhitelist(adminAddress, domain, {
+
+            // Add with admin role (3) and metadata
+            const role = 3; // admin
+            const name = 'Domain Administrator';
+            const meta = JSON.stringify({ addedBy: 'initialization', addedAt: new Date().toISOString() });
+
+            const tx = await contract.addToWhitelist(adminAddress, name, role, meta, {
                 maxPriorityFeePerGas: maxPriorityFeePerGas,
                 maxFeePerGas: maxFeePerGas
             });
