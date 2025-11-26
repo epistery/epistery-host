@@ -6,13 +6,22 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { readFileSync } from 'fs';
+import { createRequire } from 'module';
 import { Certify } from '@metric-im/administrate';
 import { Epistery, Config } from 'epistery';
 import { createAuthRouter } from './authentication.mjs';
 import { AgentManager } from './AgentManager.mjs';
 
+const require = createRequire(import.meta.url);
+const ethers = require('ethers');
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Load Agent contract artifact - resolve through the symlinked epistery package
+const AgentArtifact = JSON.parse(
+    readFileSync(path.join(__dirname, 'node_modules/epistery/artifacts/contracts/agent.sol/Agent.json'), 'utf8')
+);
 
 let isShuttingDown = false;
 let app, https_server, http_server, config, agentManager;
@@ -36,6 +45,7 @@ let main = async function() {
     app.get('/health', (req, res) => {
         res.status(200).send()
     });
+
 
     // API endpoint to list active agents
     app.get('/api/agents', (req, res) => {
@@ -63,11 +73,17 @@ let main = async function() {
     function buildStatus(domain, cfg) {
         const wallet = cfg.data?.wallet || {};
         const provider = cfg.data?.provider || {};
+        // Check both persisted config and environment variable
+        const contractAddress = cfg.data?.agent_contract_address || process.env.AGENT_CONTRACT_ADDRESS;
+        const isInitialized = contractAddress && contractAddress !== '0x0000000000000000000000000000000000000000';
 
         return {
             server: {
                 walletAddress: wallet.address || null,
                 publicKey: wallet.publicKey || null,
+                contractAddress: isInitialized ? contractAddress : null,
+                initialized: isInitialized,
+                adminAddress: cfg.data?.admin_address || null,
                 provider: provider.name || 'Polygon Mainnet',
                 chainId: provider.chainId?.toString() || '137',
                 rpc: provider.rpc || 'https://polygon-rpc.com',
@@ -126,9 +142,150 @@ let main = async function() {
         }
     });
 
+    // Initialize page route
+    app.get('/initialize', (req, res) => {
+        res.sendFile(path.join(__dirname, 'public', 'initialize.html'));
+    });
+
+    // API: Deploy Agent contract
+    app.post('/api/deploy-agent', async (req, res) => {
+        try {
+            const domain = req.hostname || req.body.domain || 'localhost';
+            const cfg = new Config();
+            cfg.setPath(domain);
+
+            const serverWallet = cfg.data?.wallet;
+            const provider = cfg.data?.provider;
+
+            if (!serverWallet || !serverWallet.mnemonic) {
+                return res.status(500).json({ error: 'Server wallet not configured' });
+            }
+
+            if (!provider || !provider.rpc) {
+                return res.status(500).json({ error: 'Provider not configured' });
+            }
+
+            const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc);
+            const wallet = ethers.Wallet.fromMnemonic(serverWallet.mnemonic).connect(ethersProvider);
+
+            // Get current gas price from network and add buffer
+            const feeData = await ethersProvider.getFeeData();
+
+            // Polygon Amoy requires minimum 25 Gwei, use 30 Gwei to be safe
+            const minGasPrice = ethers.utils.parseUnits("30", "gwei");
+
+            // Use EIP-1559 style transaction (maxPriorityFeePerGas + maxFeePerGas)
+            // Apply 120% buffer to network prices, but enforce minimum
+            const networkPriority = feeData.maxPriorityFeePerGas ? feeData.maxPriorityFeePerGas.mul(120).div(100) : minGasPrice;
+            const maxPriorityFeePerGas = networkPriority.gt(minGasPrice) ? networkPriority : minGasPrice;
+
+            const networkMax = feeData.maxFeePerGas ? feeData.maxFeePerGas.mul(120).div(100) : minGasPrice.mul(2);
+            const maxFeePerGas = networkMax.gt(minGasPrice.mul(2)) ? networkMax : minGasPrice.mul(2);
+
+            const factory = new ethers.ContractFactory(AgentArtifact.abi, AgentArtifact.bytecode, wallet);
+            console.log('Deploying Agent contract...');
+
+            // Deploy with EIP-1559 gas settings
+            const contract = await factory.deploy({
+                maxPriorityFeePerGas: maxPriorityFeePerGas,
+                maxFeePerGas: maxFeePerGas
+            });
+            await contract.deployed();
+
+            const contractAddress = contract.address;
+            console.log(`Agent contract deployed at ${contractAddress}`);
+
+            // Store in environment for current session
+            process.env.AGENT_CONTRACT_ADDRESS = contractAddress;
+
+            // Persist to domain config
+            cfg.data.agent_contract_address = contractAddress;
+            cfg.save();
+            console.log(`Contract address saved to domain config: ${domain}`);
+
+            res.json({
+                success: true,
+                contractAddress: contractAddress,
+                message: 'Agent contract deployed successfully'
+            });
+        } catch (error) {
+            console.error('Error deploying contract:', error);
+            res.status(500).json({ error: error.message });
+        }
+    });
+
+    // API: Initialize whitelist with admin address
+    app.post('/api/initialize-whitelist', async (req, res) => {
+        try {
+            const { domain: reqDomain, contractAddress } = req.body;
+            const domain = req.hostname || reqDomain || 'localhost';
+            const cfg = new Config();
+            cfg.setPath(domain);
+
+            const adminAddress = cfg.data?.admin_address;
+            if (!adminAddress) {
+                return res.status(400).json({ error: 'Admin address not configured in config.ini' });
+            }
+
+            const serverWallet = cfg.data?.wallet;
+            const provider = cfg.data?.provider;
+
+            if (!serverWallet || !serverWallet.mnemonic) {
+                return res.status(500).json({ error: 'Server wallet not configured' });
+            }
+
+            if (!provider || !provider.rpc) {
+                return res.status(500).json({ error: 'Provider not configured' });
+            }
+
+            const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc);
+            const wallet = ethers.Wallet.fromMnemonic(serverWallet.mnemonic).connect(ethersProvider);
+
+            // Get current gas price from network and add buffer
+            const feeData = await ethersProvider.getFeeData();
+
+            // Polygon Amoy requires minimum 25 Gwei, use 30 Gwei to be safe
+            const minGasPrice = ethers.utils.parseUnits("30", "gwei");
+
+            // Use EIP-1559 style transaction (maxPriorityFeePerGas + maxFeePerGas)
+            // Apply 120% buffer to network prices, but enforce minimum
+            const networkPriority = feeData.maxPriorityFeePerGas ? feeData.maxPriorityFeePerGas.mul(120).div(100) : minGasPrice;
+            const maxPriorityFeePerGas = networkPriority.gt(minGasPrice) ? networkPriority : minGasPrice;
+
+            const networkMax = feeData.maxFeePerGas ? feeData.maxFeePerGas.mul(120).div(100) : minGasPrice.mul(2);
+            const maxFeePerGas = networkMax.gt(minGasPrice.mul(2)) ? networkMax : minGasPrice.mul(2);
+
+            const contract = new ethers.Contract(contractAddress, AgentArtifact.abi, wallet);
+
+            console.log(`Adding ${adminAddress} to whitelist for domain ${domain}...`);
+            const tx = await contract.addToWhitelist(adminAddress, domain, {
+                maxPriorityFeePerGas: maxPriorityFeePerGas,
+                maxFeePerGas: maxFeePerGas
+            });
+            await tx.wait();
+
+            console.log('Admin address added to whitelist successfully');
+
+            res.json({
+                success: true,
+                adminAddress: adminAddress,
+                domain: domain,
+                message: 'Admin address added to whitelist'
+            });
+        } catch (error) {
+            console.error('Error initializing whitelist:', error);
+            res.status(500).json({ error: error.message });
+        }
+    });
+
     // Static files (after specific routes)
     app.use('/style', express.static(path.join(__dirname, 'public/style')));
     app.use('/image', express.static(path.join(__dirname, 'public/image')));
+
+    // Serve qrcode library
+    app.get('/lib/qrcode.js', (req, res) => {
+        res.sendFile(path.join(__dirname, 'node_modules/qrcode-generator/qrcode.js'));
+    });
 
     // Attach epistery at root
     const epistery = await Epistery.connect();

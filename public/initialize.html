@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Initialize Domain - Epistery Host</title>
+    <link rel="stylesheet" href="/style/static.css">
+    <style>
+        .init-step {
+            background: var(--panel-background);
+            border: 1px solid var(--page-border);
+            border-radius: 8px;
+            padding: var(--spacer);
+            margin-bottom: var(--spacer);
+        }
+        .init-step h3 {
+            margin-top: 0;
+            color: var(--page-text-primary);
+        }
+        .init-step.active {
+            border-color: #007bff;
+            background: linear-gradient(135deg, rgba(0, 123, 255, 0.05) 0%, rgba(0, 123, 255, 0.1) 100%);
+        }
+        .init-step.completed {
+            border-color: #28a745;
+            opacity: 0.7;
+        }
+        .wallet-address {
+            font-family: monospace;
+            background: var(--page-background);
+            padding: var(--spacerhalf);
+            border-radius: 4px;
+            word-break: break-all;
+            font-size: 14px;
+        }
+        .action-buttons {
+            display: flex;
+            gap: var(--spacerhalf);
+            margin-top: var(--spacer);
+        }
+        .console-btn.secondary {
+            background: transparent;
+            color: var(--page-text-primary);
+            border: 1px solid var(--page-border);
+        }
+        .console-btn.secondary:hover {
+            background: var(--page-border);
+        }
+        .info-box {
+            background: linear-gradient(135deg, rgba(74, 144, 226, 0.08) 0%, rgba(46, 92, 138, 0.12) 100%);
+            border: 1px solid rgba(74, 144, 226, 0.2);
+            border-radius: 6px;
+            padding: var(--spacer);
+            margin: var(--spacer) 0;
+        }
+        .error-box {
+            background: linear-gradient(135deg, rgba(220, 53, 69, 0.08) 0%, rgba(220, 53, 69, 0.12) 100%);
+            border: 1px solid rgba(220, 53, 69, 0.3);
+            border-radius: 6px;
+            padding: var(--spacer);
+            margin: var(--spacer) 0;
+        }
+        .spinner {
+            border: 3px solid var(--page-border);
+            border-top-color: #007bff;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .step-content {
+            display: flex;
+            gap: var(--spacer);
+        }
+        .step-main {
+            flex: 1;
+        }
+        .qr-code {
+            flex-shrink: 0;
+        }
+        .qr-code canvas {
+            border: 2px solid var(--page-border);
+            border-radius: 8px;
+            padding: var(--spacerhalf);
+            background: white;
+            display: block;
+        }
+        .chain-info {
+            background: var(--panel-background);
+            border: 1px solid var(--page-border);
+            border-radius: 6px;
+            padding: var(--spacerhalf);
+            margin: var(--spacerhalf) 0;
+            font-size: 14px;
+        }
+    </style>
+    <script src="/lib/qrcode.js"></script>
+</head>
+<body>
+    <header>
+        <nav class="container">
+            <a href="/" class="logo">
+                <span class="logo-text">Epistery Host</span>
+            </a>
+        </nav>
+    </header>
+
+    <main class="console-layout no-sidebar">
+        <div class="console-main">
+            <div class="console-header">
+                <h1>Initialize Domain</h1>
+                <p class="console-tagline">Deploy the Agent contract for <span id="domain-name">...</span></p>
+            </div>
+
+            <div id="step-1" class="init-step active">
+                <h3>Step 1: Check Server Wallet Balance</h3>
+
+                <div class="step-content">
+                    <div class="step-main">
+                        <div class="chain-info">
+                            <strong>Chain:</strong> <span id="chain-name">Loading...</span> (Chain ID: <span id="chain-id">...</span>)
+                        </div>
+
+                        <p>Server wallet address:</p>
+                        <div class="wallet-address" id="server-wallet">Loading...</div>
+
+                        <p style="margin-top: var(--spacer);">Balance: <strong id="server-balance">Checking...</strong></p>
+                        <p id="balance-status">Checking wallet balance...</p>
+                    </div>
+
+                    <div class="qr-code" id="qr-container" style="display: none;">
+                        <canvas id="wallet-qr"></canvas>
+                    </div>
+                </div>
+
+                <div id="insufficient-funds" style="display: none;">
+                    <div class="error-box">
+                        <h4>⚠️ Insufficient Funds</h4>
+                        <p>The server wallet does not have enough gas to deploy the Agent contract.</p>
+                        <p><strong>Estimated cost:</strong> <span id="estimated-cost">...</span> <span id="currency-symbol">POL</span></p>
+                        <p><strong>Required:</strong> <span id="required-amount">...</span> <span id="currency-symbol-2">POL</span></p>
+                    </div>
+
+                    <h4>Option 1: Fund the Server Wallet</h4>
+                    <p>Send <span id="currency-symbol-3">POL</span> to <span id="wallet-address-text">this address</span>.</p>
+                    <button class="console-btn" onclick="location.reload()">Retry</button>
+
+                    <h4 style="margin-top: var(--spacer);">Option 2: Request Admin Deployment</h4>
+                    <p>Share this URL with a Rootz admin who can deploy the contract on your behalf:</p>
+                    <div class="wallet-address" id="admin-url">Loading...</div>
+                    <button class="console-btn secondary" onclick="copyAdminUrl()">Copy URL</button>
+                </div>
+
+                <div id="sufficient-funds" style="display: none;">
+                    <div class="info-box">
+                        <p>✓ Server wallet has sufficient funds for deployment</p>
+                    </div>
+                    <button class="console-btn" onclick="deployContract()">Deploy Agent Contract</button>
+                </div>
+            </div>
+
+            <div id="step-2" class="init-step">
+                <h3>Step 2: Deploy Contract</h3>
+                <p id="deploy-status">Waiting for Step 1...</p>
+                <div id="deploy-progress" style="display: none;">
+                    <div class="spinner"></div>
+                    <span>Deploying contract...</span>
+                </div>
+                <div id="deploy-success" style="display: none;">
+                    <div class="info-box">
+                        <p>✓ Agent contract deployed successfully!</p>
+                        <p style="margin-top: var(--spacerhalf);"><strong>Contract address:</strong></p>
+                        <div class="wallet-address" id="contract-address">...</div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="step-3" class="init-step">
+                <h3>Step 3: Initialize Whitelist</h3>
+                <p id="whitelist-status">Waiting for Step 2...</p>
+                <div id="whitelist-progress" style="display: none;">
+                    <div class="spinner"></div>
+                    <span>Adding admin to whitelist...</span>
+                </div>
+                <div id="whitelist-success" style="display: none;">
+                    <div class="info-box">
+                        <p>✓ Admin address added to whitelist!</p>
+                        <p style="margin-top: var(--spacerhalf);"><strong>Admin:</strong></p>
+                        <div class="wallet-address" id="admin-address">...</div>
+                    </div>
+                    <div class="action-buttons">
+                        <button class="console-btn" onclick="window.location.href='/'">Return to Home</button>
+                        <button class="console-btn secondary" onclick="window.location.href='/admin'">Go to Admin</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        <div class="container">
+            <div class="footer-bottom">
+                <p>&copy; 2025 Rootz Corp. Open source under MIT License.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        let initData = null;
+
+        async function loadInitData() {
+            try {
+                const response = await fetch('/', {
+                    headers: { 'Accept': 'application/json' }
+                });
+                const data = await response.json();
+                initData = data.server;
+
+                document.getElementById('domain-name').textContent = window.location.hostname;
+                document.getElementById('server-wallet').textContent = initData.walletAddress || 'Not configured';
+
+                // Set chain info
+                document.getElementById('chain-name').textContent = initData.provider || 'Unknown';
+                document.getElementById('chain-id').textContent = initData.chainId || '?';
+
+                // Set currency symbols
+                const currencySymbol = initData.nativeCurrency?.symbol || 'POL';
+                document.getElementById('currency-symbol').textContent = currencySymbol;
+                document.getElementById('currency-symbol-2').textContent = currencySymbol;
+                document.getElementById('currency-symbol-3').textContent = currencySymbol;
+                document.getElementById('wallet-address-text').textContent = initData.walletAddress;
+
+                // Generate QR code for wallet address
+                if (initData.walletAddress) {
+                    if (typeof qrcode !== 'undefined') {
+                        try {
+                            const qr = qrcode(0, 'M');
+                            qr.addData(initData.walletAddress);
+                            qr.make();
+
+                            const canvas = document.getElementById('wallet-qr');
+                            const ctx = canvas.getContext('2d');
+                            const cellSize = 4;
+                            const margin = 4;
+                            const size = qr.getModuleCount();
+
+                            canvas.width = canvas.height = size * cellSize + margin * 2;
+                            ctx.fillStyle = '#ffffff';
+                            ctx.fillRect(0, 0, canvas.width, canvas.height);
+                            ctx.fillStyle = '#000000';
+
+                            for (let row = 0; row < size; row++) {
+                                for (let col = 0; col < size; col++) {
+                                    if (qr.isDark(row, col)) {
+                                        ctx.fillRect(
+                                            col * cellSize + margin,
+                                            row * cellSize + margin,
+                                            cellSize,
+                                            cellSize
+                                        );
+                                    }
+                                }
+                            }
+
+                            document.getElementById('qr-container').style.display = 'block';
+                        } catch (error) {
+                            console.error('QR code generation error:', error);
+                        }
+                    } else {
+                        console.error('QRCode library not loaded');
+                    }
+                }
+
+                if (initData.initialized) {
+                    // Already initialized - redirect to home
+                    window.location.href = '/';
+                    return;
+                }
+
+                await checkBalance();
+            } catch (error) {
+                console.error('Failed to load initialization data:', error);
+                document.getElementById('balance-status').textContent = 'Error loading initialization data';
+            }
+        }
+
+        async function checkBalance() {
+            try {
+                // For now, just show the deploy button
+                // Balance checking will happen server-side when deployment is attempted
+                const balanceEl = document.getElementById('server-balance');
+                const currencySymbol = initData.nativeCurrency?.symbol || 'POL';
+                balanceEl.textContent = `Check blockchain explorer`;
+
+                document.getElementById('balance-status').textContent = 'Ready to deploy Agent contract';
+                document.getElementById('insufficient-funds').style.display = 'none';
+                document.getElementById('sufficient-funds').style.display = 'block';
+
+                // Generate admin URL for fallback
+                const adminUrl = `${window.location.origin}/api/admin-deploy?domain=${encodeURIComponent(window.location.hostname)}&serverWallet=${encodeURIComponent(initData.walletAddress)}`;
+                document.getElementById('admin-url').textContent = adminUrl;
+            } catch (error) {
+                console.error('Failed to check balance:', error);
+                document.getElementById('balance-status').textContent = `Error: ${error.message}`;
+            }
+        }
+
+        async function deployContract() {
+            try {
+                document.getElementById('step-1').classList.remove('active');
+                document.getElementById('step-1').classList.add('completed');
+                document.getElementById('step-2').classList.add('active');
+                document.getElementById('deploy-status').style.display = 'none';
+                document.getElementById('deploy-progress').style.display = 'block';
+
+                const response = await fetch('/api/deploy-agent', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        domain: window.location.hostname
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Deployment failed');
+                }
+
+                document.getElementById('deploy-progress').style.display = 'none';
+                document.getElementById('deploy-success').style.display = 'block';
+                document.getElementById('contract-address').textContent = data.contractAddress;
+
+                // Move to step 3
+                await initializeWhitelist(data.contractAddress);
+            } catch (error) {
+                console.error('Failed to deploy contract:', error);
+                document.getElementById('deploy-progress').style.display = 'none';
+                document.getElementById('deploy-status').textContent = `Error: ${error.message}`;
+                document.getElementById('deploy-status').style.display = 'block';
+            }
+        }
+
+        async function initializeWhitelist(contractAddress) {
+            try {
+                document.getElementById('step-2').classList.remove('active');
+                document.getElementById('step-2').classList.add('completed');
+                document.getElementById('step-3').classList.add('active');
+                document.getElementById('whitelist-status').style.display = 'none';
+                document.getElementById('whitelist-progress').style.display = 'block';
+
+                const response = await fetch('/api/initialize-whitelist', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        domain: window.location.hostname,
+                        contractAddress: contractAddress
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Whitelist initialization failed');
+                }
+
+                document.getElementById('whitelist-progress').style.display = 'none';
+                document.getElementById('whitelist-success').style.display = 'block';
+                document.getElementById('admin-address').textContent = data.adminAddress;
+                document.getElementById('step-3').classList.remove('active');
+                document.getElementById('step-3').classList.add('completed');
+            } catch (error) {
+                console.error('Failed to initialize whitelist:', error);
+                document.getElementById('whitelist-progress').style.display = 'none';
+                document.getElementById('whitelist-status').textContent = `Error: ${error.message}`;
+                document.getElementById('whitelist-status').style.display = 'block';
+            }
+        }
+
+        function copyAdminUrl() {
+            const url = document.getElementById('admin-url').textContent;
+            navigator.clipboard.writeText(url).then(() => {
+                alert('Admin URL copied to clipboard!');
+            }).catch(err => {
+                console.error('Failed to copy:', err);
+            });
+        }
+
+        // Load data on page load
+        loadInitData();
+    </script>
+</body>
+</html>

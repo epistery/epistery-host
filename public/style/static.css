@@ -1009,6 +1009,9 @@ footer {
     overflow-y: auto;
     min-height: 0;
 }
+.console-layout.no-sidebar {
+    grid-template-columns: 1fr;
+}
 
 .console-main {
     padding: var(--spacer3);

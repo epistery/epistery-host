@@ -31,7 +31,7 @@
             <section class="console-panel">
                 <div class="panel-header-row">
                     <h2>Server Status</h2>
-                    <button id="admin-button" class="console-btn panel-header-btn">Administrate</button>
+                    <button id="admin-button" class="console-btn panel-header-btn" style="display: none;">Administrate</button>
                 </div>
                 <div class="status-row">
                     <span class="status-label">Domain:</span>
@@ -42,8 +42,11 @@
                     <span class="status-value mono">{SERVER_WALLET}</span>
                 </div>
                 <div class="status-row">
-                    <span class="status-label">Status:</span>
-                    <span class="status-value">Active</span>
+                    <span class="status-label">Contract:</span>
+                    <span class="status-value mono" id="contract-address">Checking...</span>
+                </div>
+                <div id="init-notice" class="status-info" style="display: none; margin-top: var(--spacerhalf);">
+                    <p><strong>⚠️ Not Initialized</strong> - This domain's Agent contract has not been deployed yet. Click Initialize to deploy.</p>
                 </div>
             </section>
 
@@ -115,6 +118,31 @@
     </footer>
 
     <script type="module">
+        // Check initialization status and update UI
+        async function checkInitializationStatus() {
+            try {
+                const response = await fetch('/', {
+                    headers: { 'Accept': 'application/json' }
+                });
+                const data = await response.json();
+
+                if (data.server.initialized) {
+                    document.getElementById('contract-address').textContent = data.server.contractAddress;
+                    document.getElementById('admin-button').textContent = 'Administrate';
+                    document.getElementById('admin-button').onclick = () => window.location.href = '/admin';
+                } else {
+                    document.getElementById('contract-address').textContent = 'uninitialized';
+                    document.getElementById('init-notice').style.display = 'block';
+                    document.getElementById('admin-button').textContent = 'Initialize';
+                    document.getElementById('admin-button').onclick = () => window.location.href = '/initialize';
+                    document.getElementById('admin-button').style.display = 'inline-block';
+                }
+            } catch (error) {
+                console.error('Failed to check initialization status:', error);
+                document.getElementById('contract-address').textContent = 'Error';
+            }
+        }
+
         // Check if user is whitelisted for admin access
         async function checkAdminAccess() {
             try {
@@ -149,10 +177,6 @@
         // Button handlers
         document.getElementById('browser-wallet-button')?.addEventListener('click', () => {
             window.location.href = '/status';
-        });
-
-        document.getElementById('admin-button')?.addEventListener('click', () => {
-            window.location.href = '/admin';
         });
 
         // Load and display active agents
@@ -201,7 +225,8 @@
             }
         }
 
-        // Check admin access on load
+        // Check initialization and admin access on load
+        checkInitializationStatus();
         checkAdminAccess();
         loadAgents();
     </script>
