@@ -262,20 +262,21 @@ let main = async function() {
 
             const contract = new ethers.Contract(contractAddress, AgentArtifact.abi, wallet);
 
-            console.log(`Adding ${adminAddress} to whitelist for domain ${domain}...`);
+            console.log(`Adding ${adminAddress} to admin list for domain ${domain}...`);
 
             // Add with admin role (3) and metadata
+            const listName = `domain::${domain}`;
             const role = 3; // admin
             const name = 'Domain Administrator';
             const meta = JSON.stringify({ addedBy: 'initialization', addedAt: new Date().toISOString() });
 
-            const tx = await contract.addToWhitelist(adminAddress, name, role, meta, {
+            const tx = await contract.addToWhitelist(listName, adminAddress, name, role, meta, {
                 maxPriorityFeePerGas: maxPriorityFeePerGas,
                 maxFeePerGas: maxFeePerGas
             });
             await tx.wait();
 
-            console.log('Admin address added to whitelist successfully');
+            console.log('Admin address added to list successfully');
 
             res.json({
                 success: true,
@@ -313,9 +314,10 @@ let main = async function() {
             const wallet = ethers.Wallet.fromMnemonic(serverWallet.mnemonic).connect(ethersProvider);
             const contract = new ethers.Contract(contractAddress, AgentArtifact.abi, wallet);
 
-            const isWhitelisted = await contract.isWhitelisted(address, domain);
+            const listName = `domain::${domain}`;
+            const isListed = await contract.isWhitelisted(serverWallet.address, listName, address);
 
-            res.json({ isAdmin: isWhitelisted });
+            res.json({ isAdmin: isListed });
         } catch (error) {
             console.error('Error checking admin status:', error);
             res.status(500).json({ error: error.message });
@@ -345,8 +347,9 @@ let main = async function() {
             const wallet = ethers.Wallet.fromMnemonic(serverWallet.mnemonic).connect(ethersProvider);
             const contract = new ethers.Contract(contractAddress, AgentArtifact.abi, wallet);
 
-            // Get whitelist from contract (returns WhitelistEntry[] with addr, name, role, meta)
-            const whitelistEntries = await contract.getWhitelist(serverWallet.address);
+            // Get list from contract (returns WhitelistEntry[] with addr, name, role, meta)
+            const listName = `domain::${domain}`;
+            const whitelistEntries = await contract.getWhitelist(serverWallet.address, listName);
 
             // Transform to simple format for API response
             const whitelist = whitelistEntries.map(entry => entry.addr);
@@ -403,19 +406,20 @@ let main = async function() {
 
             const contract = new ethers.Contract(contractAddress, AgentArtifact.abi, wallet);
 
-            console.log(`Adding ${address} to whitelist for domain ${domain}...`);
+            console.log(`Adding ${address} to list for domain ${domain}...`);
 
             // Convert isAdmin to role: 3=admin, 0=none
+            const listName = `domain::${domain}`;
             const role = isAdmin ? 3 : 0;
             const meta = JSON.stringify({ addedBy: 'admin-ui', addedAt: new Date().toISOString() });
 
-            const tx = await contract.addToWhitelist(address, name || '', role, meta, {
+            const tx = await contract.addToWhitelist(listName, address, name || '', role, meta, {
                 maxPriorityFeePerGas: maxPriorityFeePerGas,
                 maxFeePerGas: maxFeePerGas
             });
             await tx.wait();
 
-            console.log('Address added to whitelist successfully');
+            console.log('Address added to list successfully');
 
             res.json({
                 success: true,
@@ -461,14 +465,15 @@ let main = async function() {
 
             const contract = new ethers.Contract(contractAddress, AgentArtifact.abi, wallet);
 
-            console.log(`Removing ${address} from whitelist for domain ${domain}...`);
-            const tx = await contract.removeFromWhitelist(address, {
+            console.log(`Removing ${address} from list for domain ${domain}...`);
+            const listName = `domain::${domain}`;
+            const tx = await contract.removeFromWhitelist(listName, address, {
                 maxPriorityFeePerGas: maxPriorityFeePerGas,
                 maxFeePerGas: maxFeePerGas
             });
             await tx.wait();
 
-            console.log('Address removed from whitelist successfully');
+            console.log('Address removed from list successfully');
 
             res.json({
                 success: true,
@@ -514,21 +519,22 @@ let main = async function() {
 
             const contract = new ethers.Contract(contractAddress, AgentArtifact.abi, wallet);
 
-            console.log(`Updating whitelist entry for ${address}...`);
+            console.log(`Updating list entry for ${address}...`);
 
             // Use sentinel values to update only the fields that are provided
             // "\x00KEEP" for strings means don't update, 255 for role means don't update
+            const listName = `domain::${domain}`;
             const role = isAdmin !== undefined ? (isAdmin ? 3 : 0) : 255;
             const nameToUpdate = name !== undefined ? name : '\x00KEEP';
             const metaToUpdate = '\x00KEEP'; // Don't update meta for now
 
-            const tx = await contract.updateWhitelistEntry(address, nameToUpdate, role, metaToUpdate, {
+            const tx = await contract.updateWhitelistEntry(listName, address, nameToUpdate, role, metaToUpdate, {
                 maxPriorityFeePerGas: maxPriorityFeePerGas,
                 maxFeePerGas: maxFeePerGas
             });
             await tx.wait();
 
-            console.log('Whitelist entry updated successfully');
+            console.log('List entry updated successfully');
 
             res.json({
                 success: true,
