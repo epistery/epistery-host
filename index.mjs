@@ -153,7 +153,8 @@ let main = async function() {
     });
 
     // API: Deploy Agent contract
-    app.post('/api/deploy-agent', async (req, res) => {
+    // Shared contract deployment logic
+    async function deployAgentContract(req, res) {
         try {
             const domain = req.hostname || req.body.domain || 'localhost';
             const cfg = new Config();
@@ -200,24 +201,42 @@ let main = async function() {
             const contractAddress = contract.address;
             console.log(`Agent contract deployed at ${contractAddress}`);
 
+            // Check contract version
+            let version = 'Unknown';
+            try {
+                version = await contract.VERSION();
+                console.log(`Contract version: ${version}`);
+            } catch (e) {
+                // Contract doesn't have VERSION field (old version)
+                version = '1.0.0';
+            }
+
             // Store in environment for current session
             process.env.AGENT_CONTRACT_ADDRESS = contractAddress;
 
             // Persist to domain config
             cfg.data.agent_contract_address = contractAddress;
+            cfg.data.contract_deployed_at = new Date().toISOString();
+            cfg.data.contract_version = version;
             cfg.save();
             console.log(`Contract address saved to domain config: ${domain}`);
 
             res.json({
                 success: true,
-                contractAddress: contractAddress,
+                address: contractAddress,
+                contractAddress: contractAddress, // Keep for backward compatibility
+                version: version,
+                domain: domain,
                 message: 'Agent contract deployed successfully'
             });
         } catch (error) {
             console.error('Error deploying contract:', error);
             res.status(500).json({ error: error.message });
         }
-    });
+    }
+
+    app.post('/api/deploy-agent', deployAgentContract);
+    app.post('/api/contract/deploy', deployAgentContract);
 
     // API: Initialize whitelist with admin address
     app.post('/api/initialize-whitelist', async (req, res) => {
