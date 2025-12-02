@@ -217,6 +217,30 @@
                     <button class="console-btn" style="margin-top: var(--spacer);" onclick="savePolicy()">Save Policy</button>
                 </section>
 
+                <!-- Contract Upgrade Section -->
+                <section class="admin-section" id="contract-upgrade-section" style="display: none;">
+                    <h2>⚡ Contract Upgrade Available</h2>
+                    <div id="upgrade-info">
+                        <p><strong>Current Version:</strong> <span id="current-version">...</span></p>
+                        <p><strong>Available Version:</strong> <span id="expected-version">...</span></p>
+                        <p id="upgrade-notes-section" style="display: none;">
+                            <strong>Release Notes:</strong>
+                            <a id="upgrade-notes-link" href="#" target="_blank">View Release Notes</a>
+                        </p>
+                        <p class="policy-description" style="margin-top: var(--spacerhalf);">
+                            A new version of the Agent contract is available with improved features and bug fixes.
+                            Upgrading will deploy a new contract instance.
+                        </p>
+                    </div>
+                    <button class="console-btn" style="margin-top: var(--spacer);" onclick="upgradeContract()">
+                        Deploy New Contract
+                    </button>
+                    <div id="upgrade-progress" style="display: none; margin-top: var(--spacer);">
+                        <div class="spinner"></div>
+                        <span id="upgrade-progress-text">Deploying new contract...</span>
+                    </div>
+                </section>
+
                 <!-- Whitelist Management Section -->
                 <section class="admin-section">
                     <h2>Whitelist Management</h2>
@@ -308,6 +332,7 @@
                 document.getElementById('admin-content').style.display = 'block';
                 await loadWhitelist();
                 await loadPolicy();
+                await checkContractVersion();
 
             } catch (error) {
                 console.error('Failed to check admin access:', error);
@@ -673,6 +698,76 @@
             } catch (error) {
                 console.error('Failed to save policy:', error);
                 alert('Failed to save policy. Check console for details.');
+            }
+        };
+
+        // Contract version checking and upgrade
+        async function checkContractVersion() {
+            try {
+                const response = await fetch('/.well-known/epistery/contract/version');
+                const versionInfo = await response.json();
+
+                if (versionInfo.needsUpgrade) {
+                    // Show upgrade section
+                    document.getElementById('contract-upgrade-section').style.display = 'block';
+                    document.getElementById('current-version').textContent = versionInfo.deployedVersion || 'Unknown (v1.x)';
+                    document.getElementById('expected-version').textContent = versionInfo.expectedVersion;
+
+                    // Show release notes link if available
+                    if (versionInfo.notes) {
+                        document.getElementById('upgrade-notes-section').style.display = 'block';
+                        document.getElementById('upgrade-notes-link').href = versionInfo.notes;
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to check contract version:', error);
+                // Don't show error to user, just log it
+            }
+        }
+
+        window.upgradeContract = async function() {
+            if (!confirm('Deploy a new Agent contract? This will create a new contract instance with the latest features. Your existing contract will remain unchanged.')) {
+                return;
+            }
+
+            const progressDiv = document.getElementById('upgrade-progress');
+            const progressText = document.getElementById('upgrade-progress-text');
+            const upgradeButton = document.querySelector('#contract-upgrade-section button.console-btn');
+
+            try {
+                // Show progress
+                progressDiv.style.display = 'block';
+                upgradeButton.disabled = true;
+                progressText.textContent = 'Deploying new contract...';
+
+                // Call deployment API
+                const response = await fetch('/api/contract/deploy', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        domain: window.location.hostname
+                    })
+                });
+
+                if (!response.ok) {
+                    const data = await response.json();
+                    throw new Error(data.error || 'Failed to deploy contract');
+                }
+
+                const result = await response.json();
+
+                progressText.textContent = 'Contract deployed successfully!';
+
+                alert(`Contract deployed successfully!\n\nNew contract address: ${result.address}\n\nThe page will reload to use the new contract.`);
+
+                // Reload the page to pick up new contract
+                window.location.reload();
+
+            } catch (error) {
+                console.error('Failed to upgrade contract:', error);
+                progressDiv.style.display = 'none';
+                upgradeButton.disabled = false;
+                alert('Failed to deploy new contract: ' + error.message);
             }
         };
 
