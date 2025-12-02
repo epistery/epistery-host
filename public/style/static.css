@@ -10,8 +10,8 @@
     --text-color-quiet: #2c3e50aa;
     --neutral: #919090;
     --page-border: #91909050;
-    --action-color: #82b3cb;
-    --action-color-hilite: #5ab8e7;
+    --action-color: #b08878;
+    --action-color-hilite: #c9a89a;
 
     /* Rootz green accents */
     --primary: #2d5016;
@@ -19,6 +19,11 @@
     --accent: #5d8a66;
     --light-green: #76a56f;
     --dark: #1a2f0a;
+
+    /* Sonoran desert rust accents */
+    --rust-deep: #8b6f65;
+    --rust-mid: #b08878;
+    --rust-light: #c9a89a;
 
     /* Spacing */
     --spacer: 12px;
