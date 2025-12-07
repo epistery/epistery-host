@@ -15,16 +15,13 @@
 <body>
     <header>
         <nav class="container">
-            <a href="/" class="logo">
+            <a href="/?home" class="logo">
                 <img src="/image/epistery-logo-32.png" alt="Epistery">
                 <span class="logo-text">Epistery Host</span>
             </a>
-            <div id="default-agent-selector" style="display: none;">
-                <label for="default-agent-select" style="margin-right: 8px; font-size: 14px;">Default Home:</label>
-                <select id="default-agent-select" style="padding: 6px 12px; border-radius: 4px; border: 1px solid var(--page-border); background: var(--bg-color); font-size: 14px; cursor: pointer;">
-                    <option value="">Host Dashboard</option>
-                </select>
-            </div>
+            <ul class="nav-menu" id="nav-menu">
+                <li><a href="/?home">Home</a></li>
+            </ul>
         </nav>
     </header>
 
@@ -206,8 +203,6 @@
                     return;
                 }
 
-                // Populate default agent selector
-                await populateDefaultAgentSelector(data.agents, data.defaultAgent);
 
                 let html = '';
                 for (const agent of data.agents) {
@@ -243,88 +238,24 @@
             }
         }
 
-        // Populate default agent selector
-        async function populateDefaultAgentSelector(agents, currentDefault) {
-            const select = document.getElementById('default-agent-select');
-            const selectorDiv = document.getElementById('default-agent-selector');
-
-            console.log('[default-agent] Checking admin status for selector...');
-
-            // Check if user is admin to show selector
+        // Load navigation menu dynamically
+        async function loadNavMenu() {
             try {
-                const WitnessModule = await import('/lib/witness.js');
-                const Witness = WitnessModule.default;
-                const witness = await Witness.connect();
-                const status = witness.getStatus();
-                const clientWallet = status.client.address;
-
-                console.log('[default-agent] Client wallet:', clientWallet);
-
-                const response = await fetch('/api/check-admin', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ address: clientWallet })
-                });
-
-                const data = await response.json();
-                console.log('[default-agent] Admin check result:', data);
-
-                if (!data.isAdmin) {
-                    console.log('[default-agent] Not admin, hiding selector');
-                    return; // Not admin, don't show selector
+                const response = await fetch('/api/nav-menu');
+                const html = await response.text();
+                const nav = document.querySelector('nav.container');
+                const existingMenu = document.getElementById('nav-menu');
+                if (existingMenu) {
+                    existingMenu.remove();
                 }
-
-                console.log('[default-agent] Is admin, showing selector');
-
-                // Admin - show and populate selector
-                selectorDiv.style.display = 'flex';
-                selectorDiv.style.alignItems = 'center';
-
-                // Clear existing options except first
-                while (select.options.length > 1) {
-                    select.remove(1);
-                }
-
-                // Add agent options
-                for (const agent of agents) {
-                    const option = document.createElement('option');
-                    option.value = agent.shortPath;
-                    option.textContent = agent.name;
-                    if (agent.shortPath === currentDefault) {
-                        option.selected = true;
-                    }
-                    select.appendChild(option);
-                }
-
-                // Handle selection changes
-                select.addEventListener('change', async (e) => {
-                    const agentPath = e.target.value;
-                    try {
-                        const response = await fetch('/api/set-default-agent', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            credentials: 'include',
-                            body: JSON.stringify({ agentPath })
-                        });
-
-                        const result = await response.json();
-                        if (result.success) {
-                            console.log('Default agent updated:', agentPath || 'none');
-                        } else {
-                            console.error('Failed to update default agent:', result.error);
-                            alert('Failed to update default agent: ' + result.error);
-                        }
-                    } catch (error) {
-                        console.error('Error updating default agent:', error);
-                        alert('Error updating default agent');
-                    }
-                });
+                nav.insertAdjacentHTML('beforeend', html);
             } catch (error) {
-                console.log('Could not check admin status:', error);
+                console.error('Failed to load navigation menu:', error);
             }
         }
 
         // Check initialization and admin access on load
+        loadNavMenu();
         checkInitializationStatus();
         checkAdminAccess();
         loadAgents();

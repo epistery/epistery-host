@@ -74,6 +74,34 @@ let main = async function() {
         res.json({ agents, defaultAgent });
     });
 
+    // API endpoint to get navigation menu HTML
+    app.get('/api/nav-menu', (req, res) => {
+        if (!agentManager) {
+            return res.send('<ul class="nav-menu"><li><a href="/?home">Home</a></li></ul>');
+        }
+
+        const agents = [];
+        for (const [, agentData] of agentManager.agents) {
+            agents.push({
+                name: agentData.manifest.name,
+                shortPath: agentData.shortPath
+            });
+        }
+
+        let html = '<ul class="nav-menu">';
+        html += '<li><a href="/?home">Home</a></li>';
+
+        for (const agent of agents) {
+            const simpleName = agent.name.split('/').pop();
+            html += `<li><a href="${agent.shortPath}">${simpleName}</a></li>`;
+        }
+
+        html += '<li><a href="/status">Wallet</a></li>';
+        html += '</ul>';
+
+        res.send(html);
+    });
+
     // API endpoint to set default agent
     app.post('/api/set-default-agent', async (req, res) => {
         try {
