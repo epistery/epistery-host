@@ -32,7 +32,9 @@ let main = async function() {
         origin: function(origin, callback){
             return callback(null, true);
         },
-        credentials:true
+        credentials: true,
+        allowedHeaders: ['Content-Type', 'Authorization', 'X-Wallet-Address', 'X-Epistery-Delegation'],
+        exposedHeaders: ['X-Wallet-Address']
     }));
     app.use(express.urlencoded({extended: true}));
     app.use(express.json({limit: '50mb'}));
