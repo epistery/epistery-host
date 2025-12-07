@@ -70,12 +70,58 @@ header {
     padding: 1rem 0;
     flex-shrink: 0;
     z-index: 100;
+    position: relative;
+    overflow: hidden;
+}
+
+header::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-image: url('/image/epistery-base.png');
+    background-size: 800%;
+    background-repeat: no-repeat;
+    opacity: 0;
+    animation: driftPattern 120s ease-in-out infinite;
+    pointer-events: none;
+}
+
+@keyframes driftPattern {
+    0% {
+        opacity: 0;
+        background-position: 2rem 50%;
+    }
+    20% {
+        opacity: 0.08;
+        background-position: 2rem 50%;
+    }
+    40% {
+        opacity: 0.1;
+        background-position: 10% 45%;
+    }
+    60% {
+        opacity: 0.1;
+        background-position: 5% 55%;
+    }
+    80% {
+        opacity: 0.08;
+        background-position: 2rem 50%;
+    }
+    100% {
+        opacity: 0;
+        background-position: 2rem 50%;
+    }
 }
 
 nav {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    position: relative;
+    z-index: 1;
 }
 
 .logo {
@@ -86,6 +132,8 @@ nav {
     font-size: 1.5rem;
     font-weight: bold;
     color: var(--primary);
+    position: relative;
+    z-index: 1;
 }
 
 .logo img {

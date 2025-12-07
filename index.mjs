@@ -53,6 +53,11 @@ let main = async function() {
             return res.json({ agents: [] });
         }
 
+        const domain = req.hostname || 'localhost';
+        const cfg = new Config();
+        cfg.setPath(domain);
+        const defaultAgent = cfg.data?.default_agent || null;
+
         const agents = [];
         for (const [, agentData] of agentManager.agents) {
             agents.push({
@@ -66,7 +71,50 @@ let main = async function() {
             });
         }
 
-        res.json({ agents });
+        res.json({ agents, defaultAgent });
+    });
+
+    // API endpoint to set default agent
+    app.post('/api/set-default-agent', async (req, res) => {
+        try {
+            const { agentPath } = req.body;
+            const domain = req.hostname || 'localhost';
+
+            // Verify admin access
+            const delegationHeader = req.headers['x-epistery-delegation'];
+            const delegationCookie = req.cookies?.epistery_delegation;
+            const tokenData = delegationHeader || delegationCookie;
+
+            if (!tokenData) {
+                return res.status(401).json({ success: false, error: 'No delegation token' });
+            }
+
+            const token = typeof tokenData === 'string' ? JSON.parse(tokenData) : tokenData;
+            const address = token.delegation?.subject;
+
+            if (!address) {
+                return res.status(401).json({ success: false, error: 'Invalid token' });
+            }
+
+            // Check if user is admin (on epistery::admin list or domain owner)
+            const epistery = req.app.locals.epistery;
+            const isAdmin = epistery ? await epistery.isListed(address, 'epistery::admin') : false;
+
+            if (!isAdmin) {
+                return res.status(403).json({ success: false, error: 'Admin access required' });
+            }
+
+            // Save default agent setting
+            const cfg = new Config();
+            cfg.setPath(domain);
+            cfg.data.default_agent = agentPath || null;
+            await cfg.save();
+
+            res.json({ success: true, defaultAgent: agentPath });
+        } catch (error) {
+            console.error('Error setting default agent:', error);
+            res.status(500).json({ success: false, error: error.message });
+        }
     });
 
     // Build status JSON - shared by both HTML and API responses
@@ -124,6 +172,12 @@ let main = async function() {
                 const claimTemplate = readFileSync(path.join(__dirname, 'public', 'claim.html'), 'utf8');
                 const html = claimTemplate.replace(/{DOMAIN}/g, domain);
                 return res.send(html);
+            }
+
+            // Check if there's a default agent set (and not bypassed with ?home query param)
+            const defaultAgent = cfg.data?.default_agent;
+            if (defaultAgent && !req.query.home) {
+                return res.redirect(defaultAgent);
             }
 
             // Domain is claimed - show regular status page
