@@ -81,7 +81,17 @@ let main = async function() {
         if (!agentManager) {
             return res.send('<ul class="nav-menu"><li><a href="/?home">Home</a></li></ul>');
         }
+        const domain = req.hostname || 'localhost';
+        const cfg = new Config();
+        cfg.setPath(domain);
+        const defaultAgent = cfg.data?.default_agent || null;
+        const initialized = cfg.data?.initialized || false;
+        const isAdmin = (cfg.data?.admin_address.toLowerCase() === req.app.epistery.clientWallet?.address.toLowerCase());
 
+        let navBar = `<nav class="container"><ul class="nav-menu">`;
+        if (!initialized) {
+            navBar += `<li><span>Welcome, first step is now to initialize the server</span> <button>admin</button></li>`
+        }
         const agents = [];
         for (const [, agentData] of agentManager.agents) {
             agents.push({
@@ -89,6 +99,7 @@ let main = async function() {
                 shortPath: agentData.shortPath
             });
         }
+        navBar += `</ul></nav>`;
 
         let html = '<ul class="nav-menu">';
         html += '<li><a href="/?home">Home</a></li>';
