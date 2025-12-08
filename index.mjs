@@ -95,7 +95,12 @@ let main = async function() {
 
         for (const agent of agents) {
             const simpleName = agent.name.split('/').pop();
-            html += `<li><a href="${agent.shortPath}">${simpleName}</a></li>`;
+            // Show white-list as "Admin" link
+            if (simpleName === 'white-list') {
+                html += `<li><a href="${agent.shortPath}/admin">Admin</a></li>`;
+            } else {
+                html += `<li><a href="${agent.shortPath}">${simpleName}</a></li>`;
+            }
         }
 
         html += '<li><a href="/status">Wallet</a></li>';
