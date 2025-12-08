@@ -368,7 +368,7 @@ let main = async function() {
             console.log(`Adding ${adminAddress} to admin list for domain ${domain}...`);
 
             // Add with admin role (3) and metadata
-            const listName = `domain::${domain}`;
+            const listName = `${domain}::admin`;
             const role = 3; // admin
             const name = 'Domain Administrator';
             const meta = JSON.stringify({ addedBy: 'initialization', addedAt: new Date().toISOString() });
@@ -417,7 +417,7 @@ let main = async function() {
             const wallet = ethers.Wallet.fromMnemonic(serverWallet.mnemonic).connect(ethersProvider);
             const contract = new ethers.Contract(contractAddress, AgentArtifact.abi, wallet);
 
-            const listName = `domain::${domain}`;
+            const listName = `${domain}::admin`;
             const isListed = await contract.isWhitelisted(serverWallet.address, listName, address);
 
             res.json({ isAdmin: isListed });
@@ -451,7 +451,7 @@ let main = async function() {
             const contract = new ethers.Contract(contractAddress, AgentArtifact.abi, wallet);
 
             // Get list from contract (returns WhitelistEntry[] with addr, name, role, meta)
-            const listName = `domain::${domain}`;
+            const listName = `${domain}::admin`;
             const whitelistEntries = await contract.getWhitelist(serverWallet.address, listName);
 
             // Transform to simple format for API response
@@ -512,7 +512,7 @@ let main = async function() {
             console.log(`Adding ${address} to list for domain ${domain}...`);
 
             // Convert isAdmin to role: 3=admin, 0=none
-            const listName = `domain::${domain}`;
+            const listName = `${domain}::admin`;
             const role = isAdmin ? 3 : 0;
             const meta = JSON.stringify({ addedBy: 'admin-ui', addedAt: new Date().toISOString() });
 
@@ -569,7 +569,7 @@ let main = async function() {
             const contract = new ethers.Contract(contractAddress, AgentArtifact.abi, wallet);
 
             console.log(`Removing ${address} from list for domain ${domain}...`);
-            const listName = `domain::${domain}`;
+            const listName = `${domain}::admin`;
             const tx = await contract.removeFromWhitelist(listName, address, {
                 maxPriorityFeePerGas: maxPriorityFeePerGas,
                 maxFeePerGas: maxFeePerGas
@@ -626,7 +626,7 @@ let main = async function() {
 
             // Use sentinel values to update only the fields that are provided
             // "\x00KEEP" for strings means don't update, 255 for role means don't update
-            const listName = `domain::${domain}`;
+            const listName = `${domain}::admin`;
             const role = isAdmin !== undefined ? (isAdmin ? 3 : 0) : 255;
             const nameToUpdate = name !== undefined ? name : '\x00KEEP';
             const metaToUpdate = '\x00KEEP'; // Don't update meta for now
