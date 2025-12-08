@@ -241,6 +241,21 @@
                     </div>
                 </section>
 
+                <!-- Pending Access Requests Section -->
+                <section class="admin-section" id="pending-requests-section" style="display: none;">
+                    <h2>Pending Access Requests</h2>
+                    <p>Review and approve access requests from users</p>
+
+                    <div id="pending-requests-loading" style="display: none;">
+                        <div class="spinner"></div>
+                        <span>Loading requests...</span>
+                    </div>
+
+                    <div id="pending-requests-container">
+                        <div id="pending-requests-items"></div>
+                    </div>
+                </section>
+
                 <!-- Whitelist Management Section -->
                 <section class="admin-section">
                     <h2>Whitelist Management</h2>
@@ -331,6 +346,7 @@
                 // User is authorized, show admin content
                 document.getElementById('admin-content').style.display = 'block';
                 await loadWhitelist();
+                await loadPendingRequests();
                 await loadPolicy();
                 await checkContractVersion();
 
@@ -724,6 +740,146 @@
                 // Don't show error to user, just log it
             }
         }
+
+        // Pending access requests management
+        async function loadPendingRequests() {
+            // Always show the section
+            document.getElementById('pending-requests-section').style.display = 'block';
+
+            try {
+                const response = await fetch('/agent/epistery/white-list/pending-requests', {
+                    credentials: 'include'
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    console.error('Failed to load pending requests:', response.status, error);
+                    document.getElementById('pending-requests-items').innerHTML =
+                        `<div class="info-box" style="background: rgba(255,0,0,0.1);"><p>Error loading requests: ${error.error || 'Authentication required'}</p></div>`;
+                    return;
+                }
+
+                const data = await response.json();
+
+                if (data.requests && data.requests.length > 0) {
+                    renderPendingRequests(data.requests);
+                } else {
+                    document.getElementById('pending-requests-items').innerHTML = '<div class="info-box"><p>No pending requests</p></div>';
+                }
+            } catch (error) {
+                console.error('Failed to load pending requests:', error);
+                document.getElementById('pending-requests-items').innerHTML =
+                    `<div class="info-box" style="background: rgba(255,0,0,0.1);"><p>Error: ${error.message}</p></div>`;
+            }
+        }
+
+        function renderPendingRequests(requests) {
+            const container = document.getElementById('pending-requests-items');
+
+            if (requests.length === 0) {
+                container.innerHTML = '<div class="info-box"><p>No pending requests</p></div>';
+                return;
+            }
+
+            const pendingRequests = requests.filter(r => r.status === 'pending');
+
+            if (pendingRequests.length === 0) {
+                container.innerHTML = '<div class="info-box"><p>No pending requests</p></div>';
+                return;
+            }
+
+            let html = '<div style="display: flex; flex-direction: column; gap: 15px;">';
+
+            pendingRequests.forEach(request => {
+                const timestamp = new Date(request.timestamp).toLocaleString();
+                const shortAddress = `${request.address.substring(0, 8)}...${request.address.substring(request.address.length - 6)}`;
+
+                html += `
+                    <div class="console-section" style="padding: 15px;">
+                        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">
+                            <div>
+                                <strong>Address:</strong> <code>${request.address}</code><br>
+                                <strong>List:</strong> ${request.listName}<br>
+                                <strong>Agent:</strong> ${request.agentName}<br>
+                                <strong>Requested:</strong> ${timestamp}
+                            </div>
+                        </div>
+                        ${request.message ? `<div style="margin: 10px 0; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 4px;"><em>"${request.message}"</em></div>` : ''}
+                        <div style="display: flex; gap: 10px; margin-top: 10px;">
+                            <button class="console-btn" onclick="handleApproveRequest('${request.address}', '${request.listName}')" style="background: #28a745;">
+                                ✓ Approve
+                            </button>
+                            <button class="console-btn" onclick="handleDenyRequest('${request.address}', '${request.listName}')" style="background: #dc3545;">
+                                ✗ Deny
+                            </button>
+                        </div>
+                    </div>
+                `;
+            });
+
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
+        window.handleApproveRequest = async function(address, listName) {
+            try {
+                const response = await fetch('/agent/epistery/white-list/handle-request', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        address,
+                        listName,
+                        approved: true,
+                        role: 2 // write role
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to approve request');
+                }
+
+                alert(`Access approved for ${address.substring(0, 10)}...`);
+
+                // Reload pending requests and whitelist
+                await loadPendingRequests();
+                await loadWhitelist();
+            } catch (error) {
+                console.error('Failed to approve request:', error);
+                alert('Failed to approve request: ' + error.message);
+            }
+        };
+
+        window.handleDenyRequest = async function(address, listName) {
+            if (!confirm(`Deny access request from ${address.substring(0, 10)}...?`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/agent/epistery/white-list/handle-request', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        address,
+                        listName,
+                        approved: false
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to deny request');
+                }
+
+                alert(`Access request denied for ${address.substring(0, 10)}...`);
+
+                // Reload pending requests
+                await loadPendingRequests();
+            } catch (error) {
+                console.error('Failed to deny request:', error);
+                alert('Failed to deny request: ' + error.message);
+            }
+        };
 
         window.upgradeContract = async function() {
             if (!confirm('Deploy a new Agent contract? This will create a new contract instance with the latest features. Your existing contract will remain unchanged.')) {

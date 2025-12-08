@@ -95,14 +95,14 @@ let main = async function() {
 
         for (const agent of agents) {
             const simpleName = agent.name.split('/').pop();
-            // Show white-list as "Admin" link
+            // Skip white-list agent from nav menu (consolidated into /admin)
             if (simpleName === 'white-list') {
-                html += `<li><a href="${agent.shortPath}/admin">Admin</a></li>`;
-            } else {
-                html += `<li><a href="${agent.shortPath}">${simpleName}</a></li>`;
+                continue;
             }
+            html += `<li><a href="${agent.shortPath}">${simpleName}</a></li>`;
         }
 
+        html += '<li><a href="/admin">Admin</a></li>';
         html += '<li><a href="/status">Wallet</a></li>';
         html += '</ul>';
 
