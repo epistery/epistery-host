@@ -29,7 +29,7 @@
             background-size: 1000px 1000px;
             background-repeat: repeat;
             opacity: 0.08;
-            animation: patternSwirl 220s ease-in-out infinite;
+            /*animation: patternSwirl 220s ease-in-out infinite;*/
             pointer-events: none;
             z-index: 0;
         }
@@ -87,7 +87,7 @@
             background-size: 1000px 1000px;
             background-repeat: repeat;
             opacity: 1;
-            animation: patternSwirl 220s ease-in-out infinite;
+            /*animation: patternSwirl 220s ease-in-out infinite;*/
             pointer-events: none;
         }
     </style>
@@ -333,6 +333,29 @@
                 console.error('Failed to load navigation menu:', error);
             }
         }
+        // Logo zoom with mouse wheel
+        (() => {
+          const header = document.querySelector('header');
+          const headerBg = header;
+          const logoWindow = document.querySelector('.logo-window');
+
+          let scale = 1;
+          const minScale = 0.5;
+          const maxScale = 3;
+          const zoomSpeed = 0.1;
+
+          header.addEventListener('wheel', (e) => {
+            e.preventDefault();
+
+            // Adjust scale based on wheel direction
+            const delta = e.deltaY > 0 ? -zoomSpeed : zoomSpeed;
+            scale = Math.max(minScale, Math.min(maxScale, scale + delta));
+
+            // Apply scale to both backgrounds
+            const bgSize = Math.round(1000 * scale);
+            headerBg.style.setProperty('--pattern-size', `${bgSize}px`);
+          }, { passive: false });
+        })();
 
         // Check initialization and admin access on load
         loadNavMenu();

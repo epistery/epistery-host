@@ -1,0 +1,87 @@
+.agent-name {
+    white-space: nowrap;
+}
+
+/* Animated pattern background */
+header {
+    position: relative;
+    overflow: hidden;
+}
+
+/* Dimmed background layer */
+header::before {
+    content: '';
+    position: absolute;
+    top: -100%;
+    left: -100%;
+    width: 300%;
+    height: 300%;
+    background-image: url('/image/epistery-base-1000.png');
+    background-size: var(--pattern-size, 1000px) var(--pattern-size, 1000px);
+    background-position: center;
+    background-repeat: repeat;
+    opacity: 0.08;
+    /*animation: patternSwirl 220s ease-in-out infinite;*/
+    pointer-events: none;
+    z-index: 0;
+    transition: background-size 0.15s ease-out;
+}
+
+@keyframes patternSwirl {
+    0% {
+        transform: translate(0, 0) scale(1) rotate(0deg);
+    }
+    25% {
+        transform: translate(-80px, 60px) scale(1.5) rotate(3deg);
+    }
+    50% {
+        transform: translate(-40px, -80px) scale(2) rotate(0deg);
+    }
+    75% {
+        transform: translate(60px, -40px) scale(1.5) rotate(-3deg);
+    }
+    100% {
+        transform: translate(0, 0) scale(1) rotate(0deg);
+    }
+}
+
+header nav {
+    position: relative;
+    z-index: 1;
+}
+
+/* Logo window - bright clip of the pattern */
+.logo {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.logo-window {
+    width: 60px;
+    height: 60px;
+    border-radius: 8px;
+    position: relative;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    border: 2px solid rgba(255,255,255,0.1);
+    overflow: hidden;
+}
+
+.logo-window::before {
+    content: '';
+    position: absolute;
+    /* Position to align with header background */
+    top: calc(-1 * (var(--header-height, 80px) / 2 - 30px) - 100vh);
+    left: calc(-1 * (10px + 2px) - 100vw);
+    width: 300vw;
+    height: 300vh;
+    background-image: url('/image/epistery-base-1000.png');
+    background-size: var(--pattern-size, 1000px) var(--pattern-size, 1000px);
+    background-position: center;
+    background-repeat: repeat;
+    opacity: 1;
+    /*animation: patternSwirl 220s ease-in-out infinite;*/
+    pointer-events: none;
+    transition: background-size 0.15s ease-out;
+}
