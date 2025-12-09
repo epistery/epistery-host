@@ -443,7 +443,8 @@ let main = async function() {
 
             const tx = await contract.addToWhitelist(listName, adminAddress, name, role, meta, {
                 maxPriorityFeePerGas: maxPriorityFeePerGas,
-                maxFeePerGas: maxFeePerGas
+                maxFeePerGas: maxFeePerGas,
+                gasLimit: 300000  // Set explicit gas limit for whitelist operation
             });
             await tx.wait();
 
