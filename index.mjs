@@ -133,15 +133,17 @@ let main = async function() {
     function buildStatus(domain, cfg) {
         const wallet = cfg.data?.wallet || {};
         const provider = cfg.data?.provider || {};
-        // Check both persisted config and environment variable
+        // Only use finalized contract address for initialized status
         const contractAddress = cfg.data?.agent_contract_address || process.env.AGENT_CONTRACT_ADDRESS;
+        const pendingContractAddress = cfg.data?.agent_contract_pending;
         const isInitialized = contractAddress && contractAddress !== '0x0000000000000000000000000000000000000000';
 
         return {
             server: {
                 walletAddress: wallet.address || null,
                 publicKey: wallet.publicKey || null,
-                contractAddress: isInitialized ? contractAddress : null,
+                contractAddress: contractAddress || pendingContractAddress || null,
+                contractPending: !!pendingContractAddress,
                 initialized: isInitialized,
                 adminAddress: cfg.data?.admin_address || null,
                 provider: provider.name || 'Polygon Mainnet',
@@ -280,12 +282,12 @@ let main = async function() {
             // Store in environment for current session
             process.env.AGENT_CONTRACT_ADDRESS = contractAddress;
 
-            // Persist to domain config
-            cfg.data.agent_contract_address = contractAddress;
+            // Mark contract as pending until whitelist initialization completes
+            cfg.data.agent_contract_pending = contractAddress;
             cfg.data.contract_deployed_at = new Date().toISOString();
             cfg.data.contract_version = version;
             cfg.save();
-            console.log(`Contract address saved to domain config: ${domain}`);
+            console.log(`Contract deployment pending initialization: ${domain}`);
 
             res.json({
                 success: true,
@@ -449,6 +451,15 @@ let main = async function() {
             await tx.wait();
 
             console.log('Admin address added to list successfully');
+
+            // Promote pending contract to finalized
+            if (cfg.data.agent_contract_pending) {
+                cfg.data.agent_contract_address = cfg.data.agent_contract_pending;
+                delete cfg.data.agent_contract_pending;
+                cfg.data.whitelist_initialized_at = new Date().toISOString();
+                cfg.save();
+                console.log(`Initialization complete for domain: ${domain}`);
+            }
 
             res.json({
                 success: true,
