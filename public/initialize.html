@@ -153,10 +153,12 @@
                     <p>Send <span id="currency-symbol-3">POL</span> to <span id="wallet-address-text">this address</span>.</p>
                     <button class="console-btn" onclick="location.reload()">Retry</button>
 
-                    <h4 style="margin-top: var(--spacer);">Option 2: Request Admin Deployment</h4>
-                    <p>Share this URL with a Rootz admin who can deploy the contract on your behalf:</p>
-                    <div class="wallet-address" id="admin-url">Loading...</div>
-                    <button class="console-btn secondary" onclick="copyAdminUrl()">Copy URL</button>
+                    <h4 style="margin-top: var(--spacer);">Option 2: Ask for Help</h4>
+                    <p>Request assistance from epistery.host administrators to deploy your contract.</p>
+                    <button class="console-btn secondary" onclick="requestAdminHelp()">Request Admin Deployment</button>
+                    <div id="help-request-status" style="margin-top: var(--spacerhalf); display: none;">
+                        <p>✓ Help request submitted. An admin will review your request shortly.</p>
+                    </div>
                 </div>
 
                 <div id="sufficient-funds" style="display: none;">
@@ -188,7 +190,7 @@
                 <p id="whitelist-status">Waiting for Step 2...</p>
                 <div id="whitelist-progress" style="display: none;">
                     <div class="spinner"></div>
-                    <span>Adding admin to whitelist...</span>
+                    <span>Authorizing epistery::admin...</span>
                 </div>
                 <div id="whitelist-success" style="display: none;">
                     <div class="info-box">
@@ -294,19 +296,44 @@
 
         async function checkBalance() {
             try {
-                // For now, just show the deploy button
-                // Balance checking will happen server-side when deployment is attempted
                 const balanceEl = document.getElementById('server-balance');
                 const currencySymbol = initData.nativeCurrency?.symbol || 'POL';
-                balanceEl.textContent = `Check blockchain explorer`;
 
-                document.getElementById('balance-status').textContent = 'Ready to deploy Agent contract';
-                document.getElementById('insufficient-funds').style.display = 'none';
-                document.getElementById('sufficient-funds').style.display = 'block';
+                // Call API to check actual balance
+                const response = await fetch('/api/check-deploy-balance', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ domain: window.location.hostname })
+                });
 
-                // Generate admin URL for fallback
-                const adminUrl = `${window.location.origin}/api/admin-deploy?domain=${encodeURIComponent(window.location.hostname)}&serverWallet=${encodeURIComponent(initData.walletAddress)}`;
-                document.getElementById('admin-url').textContent = adminUrl;
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to check balance');
+                }
+
+                balanceEl.textContent = `${data.balance} ${currencySymbol}`;
+
+                if (data.sufficient) {
+                    document.getElementById('balance-status').textContent = 'Ready to deploy Agent contract';
+                    document.getElementById('insufficient-funds').style.display = 'none';
+                    document.getElementById('sufficient-funds').style.display = 'block';
+                } else {
+                    document.getElementById('estimated-cost').textContent = data.estimatedCost;
+                    document.getElementById('required-amount').textContent = data.required;
+                    document.getElementById('wallet-address-text').textContent = initData.walletAddress;
+                    document.getElementById('currency-symbol').textContent = currencySymbol;
+                    document.getElementById('currency-symbol-2').textContent = currencySymbol;
+                    document.getElementById('currency-symbol-3').textContent = currencySymbol;
+
+                    // Generate admin URL for help request
+                    const adminUrl = `${window.location.origin}/api/admin-deploy?domain=${encodeURIComponent(window.location.hostname)}&serverWallet=${encodeURIComponent(initData.walletAddress)}`;
+                    document.getElementById('admin-url').textContent = adminUrl;
+
+                    document.getElementById('balance-status').textContent = 'Insufficient funds for deployment';
+                    document.getElementById('sufficient-funds').style.display = 'none';
+                    document.getElementById('insufficient-funds').style.display = 'block';
+                }
             } catch (error) {
                 console.error('Failed to check balance:', error);
                 document.getElementById('balance-status').textContent = `Error: ${error.message}`;
@@ -346,6 +373,31 @@
                 document.getElementById('deploy-progress').style.display = 'none';
                 document.getElementById('deploy-status').textContent = 'Deployment failed. Check console for details.';
                 document.getElementById('deploy-status').style.display = 'block';
+            }
+        }
+
+        async function requestAdminHelp() {
+            try {
+                const response = await fetch('/api/request-deployment-help', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        domain: window.location.hostname,
+                        walletAddress: initData.walletAddress,
+                        requesterRivet: initData.adminAddress
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to submit help request');
+                }
+
+                document.getElementById('help-request-status').style.display = 'block';
+            } catch (error) {
+                console.error('Failed to request admin help:', error);
+                alert(`Failed to submit help request: ${error.message}`);
             }
         }
 

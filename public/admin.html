@@ -91,30 +91,6 @@
             color: var(--page-text-primary);
             font-family: monospace;
         }
-        .policy-selector {
-            display: flex;
-            flex-direction: column;
-            gap: var(--spacerhalf);
-        }
-        .policy-option {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: var(--spacerhalf);
-            border: 1px solid var(--page-border);
-            border-radius: 4px;
-            cursor: pointer;
-        }
-        .policy-option:hover {
-            background: var(--panel-background);
-        }
-        .policy-option input[type="radio"] {
-            margin: 0;
-        }
-        .policy-description {
-            font-size: 14px;
-            color: var(--page-text-secondary);
-        }
         .spinner {
             border: 3px solid var(--page-border);
             border-top-color: #007bff;
@@ -175,48 +151,6 @@
             </div>
 
             <div id="admin-content" style="display: none;">
-                <!-- Access Policy Section -->
-                <section class="admin-section">
-                    <h2>Access Policy</h2>
-                    <p>Control who can access this domain's services</p>
-
-                    <div class="policy-selector">
-                        <label class="policy-option">
-                            <input type="radio" name="policy" value="public" checked>
-                            <div>
-                                <strong>Public</strong>
-                                <div class="policy-description">Anyone can access services without restrictions</div>
-                            </div>
-                        </label>
-
-                        <label class="policy-option">
-                            <input type="radio" name="policy" value="public-id">
-                            <div>
-                                <strong>Public with Identity</strong>
-                                <div class="policy-description">Requires identity verification but allows all verified users</div>
-                            </div>
-                        </label>
-
-                        <label class="policy-option">
-                            <input type="radio" name="policy" value="public-req">
-                            <div>
-                                <strong>Public with Request</strong>
-                                <div class="policy-description">Users can request access, admins must approve</div>
-                            </div>
-                        </label>
-
-                        <label class="policy-option">
-                            <input type="radio" name="policy" value="private">
-                            <div>
-                                <strong>Private</strong>
-                                <div class="policy-description">Only whitelisted addresses can access services</div>
-                            </div>
-                        </label>
-                    </div>
-
-                    <button class="console-btn" style="margin-top: var(--spacer);" onclick="savePolicy()">Save Policy</button>
-                </section>
-
                 <!-- Contract Upgrade Section -->
                 <section class="admin-section" id="contract-upgrade-section" style="display: none;">
                     <h2>⚡ Contract Upgrade Available</h2>
@@ -385,11 +319,10 @@
 
                 selector.innerHTML = '';
 
-                // Add default domain list
-                const hostname = window.location.hostname;
-                const defaultList = `${hostname}::admin`;
+                // Add epistery::admin as the default list
+                const defaultList = 'epistery::admin';
 
-                selector.innerHTML += `<option value="${defaultList}">${defaultList} (Domain Admin)</option>`;
+                selector.innerHTML += `<option value="${defaultList}">${defaultList} (Epistery Admin)</option>`;
 
                 // Add other lists
                 for (const list of availableLists) {
@@ -411,16 +344,16 @@
                 await loadWhitelist();
             } catch (error) {
                 console.error('Failed to load lists:', error);
-                // Fallback to domain admin list
-                currentListName = `${window.location.hostname}::admin`;
+                // Fallback to epistery::admin list
+                currentListName = 'epistery::admin';
                 await loadWhitelist();
             }
         }
 
         async function loadWhitelist() {
             try {
-                const listName = currentListName || `${window.location.hostname}::admin`;
-                const response = await fetch(`/agent/epistery/white-list/list/${encodeURIComponent(listName)}`);
+                const listName = currentListName || 'epistery::admin';
+                const response = await fetch(`/agent/epistery/white-list/list?list=${encodeURIComponent(listName)}`);
 
                 if (!response.ok) {
                     throw new Error('Failed to load whitelist');
@@ -455,17 +388,14 @@
             const listName = prompt('Enter new list name (e.g., "moderators", "contributors"):');
             if (!listName) return;
 
-            const hostname = window.location.hostname;
-            const fullListName = `${hostname}::${listName}`;
-
             // Just switch to the new list name - it will be created when first member is added
             const selector = document.getElementById('list-selector');
             const option = document.createElement('option');
-            option.value = fullListName;
-            option.textContent = fullListName;
+            option.value = listName;
+            option.textContent = listName;
             selector.appendChild(option);
-            selector.value = fullListName;
-            currentListName = fullListName;
+            selector.value = listName;
+            currentListName = listName;
 
             await loadWhitelist();
         };
@@ -781,29 +711,6 @@
 
                 editIcon.style.display = 'none';
                 saveIcon.style.display = '';
-            }
-        };
-
-        window.savePolicy = async function() {
-            const selectedPolicy = document.querySelector('input[name="policy"]:checked').value;
-
-            try {
-                // TODO: Implement API endpoint to save policy
-                const response = await fetch('/api/policy/set', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ policy: selectedPolicy })
-                });
-
-                if (!response.ok) {
-                    throw new Error('Failed to save policy');
-                }
-
-                currentPolicy = selectedPolicy;
-                alert('Policy saved successfully');
-            } catch (error) {
-                console.error('Failed to save policy:', error);
-                alert('Failed to save policy. Check console for details.');
             }
         };
 

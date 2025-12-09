@@ -33,7 +33,7 @@ let main = async function() {
             return callback(null, true);
         },
         credentials: true,
-        allowedHeaders: ['Content-Type', 'Authorization', 'X-Wallet-Address', 'X-Epistery-Delegation'],
+        allowedHeaders: ['Content-Type', 'Authorization', 'X-Wallet-Address'],
         exposedHeaders: ['X-Wallet-Address']
     }));
     app.use(express.urlencoded({extended: true}));
@@ -85,11 +85,14 @@ let main = async function() {
         const cfg = new Config();
         cfg.setPath(domain);
         const defaultAgent = cfg.data?.default_agent || null;
-        const initialized = cfg.data?.initialized || false;
-        const isAdmin = (cfg.data?.admin_address.toLowerCase() === req.app.epistery.clientWallet?.address.toLowerCase());
+        const verified = cfg.data?.verified || false;
+
+        // NOTE: No authentication available - removed delegation tokens
+        // This is just rendering public navigation, admin checks removed
+        const isAdmin = false;
 
         let navBar = `<nav class="container"><ul class="nav-menu">`;
-        if (!initialized) {
+        if (!verified) {
             navBar += `<li><span>Welcome, first step is now to initialize the server</span> <button>admin</button></li>`
         }
         const agents = [];
@@ -121,46 +124,9 @@ let main = async function() {
     });
 
     // API endpoint to set default agent
+    // TODO: Implement proper authentication without delegation tokens
     app.post('/api/set-default-agent', async (req, res) => {
-        try {
-            const { agentPath } = req.body;
-            const domain = req.hostname || 'localhost';
-
-            // Verify admin access
-            const delegationHeader = req.headers['x-epistery-delegation'];
-            const delegationCookie = req.cookies?.epistery_delegation;
-            const tokenData = delegationHeader || delegationCookie;
-
-            if (!tokenData) {
-                return res.status(401).json({ success: false, error: 'No delegation token' });
-            }
-
-            const token = typeof tokenData === 'string' ? JSON.parse(tokenData) : tokenData;
-            const address = token.delegation?.subject;
-
-            if (!address) {
-                return res.status(401).json({ success: false, error: 'Invalid token' });
-            }
-
-            // Check if user is admin (on epistery::admin list or domain owner)
-            const epistery = req.app.locals.epistery;
-            const isAdmin = epistery ? await epistery.isListed(address, 'epistery::admin') : false;
-
-            if (!isAdmin) {
-                return res.status(403).json({ success: false, error: 'Admin access required' });
-            }
-
-            // Save default agent setting
-            const cfg = new Config();
-            cfg.setPath(domain);
-            cfg.data.default_agent = agentPath || null;
-            await cfg.save();
-
-            res.json({ success: true, defaultAgent: agentPath });
-        } catch (error) {
-            console.error('Error setting default agent:', error);
-            res.status(500).json({ success: false, error: error.message });
-        }
+        return res.status(501).json({ success: false, error: 'Authentication not implemented - delegation removed' });
     });
 
     // Build status JSON - shared by both HTML and API responses
@@ -335,8 +301,94 @@ let main = async function() {
         }
     }
 
+    // API: Check if server wallet has sufficient balance for deployment
+    app.post('/api/check-deploy-balance', async (req, res) => {
+        try {
+            const domain = req.hostname || req.body.domain || 'localhost';
+            const cfg = new Config();
+            cfg.setPath(domain);
+
+            const provider = cfg.data?.provider;
+            if (!provider || !provider.rpc) {
+                return res.status(500).json({ error: 'Provider not configured' });
+            }
+
+            const serverWallet = cfg.data?.wallet;
+            if (!serverWallet || !serverWallet.mnemonic) {
+                return res.status(500).json({ error: 'Server wallet not configured' });
+            }
+
+            const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc);
+            const wallet = ethers.Wallet.fromMnemonic(serverWallet.mnemonic).connect(ethersProvider);
+
+            // Get current balance
+            const balance = await ethersProvider.getBalance(wallet.address);
+
+            // Estimate deployment cost
+            // Gas limit ~750k, current gas prices
+            const feeData = await ethersProvider.getFeeData();
+            const estimatedGas = ethers.BigNumber.from(750000);
+            const minGasPrice = ethers.utils.parseUnits("30", "gwei");
+
+            let estimatedCost;
+            if (feeData.maxFeePerGas) {
+                const maxFee = feeData.maxFeePerGas.mul(120).div(100);
+                const adjustedMaxFee = maxFee.gt(minGasPrice.mul(2)) ? maxFee : minGasPrice.mul(2);
+                estimatedCost = estimatedGas.mul(adjustedMaxFee);
+            } else {
+                const gasPrice = feeData.gasPrice ? feeData.gasPrice.mul(120).div(100) : minGasPrice.mul(2);
+                estimatedCost = estimatedGas.mul(gasPrice);
+            }
+
+            // Add 50% buffer
+            const required = estimatedCost.mul(150).div(100);
+            const sufficient = balance.gte(required);
+
+            res.json({
+                balance: ethers.utils.formatEther(balance),
+                estimatedCost: ethers.utils.formatEther(estimatedCost),
+                required: ethers.utils.formatEther(required),
+                sufficient: sufficient
+            });
+        } catch (error) {
+            console.error('Balance check error:', error);
+            res.status(500).json({ error: error.message });
+        }
+    });
+
     app.post('/api/deploy-agent', deployAgentContract);
     app.post('/api/contract/deploy', deployAgentContract);
+
+    // API: Request deployment help from epistery.host admins
+    app.post('/api/request-deployment-help', async (req, res) => {
+        try {
+            const { domain, walletAddress, requesterRivet } = req.body;
+
+            if (!domain || !walletAddress || !requesterRivet) {
+                return res.status(400).json({ error: 'Missing required fields' });
+            }
+
+            // Create a deployment help request (similar to white-list pending request)
+            // This would be stored and shown to epistery.host admins
+            console.log('[deployment-help] Request received:', {
+                domain,
+                walletAddress,
+                requesterRivet,
+                timestamp: new Date().toISOString()
+            });
+
+            // TODO: Store in database or file system for admin review
+            // For now, just log it
+
+            res.json({
+                success: true,
+                message: 'Help request submitted. An administrator will review your request.'
+            });
+        } catch (error) {
+            console.error('Deployment help request error:', error);
+            res.status(500).json({ error: error.message });
+        }
+    });
 
     // API: Initialize whitelist with admin address
     app.post('/api/initialize-whitelist', async (req, res) => {
@@ -381,12 +433,12 @@ let main = async function() {
 
             const contract = new ethers.Contract(contractAddress, AgentArtifact.abi, wallet);
 
-            console.log(`Adding ${adminAddress} to admin list for domain ${domain}...`);
+            console.log(`Adding ${adminAddress} to epistery::admin list for domain ${domain}...`);
 
-            // Add with admin role (3) and metadata
-            const listName = `${domain}::admin`;
+            // Add to epistery::admin list with admin role (3) and metadata
+            const listName = 'epistery::admin';
             const role = 3; // admin
-            const name = 'Domain Administrator';
+            const name = 'Epistery Administrator';
             const meta = JSON.stringify({ addedBy: 'initialization', addedAt: new Date().toISOString() });
 
             const tx = await contract.addToWhitelist(listName, adminAddress, name, role, meta, {
