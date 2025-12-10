@@ -6,102 +6,15 @@
     <title>Epistery Host - {DOMAIN}</title>
     <link rel="stylesheet" href="/style/static.css">
     <link rel="icon" type="image/png" href="/image/favicon.png">
-    <style>
-        .agent-name {
-            white-space: nowrap;
-        }
-
-        /* Animated pattern background */
-        header {
-            position: relative;
-            overflow: hidden;
-        }
-
-        /* Dimmed background layer */
-        header::before {
-            content: '';
-            position: absolute;
-            top: -100%;
-            left: -100%;
-            width: 300%;
-            height: 300%;
-            background-image: url('/image/epistery-base-1000.png');
-            background-size: 1000px 1000px;
-            background-repeat: repeat;
-            opacity: 0.08;
-            /*animation: patternSwirl 220s ease-in-out infinite;*/
-            pointer-events: none;
-            z-index: 0;
-        }
-
-        @keyframes patternSwirl {
-            0% {
-                transform: translate(0, 0) scale(1) rotate(0deg);
-            }
-            25% {
-                transform: translate(-80px, 60px) scale(1.5) rotate(3deg);
-            }
-            50% {
-                transform: translate(-40px, -80px) scale(2) rotate(0deg);
-            }
-            75% {
-                transform: translate(60px, -40px) scale(1.5) rotate(-3deg);
-            }
-            100% {
-                transform: translate(0, 0) scale(1) rotate(0deg);
-            }
-        }
-
-        header nav {
-            position: relative;
-            z-index: 1;
-        }
-
-        /* Logo window - bright clip of the pattern */
-        .logo {
-            position: relative;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .logo-window {
-            width: 60px;
-            height: 60px;
-            border-radius: 8px;
-            position: relative;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-            border: 2px solid rgba(255,255,255,0.1);
-            overflow: hidden;
-        }
-
-        .logo-window::before {
-            content: '';
-            position: absolute;
-            /* Position to align with header background */
-            top: calc(-1 * (var(--header-height, 80px) / 2 - 30px) - 100vh);
-            left: calc(-1 * (10px + 2px) - 100vw);
-            width: 300vw;
-            height: 300vh;
-            background-image: url('/image/epistery-base-1000.png');
-            background-size: 1000px 1000px;
-            background-repeat: repeat;
-            opacity: 1;
-            /*animation: patternSwirl 220s ease-in-out infinite;*/
-            pointer-events: none;
-        }
-    </style>
+    <script src="/script/common.js"></script>
 </head>
 <body>
     <header>
-        <nav class="container">
+        <nav>
             <a href="/?home" class="logo">
-                <div class="logo-window"></div>
-                <span class="logo-text">Epistery Host</span>
+                <img alt="logo" src="/image/epistery-logo-32.svg" class="logo-window">
             </a>
-            <ul class="nav-menu" id="nav-menu">
-                <li><a href="/?home">Home</a></li>
-            </ul>
+            <div class="nav-menu" id="nav-menu"></div>
         </nav>
     </header>
 
@@ -318,47 +231,7 @@
             }
         }
 
-        // Load navigation menu dynamically
-        async function loadNavMenu() {
-            try {
-                const response = await fetch('/api/nav-menu');
-                const html = await response.text();
-                const nav = document.querySelector('nav.container');
-                const existingMenu = document.getElementById('nav-menu');
-                if (existingMenu) {
-                    existingMenu.remove();
-                }
-                nav.insertAdjacentHTML('beforeend', html);
-            } catch (error) {
-                console.error('Failed to load navigation menu:', error);
-            }
-        }
-        // Logo zoom with mouse wheel
-        (() => {
-          const header = document.querySelector('header');
-          const headerBg = header;
-          const logoWindow = document.querySelector('.logo-window');
-
-          let scale = 1;
-          const minScale = 0.5;
-          const maxScale = 3;
-          const zoomSpeed = 0.1;
-
-          header.addEventListener('wheel', (e) => {
-            e.preventDefault();
-
-            // Adjust scale based on wheel direction
-            const delta = e.deltaY > 0 ? -zoomSpeed : zoomSpeed;
-            scale = Math.max(minScale, Math.min(maxScale, scale + delta));
-
-            // Apply scale to both backgrounds
-            const bgSize = Math.round(1000 * scale);
-            headerBg.style.setProperty('--pattern-size', `${bgSize}px`);
-          }, { passive: false });
-        })();
-
         // Check initialization and admin access on load
-        loadNavMenu();
         checkInitializationStatus();
         checkAdminAccess();
         loadAgents();

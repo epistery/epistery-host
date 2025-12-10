@@ -49,86 +49,6 @@ let main = async function() {
     });
 
 
-    // API endpoint to list active agents
-    app.get('/api/agents', (req, res) => {
-        if (!agentManager) {
-            return res.json({ agents: [] });
-        }
-
-        const domain = req.hostname || 'localhost';
-        const cfg = new Config();
-        cfg.setPath(domain);
-        const defaultAgent = cfg.data?.default_agent || null;
-
-        const agents = [];
-        for (const [, agentData] of agentManager.agents) {
-            agents.push({
-                name: agentData.manifest.name,
-                version: agentData.manifest.version,
-                description: agentData.manifest.description,
-                icon: agentData.manifest.icon || null,
-                widget: agentData.manifest.widget || null,
-                wellKnownPath: agentData.wellKnownPath,
-                shortPath: agentData.shortPath
-            });
-        }
-
-        res.json({ agents, defaultAgent });
-    });
-
-    // API endpoint to get navigation menu HTML
-    app.get('/api/nav-menu', (req, res) => {
-        if (!agentManager) {
-            return res.send('<ul class="nav-menu"><li><a href="/?home">Home</a></li></ul>');
-        }
-        const domain = req.hostname || 'localhost';
-        const cfg = new Config();
-        cfg.setPath(domain);
-        const defaultAgent = cfg.data?.default_agent || null;
-        const verified = cfg.data?.verified || false;
-
-        // NOTE: No authentication available - removed delegation tokens
-        // This is just rendering public navigation, admin checks removed
-        const isAdmin = false;
-
-        let navBar = `<nav class="container"><ul class="nav-menu">`;
-        if (!verified) {
-            navBar += `<li><span>Welcome, first step is now to initialize the server</span> <button>admin</button></li>`
-        }
-        const agents = [];
-        for (const [, agentData] of agentManager.agents) {
-            agents.push({
-                name: agentData.manifest.name,
-                shortPath: agentData.shortPath
-            });
-        }
-        navBar += `</ul></nav>`;
-
-        let html = '<ul class="nav-menu">';
-        html += '<li><a href="/?home">Home</a></li>';
-
-        for (const agent of agents) {
-            const simpleName = agent.name.split('/').pop();
-            // Skip white-list agent from nav menu (consolidated into /admin)
-            if (simpleName === 'white-list') {
-                continue;
-            }
-            html += `<li><a href="${agent.shortPath}">${simpleName}</a></li>`;
-        }
-
-        html += '<li><a href="/admin">Admin</a></li>';
-        html += '<li><a href="/status">Wallet</a></li>';
-        html += '</ul>';
-
-        res.send(html);
-    });
-
-    // API endpoint to set default agent
-    // TODO: Implement proper authentication without delegation tokens
-    app.post('/api/set-default-agent', async (req, res) => {
-        return res.status(501).json({ success: false, error: 'Authentication not implemented - delegation removed' });
-    });
-
     // Build status JSON - shared by both HTML and API responses
     function buildStatus(domain, cfg) {
         const wallet = cfg.data?.wallet || {};
@@ -190,8 +110,13 @@ let main = async function() {
 
             // Check if there's a default agent set (and not bypassed with ?home query param)
             const defaultAgent = cfg.data?.default_agent;
-            if (defaultAgent && !req.query.home) {
-                return res.redirect(defaultAgent);
+            if (defaultAgent && !req.query.home && agentManager) {
+                // Find the agent and use its shortPath
+                for (const [, agentData] of agentManager.agents) {
+                    if (agentData.manifest.name === defaultAgent) {
+                        return res.redirect(agentData.shortPath);
+                    }
+                }
             }
 
             // Domain is claimed - show regular status page
@@ -779,6 +704,7 @@ let main = async function() {
     // Static files (after specific routes)
     app.use('/style', express.static(path.join(__dirname, 'public/style')));
     app.use('/image', express.static(path.join(__dirname, 'public/image')));
+    app.use('/script', express.static(path.join(__dirname, 'public/script')));
 
     // Serve qrcode library
     app.get('/lib/qrcode.js', (req, res) => {
@@ -792,6 +718,166 @@ let main = async function() {
     // Also mount the same routes at RFC 8615 well-known path
     // Note: We reuse the routes() to avoid duplicate middleware
     app.use('/.well-known/epistery', epistery.routes());
+
+    // API endpoint to list active agents
+    app.get('/api/agents', async (req, res) => {
+        if (!agentManager) {
+            return res.json({ agents: [] });
+        }
+
+        const domain = req.headers.host?.split(':')[0] || 'localhost';
+        const cfg = new Config();
+        cfg.setPath(domain);
+
+        const defaultAgent = cfg.data?.default_agent || null;
+        const enabledAgents = cfg.data?.enabled_agents || {};
+
+        const agents = [];
+        for (const [, agentData] of agentManager.agents) {
+            // Default to enabled if not specified
+            const enabled = enabledAgents[agentData.manifest.name] !== false;
+
+            agents.push({
+                name: agentData.manifest.name,
+                simpleName: agentData.manifest.name.split('/').pop(),
+                title: agentData.manifest.title,
+                version: agentData.manifest.version,
+                description: agentData.manifest.description,
+                icon: agentData.manifest.icon || null,
+                widget: agentData.manifest.widget || null,
+                noUserInterface: agentData.manifest.noUserInterface || false,
+                wellKnownPath: agentData.wellKnownPath,
+                shortPath: agentData.shortPath,
+                enabled: enabled
+            });
+        }
+
+        res.json({ agents, defaultAgent });
+    });
+
+    // API endpoint to get navigation menu HTML
+    app.get('/api/nav-menu', async (req, res) => {
+        if (!agentManager) {
+            return res.send('<ul class="nav-menu"><li><a href="/?home">Home</a></li></ul>');
+        }
+        const domain = req.headers.host?.split(':')[0] || 'localhost';
+        const cfg = new Config();
+        cfg.setPath(domain);
+        const defaultAgent = cfg.data?.default_agent || null;
+        const verified = cfg.data?.verified || false;
+
+        // Check if authenticated user is admin
+        let isAdmin = false;
+        if (req.episteryClient && req.app.locals.epistery) {
+            try {
+                isAdmin = await req.app.locals.epistery.isListed(req.episteryClient.address, 'epistery::admin');
+            } catch (error) {
+                console.error('[nav-menu] Error checking admin status:', error);
+            }
+        }
+
+        let navBar = "";
+        for (const [, agentData] of agentManager.agents) {
+            if (agentData.manifest.noUserInterface) continue;
+            const displayName = agentData.manifest.title || agentData.manifest.name.split('/').pop();
+            navBar += `<a href="${agentData.shortPath}"><img alt="${displayName}" src="${agentData.manifest.icon}"> <span>${displayName}</span></a>`;
+        }
+
+        // Only show admin link if user is on epistery::admin list
+        if (isAdmin) {
+            navBar += '<a href="/admin"><img alt="Administrate" src="data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'%232d5016\'%3E%3Cpath d=\'M12 15.5A3.5 3.5 0 0 1 8.5 12 3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5 3.5 3.5 0 0 1-3.5 3.5m7.43-2.53c.04-.32.07-.64.07-.97 0-.33-.03-.66-.07-1l2.11-1.63c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.31-.61-.22l-2.49 1c-.52-.39-1.06-.73-1.69-.98l-.37-2.65A.506.506 0 0 0 14 2h-4c-.25 0-.46.18-.5.42l-.37 2.65c-.63.25-1.17.59-1.69.98l-2.49-1c-.22-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64L4.57 11c-.04.34-.07.67-.07 1 0 .33.03.65.07.97l-2.11 1.66c-.19.15-.25.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1.01c.52.4 1.06.74 1.69.99l.37 2.65c.04.24.25.42.5.42h4c.25 0 .46-.18.5-.42l.37-2.65c.63-.26 1.17-.59 1.69-.99l2.49 1.01c.22.08.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64z\'/%3E%3C/svg%3E"> <span>Administrate</span></a>';
+        }
+
+        res.send(navBar);
+    });
+
+    // API endpoint to set default agent (requires admin auth)
+    app.post('/api/set-default-agent', async (req, res) => {
+        try {
+            const { agentName } = req.body;
+            const domain = req.headers.host?.split(':')[0] || 'localhost';
+
+            if (!agentName) {
+                return res.status(400).json({ error: 'agentName is required' });
+            }
+
+            // Check if user is admin
+            if (!req.episteryClient || !req.app.locals.epistery) {
+                return res.status(401).json({ error: 'Not authenticated' });
+            }
+
+            const isAdmin = await req.app.locals.epistery.isListed(req.episteryClient.address, 'epistery::admin');
+            if (!isAdmin) {
+                return res.status(403).json({ error: 'Not authorized' });
+            }
+
+            // Verify agent exists
+            if (!agentManager) {
+                return res.status(500).json({ error: 'Agent manager not initialized' });
+            }
+
+            let agentExists = false;
+            for (const [, agentData] of agentManager.agents) {
+                if (agentData.manifest.name === agentName) {
+                    agentExists = true;
+                    break;
+                }
+            }
+
+            if (!agentExists) {
+                return res.status(404).json({ error: 'Agent not found' });
+            }
+
+            // Save to config
+            const cfg = new Config();
+            cfg.setPath(domain);
+            cfg.data.default_agent = agentName;
+            cfg.save();
+
+            res.json({ success: true });
+        } catch (error) {
+            console.error('[set-default-agent] Error:', error);
+            res.status(500).json({ error: error.message });
+        }
+    });
+
+    // API endpoint to toggle agent enabled status (requires admin auth)
+    app.post('/api/toggle-agent', async (req, res) => {
+        try {
+            const { agentName, enabled } = req.body;
+            const domain = req.headers.host?.split(':')[0] || 'localhost';
+
+            if (!agentName || enabled === undefined) {
+                return res.status(400).json({ error: 'agentName and enabled are required' });
+            }
+
+            // Check if user is admin
+            if (!req.episteryClient || !req.app.locals.epistery) {
+                return res.status(401).json({ error: 'Not authenticated' });
+            }
+
+            const isAdmin = await req.app.locals.epistery.isListed(req.episteryClient.address, 'epistery::admin');
+            if (!isAdmin) {
+                return res.status(403).json({ error: 'Not authorized' });
+            }
+
+            // Save to config
+            const cfg = new Config();
+            cfg.setPath(domain);
+
+            if (!cfg.data.enabled_agents) {
+                cfg.data.enabled_agents = {};
+            }
+
+            cfg.data.enabled_agents[agentName] = enabled;
+            cfg.save();
+
+            res.json({ success: true });
+        } catch (error) {
+            console.error('[toggle-agent] Error:', error);
+            res.status(500).json({ error: error.message });
+        }
+    });
 
     config = new Config();
     const http_port = parseInt(process.env.PORT || 4080);
@@ -811,6 +897,21 @@ let main = async function() {
         console.log(`Listening on ${address.address} ${address.port} (${address.family})`);
     });
     http_server = http.createServer(app);
+
+    // Initialize WebSocket servers for agents that support it
+    if (agentManager) {
+        for (const [, agentData] of agentManager.agents) {
+            if (agentData.instance && typeof agentData.instance.initWebSocket === 'function') {
+                try {
+                    agentData.instance.initWebSocket(http_server);
+                    console.log(`WebSocket initialized for agent: ${agentData.manifest.name}`);
+                } catch (error) {
+                    console.error(`Failed to initialize WebSocket for ${agentData.manifest.name}:`, error);
+                }
+            }
+        }
+    }
+
     http_server.listen(http_port);
     http_server.on('error', console.error);
     http_server.on('listening',()=>{

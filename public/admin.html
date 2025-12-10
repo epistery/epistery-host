@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Domain Administration - Epistery Host</title>
+    <script src="/script/common.js"></script>
     <link rel="stylesheet" href="/style/static.css">
     <link rel="icon" type="image/png" href="/image/favicon.png">
     <style>
@@ -129,11 +130,11 @@
 </head>
 <body>
     <header>
-        <nav class="container">
-            <a href="/" class="logo">
-                <img src="/image/epistery-logo-32.png" alt="Epistery">
-                <span class="logo-text">Epistery Host</span>
+        <nav>
+            <a href="/?home" class="logo">
+                <img alt="logo" src="/image/epistery-logo-32.svg" class="logo-window">
             </a>
+            <div class="nav-menu" id="nav-menu"></div>
         </nav>
     </header>
 
@@ -141,7 +142,7 @@
         <div class="console-main">
             <div class="console-header">
                 <h1>Domain Administration</h1>
-                <p class="console-tagline">Manage whitelist and access policy for <span id="domain-name">...</span></p>
+                <p class="console-tagline">Manage access policy and agents for <span id="domain-name">...</span></p>
             </div>
 
             <div id="not-authorized" class="error-box" style="display: none;">
@@ -172,6 +173,31 @@
                     <div id="upgrade-progress" style="display: none; margin-top: var(--spacer);">
                         <div class="spinner"></div>
                         <span id="upgrade-progress-text">Deploying new contract...</span>
+                    </div>
+                </section>
+
+                <!-- Agent Management Section -->
+                <section class="admin-section" id="agent-management-section">
+                    <h2>Agent Management</h2>
+                    <p>Select and configure agents for this domain</p>
+
+                    <div id="agents-loading" style="display: block;">
+                        <div class="spinner"></div>
+                        <span>Loading agents...</span>
+                    </div>
+
+                    <div id="agents-container" style="display: none;">
+                        <table style="width: 100%; border-collapse: collapse;">
+                            <thead>
+                                <tr style="border-bottom: 2px solid var(--page-border);">
+                                    <th style="text-align: left; padding: var(--spacerhalf);">Agent</th>
+                                    <th style="text-align: center; padding: var(--spacerhalf);">Enabled</th>
+                                    <th style="text-align: center; padding: var(--spacerhalf);">Default</th>
+                                    <th style="text-align: center; padding: var(--spacerhalf);">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="agent-items"></tbody>
+                        </table>
                     </div>
                 </section>
 
@@ -290,9 +316,9 @@
 
                 // User is authorized, show admin content
                 document.getElementById('admin-content').style.display = 'block';
+                await loadAgents();
                 await loadLists();
                 await loadPendingRequests();
-                await loadPolicy();
                 await checkContractVersion();
 
             } catch (error) {
@@ -977,6 +1003,127 @@
                 progressDiv.style.display = 'none';
                 upgradeButton.disabled = false;
                 alert('Failed to deploy new contract: ' + error.message);
+            }
+        };
+
+        // Load and render agents
+        async function loadAgents() {
+            try {
+                const response = await fetch('/api/agents');
+                const data = await response.json();
+
+                const agents = data.agents || [];
+                const defaultAgent = data.defaultAgent;
+
+                document.getElementById('agents-loading').style.display = 'none';
+                document.getElementById('agents-container').style.display = 'block';
+
+                renderAgents(agents, defaultAgent);
+            } catch (error) {
+                console.error('Failed to load agents:', error);
+                document.getElementById('agents-loading').style.display = 'none';
+                document.getElementById('agents-container').innerHTML = '<div class="error-box"><p>Failed to load agents</p></div>';
+            }
+        }
+
+        function renderAgents(agents, defaultAgent) {
+            const container = document.getElementById('agent-items');
+
+            if (agents.length === 0) {
+                container.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: var(--spacer);">No agents installed</td></tr>';
+                return;
+            }
+
+            let html = '';
+
+            for (const agent of agents) {
+                // Skip white-list agent
+                if (agent.name === '@epistery/white-list') {
+                    continue;
+                }
+
+                const displayName = agent.title || agent.name;
+                const isDefault = defaultAgent === agent.name;
+                const isEnabled = agent.enabled !== false; // Default to enabled
+                const canBeDefault = !agent.noUserInterface;
+                const adminPath = `${agent.shortPath}/admin`;
+
+                html += `
+                    <tr style="border-bottom: 1px solid var(--page-border);">
+                        <td style="padding: var(--spacer);">
+                            <div style="display: flex; align-items: start; gap: var(--spacerhalf);">
+                                ${agent.icon ? `<img src="${agent.icon}" style="width: 24px; height: 24px; object-fit: cover;" alt="${displayName}">` : ''}
+                                <div>
+                                    <strong>${displayName}</strong><br>
+                                    <small style="color: var(--text-color-quiet);">${agent.description}</small>
+                                </div>
+                            </div>
+                        </td>
+                        <td style="text-align: center; padding: var(--spacer);">
+                            <input type="checkbox" ${isEnabled ? 'checked' : ''}
+                                   onchange="toggleAgentEnabled('${agent.name}', this.checked)"
+                                   ${isDefault ? 'disabled title="Default agent is always enabled"' : ''} />
+                        </td>
+                        <td style="text-align: center; padding: var(--spacer);">
+                            ${canBeDefault ? `
+                                <input type="radio" name="default-agent" value="${agent.name}"
+                                       ${isDefault ? 'checked' : ''}
+                                       onchange="setDefaultAgent('${agent.name}')" />
+                            ` : `<small style="color: var(--neutral);">N/A</small>`}
+                        </td>
+                        <td style="text-align: center; padding: var(--spacer);">
+                            <a href="${adminPath}" class="console-btn small" style="text-decoration: none;">Configure</a>
+                        </td>
+                    </tr>
+                `;
+            }
+
+            container.innerHTML = html;
+        }
+
+        window.toggleAgentEnabled = async function(agentName, enabled) {
+            try {
+                const response = await fetch('/api/toggle-agent', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ agentName, enabled })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to toggle agent');
+                }
+
+                // Reload agents to reflect changes
+                await loadAgents();
+            } catch (error) {
+                console.error('Failed to toggle agent:', error);
+                alert('Failed to toggle agent: ' + error.message);
+                // Reload to reset checkbox
+                await loadAgents();
+            }
+        };
+
+        window.setDefaultAgent = async function(agentName) {
+            try {
+                const response = await fetch('/api/set-default-agent', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ agentName })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to set default agent');
+                }
+
+                // Reload agents to reflect changes
+                await loadAgents();
+            } catch (error) {
+                console.error('Failed to set default agent:', error);
+                alert('Failed to set default agent: ' + error.message);
+                // Reload to reset radio buttons
+                await loadAgents();
             }
         };
 
