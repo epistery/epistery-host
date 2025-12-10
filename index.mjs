@@ -918,6 +918,8 @@ let main = async function() {
         let address = http_server.address();
         console.log(`Listening on ${address.address} ${address.port} (${address.family})`);
     });
+    agentManager.initializeWebSockets(https_server);
+    agentManager.initializeWebSockets(http_server);
 }();
 
 const gracefulShutdown = async (signal) => {

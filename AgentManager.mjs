@@ -143,6 +143,19 @@ export class AgentManager {
         });
     }
 
+    initializeWebSockets(server) {
+        for (const [name, { instance }] of this.agents) {
+            if (typeof instance.initWebSocket === 'function') {
+                try {
+                    instance.initWebSocket(server);
+                    console.log(`Agent ${name} WebSocket initialized`);
+                } catch (error) {
+                    console.error(`Error initializing WebSocket for agent ${name}:`, error);
+                }
+            }
+        }
+    }
+
     /**
      * Cleanup all agents on shutdown
      */
