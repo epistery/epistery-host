@@ -839,14 +839,12 @@ footer {
 }
 
 @media (max-width: 768px) {
-    nav {
-        flex-direction: row-reverse;
-        justify-content: space-between;
-    }
-
     .hamburger {
         display: flex;
-        order: -1;
+        position: absolute;
+        right: 8px;
+        top: 50%;
+        transform: translateY(-50%);
     }
 
     .nav-menu {
