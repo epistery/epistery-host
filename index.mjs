@@ -706,6 +706,11 @@ let main = async function() {
     app.use('/image', express.static(path.join(__dirname, 'public/image')));
     app.use('/script', express.static(path.join(__dirname, 'public/script')));
 
+    // Serve service worker (must be at root for scope)
+    app.get('/service-worker.js', (req, res) => {
+        res.sendFile(path.join(__dirname, 'public/service-worker.js'));
+    });
+
     // Serve qrcode library
     app.get('/lib/qrcode.js', (req, res) => {
         res.sendFile(path.join(__dirname, 'node_modules/qrcode-generator/qrcode.js'));
@@ -898,26 +903,14 @@ let main = async function() {
     });
     http_server = http.createServer(app);
 
-    // Initialize WebSocket servers for agents that support it
-    if (agentManager) {
-        for (const [, agentData] of agentManager.agents) {
-            if (agentData.instance && typeof agentData.instance.initWebSocket === 'function') {
-                try {
-                    agentData.instance.initWebSocket(http_server);
-                    console.log(`WebSocket initialized for agent: ${agentData.manifest.name}`);
-                } catch (error) {
-                    console.error(`Failed to initialize WebSocket for ${agentData.manifest.name}:`, error);
-                }
-            }
-        }
-    }
-
     http_server.listen(http_port);
     http_server.on('error', console.error);
     http_server.on('listening',()=>{
         let address = http_server.address();
         console.log(`Listening on ${address.address} ${address.port} (${address.family})`);
     });
+
+    // Initialize WebSocket servers for agents that support it
     agentManager.initializeWebSockets(https_server);
     agentManager.initializeWebSockets(http_server);
 }();

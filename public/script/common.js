@@ -1,88 +1,81 @@
-(function() {
+(async function() {
   'use strict';
 
-  // Create hamburger button for mobile navigation
-  function createHamburger() {
-    const nav = document.querySelector('header > nav');
-    if (!nav) return null;
-
-    // Check if hamburger already exists
-    if (nav.querySelector('.hamburger')) {
-      return nav.querySelector('.hamburger');
-    }
-
-    const hamburger = document.createElement('button');
-    hamburger.className = 'hamburger';
-    hamburger.setAttribute('aria-label', 'Toggle navigation menu');
-    hamburger.setAttribute('aria-expanded', 'false');
-    hamburger.innerHTML = '<span></span><span></span><span></span>';
-
-    // Insert hamburger after the logo
-    const logo = nav.querySelector('.logo');
-    if (logo && logo.nextSibling) {
-      nav.insertBefore(hamburger, logo.nextSibling);
-    } else {
-      nav.appendChild(hamburger);
-    }
-
-    return hamburger;
-  }
-
-  // Toggle mobile menu
-  function setupHamburgerToggle(hamburger, menuContainer) {
-    if (!hamburger || !menuContainer) return;
-
-    hamburger.addEventListener('click', function(event) {
-      event.stopPropagation();
-      const isActive = hamburger.classList.toggle('active');
-      menuContainer.classList.toggle('active');
-      hamburger.setAttribute('aria-expanded', isActive ? 'true' : 'false');
-    });
-
-    // Close menu when clicking outside
-    document.addEventListener('click', function(event) {
-      if (!hamburger.contains(event.target) && !menuContainer.contains(event.target)) {
-        hamburger.classList.remove('active');
-        menuContainer.classList.remove('active');
-        hamburger.setAttribute('aria-expanded', 'false');
-      }
-    });
-
-    // Close menu when a link is clicked
-    menuContainer.addEventListener('click', function(event) {
-      if (event.target.tagName === 'A') {
-        hamburger.classList.remove('active');
-        menuContainer.classList.remove('active');
-        hamburger.setAttribute('aria-expanded', 'false');
-      }
-    });
-  }
-
-  // Initialize when DOM is ready
-  async function init() {
-    // Create hamburger
-    const hamburger = createHamburger();
-
-    // Load navigation menu dynamically
+  // Register service worker to add X-Epistery-Internal header to all requests
+  if ('serviceWorker' in navigator) {
     try {
-      const response = await fetch('/api/nav-menu');
-      const html = await response.text();
-      const menuContainer = document.getElementById('nav-menu');
-      if (menuContainer) {
-        menuContainer.innerHTML = html;
-        // Setup hamburger toggle after menu is loaded
-        setupHamburgerToggle(hamburger, menuContainer);
+      const registration = await navigator.serviceWorker.register('/service-worker.js');
+      console.log('[Epistery] Service worker registered:', registration.scope);
+
+      // Wait for service worker to be active
+      if (registration.installing) {
+        await new Promise((resolve) => {
+          registration.installing.addEventListener('statechange', (e) => {
+            if (e.target.state === 'activated') {
+              resolve();
+            }
+          });
+        });
       }
     } catch (error) {
-      console.error('Failed to load navigation menu:', error);
+      console.error('[Epistery] Service worker registration failed:', error);
     }
   }
 
-  // Wait for DOM to be ready
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
+  // Load navigation menu dynamically
+  try {
+    const response = await fetch('/api/nav-menu');
+    const html = await response.text();
+
+    // Declare both desktop and mobile layouts
+    const headerControls = document.createElement('div');
+    headerControls.id = "header-controls";
+    headerControls.innerHTML = `
+        <span class="nav-menu">${html}</span>
+        <a title='Identity' class='identity-icon' href="/status">👤</a>`;
+    const mobileControls = document.createElement('div');
+    mobileControls.id = "mobile-controls";
+    mobileControls.innerHTML = `
+        <button class="hamburger">
+            <span></span>
+            <span></span>
+            <span></span>
+        </button>
+        <div id="side-bar">
+          <a title='Identity' class='identity-icon' href="/status">👤</a>
+          <span class="nav-menu">${html}</span>
+        </div>`;
+
+    const nav = document.querySelector('header nav');
+    nav.appendChild(headerControls);
+    nav.appendChild(mobileControls);
+
+    // Set up hamburger menu toggle
+    const hamburger = mobileControls.querySelector('.hamburger');
+    const sideBar = mobileControls.querySelector('#side-bar');
+
+    if (hamburger && sideBar) {
+      hamburger.addEventListener('click', (e) => {
+        e.stopPropagation();
+        hamburger.classList.toggle('active');
+        sideBar.classList.toggle('active');
+      });
+
+      // Close menu when clicking outside
+      document.addEventListener('click', (e) => {
+        if (!sideBar.contains(e.target) && !hamburger.contains(e.target)) {
+          hamburger.classList.remove('active');
+          sideBar.classList.remove('active');
+        }
+      });
+
+      // Prevent clicks inside menu from closing it
+      sideBar.addEventListener('click', (e) => {
+        e.stopPropagation();
+      });
+    }
+  } catch (error) {
+    console.error('Failed to load navigation menu:', error);
   }
 
 })();
