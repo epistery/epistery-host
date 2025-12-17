@@ -59,7 +59,8 @@ export class AgentManager {
             }
 
             try {
-                const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+                let result = readFileSync(manifestPath, 'utf8');
+                const manifest = JSON.parse(result);
                 discovered.push({
                     name: entry.name,
                     path: agentDir,

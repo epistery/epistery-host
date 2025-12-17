@@ -422,7 +422,7 @@ let main = async function() {
             const wallet = ethers.Wallet.fromMnemonic(serverWallet.mnemonic).connect(ethersProvider);
             const contract = new ethers.Contract(contractAddress, AgentArtifact.abi, wallet);
 
-            const listName = `${domain}::admin`;
+            const listName = `epistery::admin`;
             const isListed = await contract.isWhitelisted(serverWallet.address, listName, address);
 
             res.json({ isAdmin: isListed });
@@ -652,51 +652,6 @@ let main = async function() {
             });
         } catch (error) {
             console.error('Error updating whitelist metadata:', error);
-            res.status(500).json({ error: error.message });
-        }
-    });
-
-    // API: Get access policy
-    app.get('/api/policy', async (req, res) => {
-        try {
-            const domain = req.hostname || 'localhost';
-            const cfg = new Config();
-            cfg.setPath(domain);
-
-            const policy = cfg.data?.access_policy || 'public';
-
-            res.json({ policy: policy });
-        } catch (error) {
-            console.error('Error getting policy:', error);
-            res.status(500).json({ error: error.message });
-        }
-    });
-
-    // API: Set access policy
-    app.post('/api/policy/set', async (req, res) => {
-        try {
-            const { policy } = req.body;
-            const domain = req.hostname || 'localhost';
-            const cfg = new Config();
-            cfg.setPath(domain);
-
-            const validPolicies = ['public', 'public-id', 'public-req', 'private'];
-            if (!validPolicies.includes(policy)) {
-                return res.status(400).json({ error: 'Invalid policy' });
-            }
-
-            cfg.data.access_policy = policy;
-            cfg.save();
-
-            console.log(`Access policy for ${domain} set to: ${policy}`);
-
-            res.json({
-                success: true,
-                policy: policy,
-                domain: domain
-            });
-        } catch (error) {
-            console.error('Error setting policy:', error);
             res.status(500).json({ error: error.message });
         }
     });
