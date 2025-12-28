@@ -164,6 +164,7 @@ export function createAuthRouter() {
 
     /**
      * Check if user is an administrator
+     * Uses epistery 1.3.0 whitelist system with fallback to sponsor
      */
     router.post("/api/check-admin", async (req, res) => {
         try {
@@ -177,12 +178,44 @@ export function createAuthRouter() {
             const config = new Config();
             config.setPath(domain);
 
-            if (!config.data || !config.data.verified || !config.data.admin_address) {
+            if (!config.data || !config.data.verified) {
                 return res.json({ isAdmin: false });
             }
 
-            const isAdmin = address.toLowerCase() === config.data.admin_address.toLowerCase();
-            res.json({ isAdmin });
+            // Use epistery instance from app.locals if available
+            const epistery = req.app.locals?.epistery;
+            if (!epistery) {
+                // Fallback to old admin_address check if epistery not available
+                const isAdmin = config.data.admin_address &&
+                    address.toLowerCase() === config.data.admin_address.toLowerCase();
+                return res.json({ isAdmin });
+            }
+
+            // Primary: Check if address is on the epistery::admin list
+            try {
+                const isOnAdminList = await epistery.isListed(address, 'epistery::admin');
+                if (isOnAdminList) {
+                    return res.json({ isAdmin: true });
+                }
+
+                // Fallback: If no one is on admin list, check if user is the sponsor
+                const adminList = await epistery.getList('epistery::admin');
+                if (!adminList || adminList.length === 0) {
+                    // No admins exist, check if user is the contract sponsor
+                    const sponsor = await epistery.getSponsor();
+                    const isSponsor = sponsor && address.toLowerCase() === sponsor.toLowerCase();
+                    return res.json({ isAdmin: isSponsor });
+                }
+
+                // User is not admin
+                return res.json({ isAdmin: false });
+            } catch (error) {
+                console.error('[epistery-host] Admin check error:', error);
+                // On error, fallback to old admin_address check
+                const isAdmin = config.data.admin_address &&
+                    address.toLowerCase() === config.data.admin_address.toLowerCase();
+                return res.json({ isAdmin });
+            }
         } catch (error) {
             console.error('Admin check error:', error);
             res.json({ isAdmin: false });
