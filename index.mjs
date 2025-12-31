@@ -77,8 +77,8 @@ let main = async function() {
             },
             client: {},
             ipfs: {
-                url: cfg.data.ipfs.url,
-                gateway: cfg.data.ipfs.gateway
+                url: cfg.data.ipfs?.url,
+                gateway: cfg.data.ipfs?.gateway
             },
             timestamp: new Date().toISOString()
         };
