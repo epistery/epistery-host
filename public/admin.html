@@ -126,6 +126,26 @@
             fill: currentColor;
             vertical-align: middle;
         }
+        .console-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            gap: var(--spacerhalf);
+        }
+        .console-header-left {
+            flex: 1;
+        }
+        .server-balance {
+            text-align: right;
+            font-size: 14px;
+            color: var(--page-text-secondary);
+        }
+        .server-balance .balance-value {
+            font-family: monospace;
+            font-weight: bold;
+            color: var(--page-text-primary);
+        }
     </style>
 </head>
 <body>
@@ -140,8 +160,14 @@
     <main class="console-layout no-sidebar">
         <div class="console-main">
             <div class="console-header">
-                <h1>Domain Administration</h1>
-                <p class="console-tagline">Manage access policy and agents for <span id="domain-name">...</span></p>
+                <div class="console-header-left">
+                    <h1>Domain Administration</h1>
+                    <p class="console-tagline">Manage access policy and agents for <span id="domain-name">...</span></p>
+                </div>
+                <div class="server-balance">
+                    <div>Server Wallet</div>
+                    <div class="balance-value" id="server-balance">...</div>
+                </div>
             </div>
 
             <div id="not-authorized" class="error-box" style="display: none;">
@@ -330,6 +356,26 @@
             document.getElementById('not-authorized').style.display = 'block';
             if (message) {
                 document.getElementById('not-authorized').querySelector('p').textContent = message;
+            }
+        }
+
+        async function loadServerBalance() {
+            const balanceEl = document.getElementById('server-balance');
+            try {
+                const response = await fetch('/api/check-deploy-balance', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await response.json();
+                if (data.error) {
+                    balanceEl.textContent = 'Error';
+                } else {
+                    const symbol = data.currencySymbol || 'POL';
+                    balanceEl.textContent = `${data.balance} ${symbol}`;
+                }
+            } catch (error) {
+                console.error('Failed to load server balance:', error);
+                balanceEl.textContent = 'Error';
             }
         }
 
@@ -1128,7 +1174,8 @@
             }
         };
 
-        // Check admin access on load
+        // Load page data
+        loadServerBalance();
         checkAdminAccess();
     </script>
 </body>
