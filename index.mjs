@@ -143,6 +143,18 @@ let main = async function() {
 
     // Admin page route
     app.get('/admin', (req, res) => {
+        //TODO: This makes /admin return the same status as /. It's a hack. We have to rethink this interface.
+        const acceptsJson = req.accepts('json') && !req.accepts('html');
+
+        if (acceptsJson) {
+            // Return JSON status
+            const domain = req.hostname || 'localhost';
+            const cfg = new Config();
+            cfg.setPath(domain);
+
+            const status = buildStatus(domain, cfg);
+            return res.json(status);
+        }
         res.sendFile(path.join(__dirname, 'public', 'admin.html'));
     });
 
