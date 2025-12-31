@@ -77,7 +77,8 @@ let main = async function() {
             },
             client: {},
             ipfs: {
-                url: process.env.IPFS_URL || 'https://rootz.digital/api/v0'
+                url: cfg.data.ipfs?.url,
+                gateway: cfg.data.ipfs?.gateway
             },
             timestamp: new Date().toISOString()
         };
@@ -142,6 +143,18 @@ let main = async function() {
 
     // Admin page route
     app.get('/admin', (req, res) => {
+        //TODO: This makes /admin return the same status as /. It's a hack. We have to rethink this interface.
+        const acceptsJson = req.accepts('json') && !req.accepts('html');
+
+        if (acceptsJson) {
+            // Return JSON status
+            const domain = req.hostname || 'localhost';
+            const cfg = new Config();
+            cfg.setPath(domain);
+
+            const status = buildStatus(domain, cfg);
+            return res.json(status);
+        }
         res.sendFile(path.join(__dirname, 'public', 'admin.html'));
     });
 
@@ -670,6 +683,10 @@ let main = async function() {
     app.get('/lib/qrcode.js', (req, res) => {
         res.sendFile(path.join(__dirname, 'node_modules/qrcode-generator/qrcode.js'));
     });
+    // Serve zebratime library
+    app.get('/lib/zebratime.js', (req, res) => {
+        res.sendFile(path.join(__dirname, 'node_modules/zebratime/zebratime.js'));
+    });
 
     // Attach epistery at root
     const epistery = await Epistery.connect();
@@ -714,6 +731,10 @@ let main = async function() {
 
         res.json({ agents, defaultAgent });
     });
+
+    app.get('/api/permissions', async (req, res) => {
+        res.json({});
+    })
 
     // API endpoint to get navigation menu HTML
     app.get('/api/nav-menu', async (req, res) => {
