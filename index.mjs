@@ -597,7 +597,7 @@ let main = async function() {
     // API: Update whitelist metadata (name and admin status)
     app.post('/api/whitelist/update', async (req, res) => {
         try {
-            const { address, name, isAdmin, contractAddress: reqContractAddress } = req.body;
+            const { address, name, isAdmin, listName: reqListName, contractAddress: reqContractAddress } = req.body;
             const domain = req.hostname || 'localhost';
             const cfg = new Config();
             cfg.setPath(domain);
@@ -627,11 +627,11 @@ let main = async function() {
 
             const contract = new ethers.Contract(contractAddress, AgentArtifact.abi, wallet);
 
-            console.log(`Updating list entry for ${address}...`);
-
             // Use sentinel values to update only the fields that are provided
             // "\x00KEEP" for strings means don't update, 255 for role means don't update
-            const listName = `${domain}::admin`;
+            const listName = reqListName || `${domain}::admin`;
+
+            console.log(`Updating list entry for ${address} in list ${listName}...`);
             const role = isAdmin !== undefined ? (isAdmin ? 3 : 0) : 255;
             const nameToUpdate = name !== undefined ? name : '\x00KEEP';
             const metaToUpdate = '\x00KEEP'; // Don't update meta for now

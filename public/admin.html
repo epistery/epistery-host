@@ -681,13 +681,15 @@
                 button.disabled = true;
 
                 try {
+                    const listName = currentListName || `${window.location.hostname}::admin`;
                     const response = await fetch('/api/whitelist/update', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             address: address,
                             name: newName,
-                            isAdmin: newIsAdmin
+                            isAdmin: newIsAdmin,
+                            listName: listName
                         })
                     });
 
