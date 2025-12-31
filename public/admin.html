@@ -146,6 +146,18 @@
             font-weight: bold;
             color: var(--page-text-primary);
         }
+        .server-balance .wallet-address {
+            font-family: monospace;
+            font-size: 11px;
+            color: var(--page-text-secondary);
+            cursor: pointer;
+            word-break: break-all;
+            max-width: 200px;
+        }
+        .server-balance .wallet-address:hover {
+            color: var(--page-text-primary);
+            text-decoration: underline;
+        }
     </style>
 </head>
 <body>
@@ -167,6 +179,7 @@
                 <div class="server-balance">
                     <div>Server Wallet</div>
                     <div class="balance-value" id="server-balance">...</div>
+                    <div class="wallet-address" id="server-address" onclick="copyToClipboard(this.textContent)" title="Click to copy">...</div>
                 </div>
             </div>
 
@@ -361,6 +374,7 @@
 
         async function loadServerBalance() {
             const balanceEl = document.getElementById('server-balance');
+            const addressEl = document.getElementById('server-address');
             try {
                 const response = await fetch('/api/check-deploy-balance', {
                     method: 'POST',
@@ -369,13 +383,17 @@
                 const data = await response.json();
                 if (data.error) {
                     balanceEl.textContent = 'Error';
+                    addressEl.textContent = '';
                 } else {
                     const symbol = data.currencySymbol || 'POL';
-                    balanceEl.textContent = `${data.balance} ${symbol}`;
+                    const balance = parseFloat(data.balance).toFixed(4);
+                    balanceEl.textContent = `${balance} ${symbol}`;
+                    addressEl.textContent = data.address || '';
                 }
             } catch (error) {
                 console.error('Failed to load server balance:', error);
                 balanceEl.textContent = 'Error';
+                addressEl.textContent = '';
             }
         }
 

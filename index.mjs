@@ -285,7 +285,9 @@ let main = async function() {
             const sufficient = balance.gte(required);
 
             res.json({
+                address: wallet.address,
                 balance: ethers.utils.formatEther(balance),
+                currencySymbol: provider.nativeCurrencySymbol || 'POL',
                 estimatedCost: ethers.utils.formatEther(estimatedCost),
                 required: ethers.utils.formatEther(required),
                 sufficient: sufficient
