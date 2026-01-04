@@ -1105,6 +1105,28 @@
 
             let html = '';
 
+            // Add "None" option row at the top
+            const hasNoDefault = !defaultAgent;
+            html += `
+                <tr style="border-bottom: 1px solid var(--page-border); background: var(--panel-background);">
+                    <td style="padding: var(--spacer);">
+                        <strong>None</strong><br>
+                        <small style="color: var(--text-color-quiet);">Show home page by default</small>
+                    </td>
+                    <td style="text-align: center; padding: var(--spacer);">
+                        <small style="color: var(--neutral);">N/A</small>
+                    </td>
+                    <td style="text-align: center; padding: var(--spacer);">
+                        <input type="radio" name="default-agent" value=""
+                               ${hasNoDefault ? 'checked' : ''}
+                               onchange="setDefaultAgent('')" />
+                    </td>
+                    <td style="text-align: center; padding: var(--spacer);">
+                        <small style="color: var(--neutral);">N/A</small>
+                    </td>
+                </tr>
+            `;
+
             for (const agent of agents) {
                 // Skip white-list agent
                 if (agent.name === '@epistery/white-list') {

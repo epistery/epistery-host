@@ -111,7 +111,7 @@ let main = async function() {
 
             // Check if there's a default agent set (and not bypassed with ?home query param)
             const defaultAgent = cfg.data?.default_agent;
-            if (defaultAgent && !req.query.home && agentManager) {
+            if (defaultAgent && !('home' in req.query) && agentManager) {
                 // Find the agent and use its shortPath
                 for (const [, agentData] of agentManager.agents) {
                     if (agentData.manifest.name === defaultAgent) {
@@ -780,7 +780,7 @@ let main = async function() {
             const { agentName } = req.body;
             const domain = req.headers.host?.split(':')[0] || 'localhost';
 
-            if (!agentName) {
+            if (agentName === undefined) {
                 return res.status(400).json({ error: 'agentName is required' });
             }
 
@@ -792,6 +792,15 @@ let main = async function() {
             const isAdmin = await req.app.locals.epistery.isListed(req.episteryClient.address, 'epistery::admin');
             if (!isAdmin) {
                 return res.status(403).json({ error: 'Not authorized' });
+            }
+
+            // If agentName is empty string, clear the default
+            if (agentName === '') {
+                const cfg = new Config();
+                cfg.setPath(domain);
+                delete cfg.data.default_agent;
+                cfg.save();
+                return res.json({ success: true });
             }
 
             // Verify agent exists
