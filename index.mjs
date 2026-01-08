@@ -11,6 +11,7 @@ import { Certify } from '@metric-im/administrate';
 import { Epistery, Config } from 'epistery';
 import { createAuthRouter } from './authentication.mjs';
 import { AgentManager } from './AgentManager.mjs';
+import Pages from './pages/index.mjs'
 
 const require = createRequire(import.meta.url);
 const ethers = require('ethers');
@@ -47,7 +48,6 @@ let main = async function() {
     app.get('/health', (req, res) => {
         res.status(200).send()
     });
-
 
     // Build status JSON - shared by both HTML and API responses
     function buildStatus(domain, cfg) {
@@ -697,6 +697,10 @@ let main = async function() {
     // Also mount the same routes at RFC 8615 well-known path
     // Note: We reuse the routes() to avoid duplicate middleware
     app.use('/.well-known/epistery', epistery.routes());
+
+    // Attach template pages/frames
+    const pages = new Pages({ AgentArtifact });
+    pages.attach(app);
 
     // API endpoint to list active agents
     app.get('/api/agents', async (req, res) => {

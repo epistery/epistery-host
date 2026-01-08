@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Access Control - {{server.contractAddress}}</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-size: 14px;
+            background: #fff;
+            color: #333;
+            padding: 16px;
+        }
+        h2 {
+            font-size: 16px;
+            margin-bottom: 12px;
+            font-weight: 600;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #fff;
+            border: 1px solid #ddd;
+        }
+        th, td {
+            padding: 8px 12px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+        th {
+            background: #f5f5f5;
+            font-weight: 600;
+            font-size: 12px;
+            text-transform: uppercase;
+            color: #666;
+        }
+        td:first-child {
+            width:50%;
+        }
+        tr:hover {
+            background: #f9f9f9;
+        }
+        .actions {
+            display: flex;
+            gap: 8px;
+        }
+        button {
+            padding: 4px 12px;
+            border: 1px solid #ddd;
+            background: #fff;
+            cursor: pointer;
+            border-radius: 3px;
+            font-size: 12px;
+        }
+        button:hover {
+            background: #f5f5f5;
+        }
+        button.save {
+            background: #2d5016;
+            color: #fff;
+            border-color: #2d5016;
+        }
+        button.save:hover {
+            background: #3d6020;
+        }
+        button.delete {
+            background: #c0392b;
+            color: #fff;
+            border-color: #c0392b;
+        }
+        button.delete:hover {
+            background: #e74c3c;
+        }
+        input, select {
+            padding: 6px 8px;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            font-size: 13px;
+            font-family: inherit;
+        }
+        .add-row {
+            margin-top: 12px;
+            padding: 12px;
+            background: #f9f9f9;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+        }
+        .add-row input {
+            margin-right: 8px;
+        }
+        .error {
+            color: #c0392b;
+            margin-top: 8px;
+            font-size: 12px;
+        }
+        .loading {
+            text-align: center;
+            padding: 24px;
+            color: #999;
+        }
+        .editing input {
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+    <h2>Access Control Lists</h2>
+    <div id="loading" class="loading">Loading...</div>
+    <div id="error" class="error" style="display:none;"></div>
+    <table id="aclTable" style="display:none;">
+        <thead>
+            <tr>
+                <th>Access Control List</th>
+                <th>Access</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="aclBody">
+        </tbody>
+    </table>
+    <div id="addRow" class="add-row" style="display:none;">
+        <input type="text" id="newList" placeholder="List name (e.g., epistery::admin)" />
+        <select id="newAccess">
+            <option value="read">Read</option>
+            <option value="write">Write</option>
+            <option value="admin">Admin</option>
+            <option value="none">None</option>
+        </select>
+        <button onclick="addACL()">Add</button>
+    </div>
+
+    <script>
+        let acls = [];
+        // parse query string
+        let queryString = window.location.search.split('&').reduce((a,c)=>{
+          let parts = c.split('=');
+          a[parts[0]] = parts[1];
+          return a;
+        },{});
+        const agentName = queryString.agent;
+
+        async function loadACLs() {
+            try {
+                const response = await fetch('/api/acl?agent=' + encodeURIComponent(agentName));
+                if (!response.ok) throw new Error('Failed to load ACLs');
+
+                const data = await response.json();
+                acls = data.acl || [];
+
+                renderACLs();
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('aclTable').style.display = 'table';
+                document.getElementById('addRow').style.display = 'block';
+            } catch (err) {
+                showError('Error loading ACLs: ' + err.message);
+            }
+        }
+
+        function renderACLs() {
+            const tbody = document.getElementById('aclBody');
+            tbody.innerHTML = '';
+
+            acls.forEach((acl, index) => {
+                const tr = document.createElement('tr');
+                tr.id = 'row-' + index;
+                tr.innerHTML = `
+                    <td class="list-name">${escapeHtml(acl.list)}</td>
+                    <td class="access-level">${escapeHtml(acl.access)}</td>
+                    <td class="actions">
+                        <button onclick="editACL(${index})">Edit</button>
+                        <button onclick="deleteACL(${index})" class="delete">Delete</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function editACL(index) {
+            const tr = document.getElementById('row-' + index);
+            const acl = acls[index];
+
+            tr.classList.add('editing');
+            tr.innerHTML = `
+                <td><input type="text" id="edit-list-${index}" value="${escapeHtml(acl.list)}" /></td>
+                <td>
+                    <select id="edit-access-${index}">
+                        <option value="read" ${acl.access === 'read' ? 'selected' : ''}>Read</option>
+                        <option value="write" ${acl.access === 'write' ? 'selected' : ''}>Write</option>
+                        <option value="admin" ${acl.access === 'admin' ? 'selected' : ''}>Admin</option>
+                        <option value="none" ${acl.access === 'none' ? 'selected' : ''}>None</option>
+                    </select>
+                </td>
+                <td class="actions">
+                    <button onclick="saveACL(${index})" class="save">Save</button>
+                    <button onclick="cancelEdit(${index})">Cancel</button>
+                </td>
+            `;
+        }
+
+        async function saveACL(index) {
+            const list = document.getElementById('edit-list-' + index).value.trim();
+            const access = document.getElementById('edit-access-' + index).value;
+
+            if (!list) {
+                showError('List name cannot be empty');
+                return;
+            }
+
+            acls[index] = { list, access };
+            await saveACLs();
+        }
+
+        function cancelEdit(index) {
+            renderACLs();
+        }
+
+        async function addACL() {
+            const list = document.getElementById('newList').value.trim();
+            const access = document.getElementById('newAccess').value;
+
+            if (!list) {
+                showError('List name cannot be empty');
+                return;
+            }
+
+            // Check for duplicates
+            if (acls.some(acl => acl.list === list)) {
+                showError('List already exists');
+                return;
+            }
+
+            acls.push({ list, access });
+            await saveACLs();
+
+            // Clear inputs
+            document.getElementById('newList').value = '';
+            document.getElementById('newAccess').value = 'read';
+        }
+
+        async function deleteACL(index) {
+            if (!confirm('Delete this ACL entry?')) return;
+
+            acls.splice(index, 1);
+            await saveACLs();
+        }
+
+        async function saveACLs() {
+            try {
+                const response = await fetch('/api/acl', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ agent: agentName, acl: acls })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to save ACLs');
+                }
+
+                renderACLs();
+                showError(''); // Clear any errors
+            } catch (err) {
+                showError('Error saving ACLs: ' + err.message);
+            }
+        }
+
+        function showError(msg) {
+            const errorDiv = document.getElementById('error');
+            if (msg) {
+                errorDiv.textContent = msg;
+                errorDiv.style.display = 'block';
+                document.getElementById('loading').style.display = 'none';
+            } else {
+                errorDiv.style.display = 'none';
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Load on page load
+        if (agentName) loadACLs();
+        else showError("'Agent' Name is required in query string");
+    </script>
+</body>
+</html>
