@@ -30,6 +30,27 @@ const AgentArtifact = DomainAgentArtifact;
 let isShuttingDown = false;
 let app, https_server, http_server, config, agentManager;
 
+// Helper to retry RPC calls on rate limit errors
+async function retryWithBackoff(fn, maxRetries = 3, baseDelay = 10000) {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            return await fn();
+        } catch (error) {
+            const isRateLimit = error.code === 'SERVER_ERROR' &&
+                               error.body &&
+                               error.body.includes('rate limit');
+
+            if (!isRateLimit || attempt === maxRetries) {
+                throw error;
+            }
+
+            const delay = baseDelay * Math.pow(1.5, attempt);
+            console.log(`Rate limit hit, retrying in ${delay/1000}s (attempt ${attempt + 1}/${maxRetries + 1})...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+    }
+}
+
 // Helper to get contract instance with server wallet
 async function getContract(contractAddress, domain) {
     const cfg = new Config();
@@ -244,8 +265,8 @@ let main = async function() {
             const wallet = ethers.Wallet.fromMnemonic(serverWallet.mnemonic).connect(ethersProvider);
 
             // Check balance upfront for deployment + initialization
-            const balance = await ethersProvider.getBalance(wallet.address);
-            const feeData = await ethersProvider.getFeeData();
+            const balance = await retryWithBackoff(() => ethersProvider.getBalance(wallet.address));
+            const feeData = await retryWithBackoff(() => ethersProvider.getFeeData());
             const minGasPrice = ethers.utils.parseUnits("30", "gwei");
 
             // Estimate total cost: deployment (~750k gas) + initialization (~300k gas)
@@ -282,7 +303,7 @@ let main = async function() {
                 maxPriorityFeePerGas: maxPriorityFeePerGas,
                 maxFeePerGas: maxFeePerGas
             });
-            await contract.deployed();
+            await retryWithBackoff(() => contract.deployed());
 
             const contractAddress = contract.address;
             console.log(`Agent contract deployed at ${contractAddress}`);
@@ -290,7 +311,7 @@ let main = async function() {
             // Check contract version
             let version = 'Unknown';
             try {
-                version = await contract.VERSION();
+                version = await retryWithBackoff(() => contract.VERSION());
                 console.log(`Contract version: ${version}`);
             } catch (e) {
                 version = '1.0.0';
