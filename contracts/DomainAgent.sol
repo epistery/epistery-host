@@ -487,15 +487,15 @@ contract DomainAgent {
   /**
    * @dev Get a public attribute
    */
-  function getPublicAttribute(address owner, string memory key) external view returns (string memory) {
-    return publicAttributes[owner][key];
+  function getPublicAttribute(address addr, string memory key) external view returns (string memory) {
+    return publicAttributes[addr][key];
   }
 
   /**
    * @dev Get all public attribute keys for an owner
    */
-  function getPublicAttributeKeys(address owner) external view returns (string[] memory) {
-    return publicAttributeKeys[owner];
+  function getPublicAttributeKeys(address addr) external view returns (string[] memory) {
+    return publicAttributeKeys[addr];
   }
 
   /**
