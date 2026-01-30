@@ -47,6 +47,92 @@ Modules add routes, wield the domain key, and provide optional public-facing UI 
 * Domain configuration via epistery `Config` module
 * Clean, framework-free frontend (no React/Vue)
 
+## Agent Configuration Pattern
+
+### Storage in DomainAgent Contract
+
+**All agent configuration data is stored in the DomainAgent contract, not in Config files.**
+
+The contract provides public attribute storage accessible via:
+- `setPublicAttribute(key, value)` - Store configuration
+- `getPublicAttribute(owner, key)` - Retrieve configuration
+
+### Configuration Key Pattern
+
+Agent configuration is stored using the agent's formal name from `package.json` as the key:
+
+```
+Key: "@epistery/wiki"
+Value: JSON.stringify({
+  aclStance: {
+    acl: [
+      { list: "epistery::admin", access: 3 },
+      { list: "default", access: 0 }
+    ],
+    enableRequestAccess: false
+  }
+})
+```
+
+### ACL Stance Object
+
+The `aclStance` object within agent configuration defines access control:
+
+```javascript
+{
+  acl: [
+    { list: string, access: number }  // ACL list mappings, including 'default'
+  ],
+  enableRequestAccess: boolean  // Show "Request Access" button
+}
+```
+
+The special `default` list entry defines access for users not in any named ACL list.
+
+Access levels:
+- `0` = None (denied)
+- `1` = Read
+- `2` = Write
+- `3` = Admin
+
+### Implementation in acl.mjs
+
+**Reading configuration:**
+```javascript
+const contract = await getContract(contractAddress, domain);
+const configJson = await contract.getPublicAttribute(contract.signer.address, agentName);
+const agentConfig = JSON.parse(configJson);
+const aclStance = agentConfig.aclStance;
+```
+
+**Saving configuration:**
+```javascript
+const contract = await getContract(contractAddress, domain);
+let agentConfig = JSON.parse(await contract.getPublicAttribute(contract.signer.address, agentName)) || {};
+agentConfig.aclStance = {
+  acl: [
+    { list: "epistery::admin", access: 3 },
+    { list: "default", access: 0 }
+  ],
+  enableRequestAccess: false
+};
+await contract.setPublicAttribute(agentName, JSON.stringify(agentConfig));
+```
+
+### API Routes
+
+- `GET /api/acl?agent=@epistery/wiki` - Retrieve agent ACL configuration
+- `PUT /api/acl` - Save agent ACL list mappings including 'default' (requires `{agent, acl}`)
+- `PUT /api/acl/auth-strategy` - Save enableRequestAccess (requires `{agent, authConfig: {enableRequestAccess}}`)
+
+### Default Behavior
+
+By default, all agents have:
+- `epistery::admin` with admin access (level 3)
+- `default` with no access (level 0) - for users not in any named list
+
+The special `default` entry in the acl array replaces the previous separate defaultStrategy field, simplifying the configuration structure.
+
 ## Future Todo Notes
 
 Config stores domain private keys in the home folder. We will soon want a verion of the config module that uses

@@ -22,3 +22,4 @@ server.cert
 server.key
 dist/
 cache/
+artifacts/

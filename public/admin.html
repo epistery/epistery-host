@@ -15,15 +15,15 @@
             padding: var(--spacer);
             margin-bottom: var(--spacer);
         }
-        .whitelist-item {
+        .acl-item {
             display: grid;
-            grid-template-columns: 2fr 1fr auto auto;
+            grid-template-columns: 2fr 1fr auto;
             gap: var(--spacerhalf);
             align-items: center;
             padding: var(--spacerhalf);
             border-bottom: 1px solid var(--page-border);
         }
-        .whitelist-item:last-child {
+        .acl-item:last-child {
             border-bottom: none;
         }
         .address-info {
@@ -189,7 +189,7 @@
 
             <div id="not-authorized" class="error-box" style="display: none;">
                 <h3>⚠️ Not Authorized</h3>
-                <p>Your wallet is not whitelisted as an admin for this domain.</p>
+                <p>Your wallet is not acled as an admin for this domain.</p>
                 <button class="console-btn" onclick="window.location.href='/'">Return to Home</button>
             </div>
 
@@ -266,36 +266,32 @@
                     <!-- List Selector -->
                     <div style="margin-bottom: 20px; display: flex; gap: 10px; align-items: center;">
                         <label for="list-selector" style="font-weight: bold;">List:</label>
-                        <select id="list-selector" style="flex: 1; padding: 8px; border: 1px solid var(--page-border); border-radius: 4px; background: var(--bg-color);">
+                        <select id="list-selector" style="flex: 1; padding: 8px; border: 1px solid var(--page-border); border-radius: 4px; background: var(--bg-color);" disabled>
                             <option value="">Loading lists...</option>
                         </select>
-                        <button class="console-btn" onclick="createNewList()">New List</button>
+                        <button onclick="createNewList()" class="console-btn">New List</button>
                     </div>
 
-                    <div id="whitelist-loading" style="display: block;">
+                    <div id="acl-loading" style="display: block;">
                         <div class="spinner"></div>
-                        <span>Loading whitelist...</span>
+                        <span>Loading acl...</span>
                     </div>
 
-                    <div id="whitelist-error" class="error-box" style="display: none;">
-                        <p id="whitelist-error-text"></p>
+                    <div id="acl-error" class="error-box" style="display: none;">
+                        <p id="acl-error-text"></p>
                     </div>
 
-                    <div id="whitelist-container" style="display: none;">
-                        <div id="whitelist-items"></div>
+                    <div id="acl-container" style="display: none;">
+                        <div id="acl-items"></div>
 
                         <div class="add-address-form">
                             <input type="text" id="new-address" placeholder="0x..." />
                             <input type="text" id="new-name" placeholder="Name (optional)" style="flex: 1 0 200px;" />
-                            <label class="admin-toggle">
-                                <input type="checkbox" id="new-is-admin" checked onchange="updateNewAdminLabel(this)" />
-                                <span class="admin-toggle-label" id="new-admin-label">Admin</span>
-                            </label>
                             <button class="console-btn" id="add-address-btn" onclick="addAddress()">Add Address</button>
                         </div>
                         <div id="add-progress" style="display: none; margin-top: var(--spacerhalf);">
                             <div class="spinner"></div>
-                            <span id="add-progress-text">Adding address to whitelist...</span>
+                            <span id="add-progress-text">Adding address to acl...</span>
                         </div>
                     </div>
                 </section>
@@ -313,8 +309,8 @@
 
     <script type="module">
         let currentPolicy = 'public';
-        let whitelist = [];
-        let whitelistMetadata = {}; // {address: {name: string, isAdmin: boolean}}
+        let acl = [];
+        let aclMetadata = {}; // {address: {name: string, isAdmin: boolean}}
         let contractAddress = null;
         let currentListName = '';
         let availableLists = [];
@@ -330,15 +326,11 @@
                 document.getElementById('domain-name').textContent = window.location.hostname;
                 contractAddress = statusData.server.contractAddress;
 
-                if (!contractAddress) {
-                    showNotAuthorized('Domain not initialized');
-                    return;
-                }
-
                 // Load epistery witness to get client wallet
                 const WitnessModule = await import('/lib/witness.js');
                 const Witness = WitnessModule.default;
                 const witness = await Witness.connect();
+
                 const status = witness.getStatus();
                 const clientAddress = status.client.address;
 
@@ -359,9 +351,23 @@
                 // User is authorized, show admin content
                 document.getElementById('admin-content').style.display = 'block';
                 await loadAgents();
-                await loadLists();
-                await loadPendingRequests();
+
+                // Always check contract version to show upgrade UI
                 await checkContractVersion();
+
+                // Try to load contract-dependent features if contract is deployed
+                if (contractAddress) {
+                    try {
+                        await loadLists();
+                    } catch (error) {
+                        console.warn('Failed to load lists (may need contract upgrade):', error);
+                    }
+                    try {
+                        await loadPendingRequests();
+                    } catch (error) {
+                        console.warn('Failed to load pending requests (may need contract upgrade):', error);
+                    }
+                }
 
             } catch (error) {
                 console.error('Failed to check admin access:', error);
@@ -401,44 +407,46 @@
             }
         }
 
-        // Load available lists and populate selector
+        // Load ACL lists from contract
         async function loadLists() {
             try {
-                const response = await fetch('/agent/epistery/white-list/lists');
+                const response = await fetch('/api/acl/lists');
                 const data = await response.json();
+                let lists = data.lists || [];
 
-                availableLists = data.lists || [];
-                const selector = document.getElementById('list-selector');
-
-                selector.innerHTML = '';
-
-                // Add epistery::admin as the default list
-                const defaultList = 'epistery::admin';
-
-                selector.innerHTML += `<option value="${defaultList}">${defaultList} (Epistery Admin)</option>`;
-
-                // Add other lists
-                for (const list of availableLists) {
-                    if (list !== defaultList) {
-                        selector.innerHTML += `<option value="${list}">${list}</option>`;
-                    }
+                // Always ensure epistery::admin is in the list
+                if (!lists.includes('epistery::admin')) {
+                    lists.unshift('epistery::admin');
                 }
 
-                // Set initial list and load it
-                currentListName = defaultList;
-                selector.value = currentListName;
+                // Set current list
+                if (!currentListName) {
+                    currentListName = 'epistery::admin';
+                }
 
-                // Add change handler
-                selector.onchange = function() {
-                    currentListName = this.value;
-                    loadWhitelist();
-                };
+                // Update the selector dropdown
+                const selector = document.getElementById('list-selector');
+                selector.innerHTML = lists.map(listName =>
+                    `<option value="${listName}" ${listName === currentListName ? 'selected' : ''}>${listName}</option>`
+                ).join('');
+                selector.disabled = false;
+
+                // Add change event listener (only once)
+                if (!selector.dataset.listenerAttached) {
+                    selector.addEventListener('change', async (e) => {
+                        currentListName = e.target.value;
+                        await loadWhitelist();
+                    });
+                    selector.dataset.listenerAttached = 'true';
+                }
 
                 await loadWhitelist();
             } catch (error) {
                 console.error('Failed to load lists:', error);
-                // Fallback to epistery::admin list
                 currentListName = 'epistery::admin';
+                const selector = document.getElementById('list-selector');
+                selector.innerHTML = '<option value="epistery::admin">epistery::admin</option>';
+                selector.disabled = false;
                 await loadWhitelist();
             }
         }
@@ -446,34 +454,26 @@
         async function loadWhitelist() {
             try {
                 const listName = currentListName || 'epistery::admin';
-                const response = await fetch(`/agent/epistery/white-list/list?list=${encodeURIComponent(listName)}`);
+                const response = await fetch(`/api/acl?listName=${encodeURIComponent(listName)}`);
 
                 if (!response.ok) {
-                    throw new Error('Failed to load whitelist');
+                    throw new Error('Failed to load acl');
                 }
 
                 const data = await response.json();
 
-                whitelist = data.members?.map(m => m.address) || [];
-                whitelistMetadata = {};
+                acl = data.acl || [];
+                aclMetadata = data.metadata || {};
 
-                // Build metadata from members
-                for (const member of (data.members || [])) {
-                    whitelistMetadata[member.address.toLowerCase()] = {
-                        name: member.name || '',
-                        isAdmin: member.role >= 3 // role 3 or higher is admin
-                    };
-                }
-
-                document.getElementById('whitelist-loading').style.display = 'none';
-                document.getElementById('whitelist-container').style.display = 'block';
+                document.getElementById('acl-loading').style.display = 'none';
+                document.getElementById('acl-container').style.display = 'block';
 
                 renderWhitelist();
             } catch (error) {
-                console.error('Failed to load whitelist:', error);
-                document.getElementById('whitelist-loading').style.display = 'none';
-                document.getElementById('whitelist-error').style.display = 'block';
-                document.getElementById('whitelist-error-text').textContent = 'Failed to load whitelist. Check console for details.';
+                console.error('Failed to load acl:', error);
+                document.getElementById('acl-loading').style.display = 'none';
+                document.getElementById('acl-error').style.display = 'block';
+                document.getElementById('acl-error-text').textContent = 'Failed to load acl. Check console for details.';
             }
         }
 
@@ -481,45 +481,40 @@
             const listName = prompt('Enter new list name (e.g., "moderators", "contributors"):');
             if (!listName) return;
 
-            // Just switch to the new list name - it will be created when first member is added
-            const selector = document.getElementById('list-selector');
-            const option = document.createElement('option');
-            option.value = listName;
-            option.textContent = listName;
-            selector.appendChild(option);
-            selector.value = listName;
+            // Switch to the new list name - it will be created when first member is added
             currentListName = listName;
+
+            // Add to dropdown if not already there
+            const selector = document.getElementById('list-selector');
+            const existingOption = Array.from(selector.options).find(opt => opt.value === listName);
+            if (!existingOption) {
+                const option = document.createElement('option');
+                option.value = listName;
+                option.textContent = listName;
+                option.selected = true;
+                selector.appendChild(option);
+            } else {
+                selector.value = listName;
+            }
 
             await loadWhitelist();
         };
 
         function renderWhitelist() {
-            const container = document.getElementById('whitelist-items');
+            const container = document.getElementById('acl-items');
 
-            if (whitelist.length === 0) {
-                container.innerHTML = '<div class="info-box"><p>No addresses in whitelist</p></div>';
+            if (acl.length === 0) {
+                container.innerHTML = '<div class="info-box"><p>No addresses in list</p></div>';
                 return;
             }
 
-            // Count admin addresses
-            let adminCount = 0;
-            for (const address of whitelist) {
-                const meta = whitelistMetadata[address.toLowerCase()] || {};
-                if (meta.isAdmin !== false) { // Default to admin if not specified
-                    adminCount++;
-                }
-            }
-
             let html = '';
-            for (const address of whitelist) {
-                const meta = whitelistMetadata[address.toLowerCase()] || {};
-                const isAdmin = meta.isAdmin !== false; // Default to admin
+            for (const address of acl) {
+                const meta = aclMetadata[address.toLowerCase()] || {};
                 const name = meta.name || '';
-                const canRemove = !(isAdmin && adminCount === 1); // Can't remove last admin
-                const canToggleAdmin = !(isAdmin && adminCount === 1); // Can't toggle last admin to non-admin
 
                 html += `
-                    <div class="whitelist-item" data-address="${address}">
+                    <div class="acl-item" data-address="${address}">
                         <div class="address-info">
                             <span class="address-text">${address}</span>
                         </div>
@@ -527,18 +522,12 @@
                             <span class="name-text">${name || '—'}</span>
                             <input type="text" class="name-input" value="${name}" style="display: none;" />
                         </div>
-                        <div class="admin-display">
-                            <label class="admin-toggle">
-                                <input type="checkbox" ${isAdmin ? 'checked' : ''} disabled data-editable="${canToggleAdmin}" />
-                                <span class="admin-toggle-label">${isAdmin ? 'Admin' : ''}</span>
-                            </label>
-                        </div>
                         <div class="action-buttons">
                             <button class="console-btn small" onclick="toggleEdit('${address}')" title="Edit">
                                 <span class="edit-icon"><svg class="icon-svg" viewBox="0 0 20 20"><path d="M17.561 2.439c-1.442-1.443-2.525-1.227-2.525-1.227L8.984 7.264 2.21 14.037 1.2 18.799l4.763-1.01 6.774-6.771 6.052-6.052c-.001 0 .216-1.083-1.228-2.527zM5.68 17.32l-1.394.261a3.475 3.475 0 0 0-.261-1.394l1.655 1.133z"/></svg></span>
                                 <span class="save-icon" style="display: none;"><svg class="icon-svg" viewBox="0 0 20 20"><path d="M15.173 2H4c-1.101 0-2 .9-2 2v12c0 1.1.899 2 2 2h12c1.101 0 2-.9 2-2V5.127L15.173 2zM14 8c0 .549-.45 1-1 1H7c-.55 0-1-.451-1-1V3h8v5zm-1-4h-2v4h2V4z"/></svg></span>
                             </button>
-                            <button class="console-btn small danger" onclick="removeAddress('${address}')" ${!canRemove ? 'disabled title="Cannot remove last admin"' : 'title="Remove"'}>
+                            <button class="console-btn small danger" onclick="removeAddress('${address}')" title="Remove">
                                 <svg class="icon-svg" viewBox="0 0 20 20"><path d="M6 2l2-2h4l2 2h4v2H2V2h4zM3 6h14l-1 14H4L3 6zm5 2v10h1V8H8zm3 0v10h1V8h-1z"/></svg>
                             </button>
                         </div>
@@ -564,22 +553,20 @@
         window.addAddress = async function() {
             const addressInput = document.getElementById('new-address');
             const nameInput = document.getElementById('new-name');
-            const isAdminCheckbox = document.getElementById('new-is-admin');
             const addButton = document.getElementById('add-address-btn');
             const progressDiv = document.getElementById('add-progress');
             const progressText = document.getElementById('add-progress-text');
 
             const address = addressInput.value.trim();
             const name = nameInput.value.trim();
-            const isAdmin = isAdminCheckbox.checked;
 
             if (!address || !address.startsWith('0x')) {
                 alert('Please enter a valid Ethereum address');
                 return;
             }
 
-            if (whitelist.some(a => a.toLowerCase() === address.toLowerCase())) {
-                alert('Address already in whitelist');
+            if (acl.some(a => a.toLowerCase() === address.toLowerCase())) {
+                alert('Address already in list');
                 return;
             }
 
@@ -588,21 +575,18 @@
                 addButton.disabled = true;
                 addressInput.disabled = true;
                 nameInput.disabled = true;
-                isAdminCheckbox.disabled = true;
                 progressDiv.style.display = 'block';
                 progressText.textContent = 'Adding address to blockchain...';
 
-                const listName = currentListName || `${window.location.hostname}::admin`;
-                const role = isAdmin ? 3 : 2; // 3 = admin, 2 = write/member
+                const listName = currentListName || 'epistery::admin';
 
-                const response = await fetch('/agent/epistery/white-list/add', {
+                const response = await fetch('/api/acl/add', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         address: address,
                         listName: listName,
-                        name: name,
-                        role: role
+                        name: name
                     })
                 });
 
@@ -613,13 +597,12 @@
 
                 progressText.textContent = 'Address added successfully!';
 
-                // Reload whitelist to get updated data
-                await loadWhitelist();
+                // Reload lists (in case this was the first address in a new list) and whitelist
+                await loadLists();
 
                 // Clear inputs
                 addressInput.value = '';
                 nameInput.value = '';
-                isAdminCheckbox.checked = true;
 
                 // Hide progress after a short delay
                 setTimeout(() => {
@@ -634,26 +617,11 @@
                 addButton.disabled = false;
                 addressInput.disabled = false;
                 nameInput.disabled = false;
-                isAdminCheckbox.disabled = false;
             }
         };
 
         window.removeAddress = async function(address) {
-            // Check if this is the last admin
-            const meta = whitelistMetadata[address.toLowerCase()] || {};
-            const isAdmin = meta.isAdmin !== false;
-            let adminCount = 0;
-            for (const addr of whitelist) {
-                const m = whitelistMetadata[addr.toLowerCase()] || {};
-                if (m.isAdmin !== false) adminCount++;
-            }
-
-            if (isAdmin && adminCount === 1) {
-                alert('Cannot remove the last admin address');
-                return;
-            }
-
-            if (!confirm(`Remove ${address} from whitelist?`)) {
+            if (!confirm(`Remove ${address} from list?`)) {
                 return;
             }
 
@@ -668,18 +636,20 @@
             }
 
             try {
+                const listName = currentListName || 'epistery::admin';
+
                 // Show working indicator
                 if (removeButton) {
                     const originalHTML = removeButton.innerHTML;
                     removeButton.innerHTML = '<span style="font-size: 10px;">Removing...</span>';
                     removeButton.disabled = true;
 
-                    const response = await fetch('/api/whitelist/remove', {
+                    const response = await fetch('/api/acl/remove', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             address: address,
-                            contractAddress: contractAddress
+                            listName: listName
                         })
                     });
 
@@ -691,16 +661,16 @@
                         throw new Error(data.error || 'Failed to remove address');
                     }
 
-                    // Reload whitelist (button will be re-rendered)
+                    // Reload list (button will be re-rendered)
                     await loadWhitelist();
                 } else {
                     // Fallback if button not found
-                    const response = await fetch('/api/whitelist/remove', {
+                    const response = await fetch('/api/acl/remove', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             address: address,
-                            contractAddress: contractAddress
+                            listName: listName
                         })
                     });
 
@@ -728,11 +698,9 @@
         };
 
         window.toggleEdit = async function(address) {
-            const item = document.querySelector(`.whitelist-item[data-address="${address}"]`);
+            const item = document.querySelector(`.acl-item[data-address="${address}"]`);
             const nameText = item.querySelector('.name-text');
             const nameInput = item.querySelector('.name-input');
-            const adminCheckbox = item.querySelector('.admin-toggle input[type="checkbox"]');
-            const adminLabel = item.querySelector('.admin-toggle-label');
             const editIcon = item.querySelector('.edit-icon');
             const saveIcon = item.querySelector('.save-icon');
 
@@ -740,7 +708,6 @@
             if (saveIcon.style.display !== 'none') {
                 // Save mode - save changes
                 const newName = nameInput.value.trim();
-                const newIsAdmin = adminCheckbox.checked;
 
                 // Show working indicator
                 const button = item.querySelector('.action-buttons button');
@@ -749,14 +716,13 @@
                 button.disabled = true;
 
                 try {
-                    const listName = currentListName || `${window.location.hostname}::admin`;
-                    const response = await fetch('/api/whitelist/update', {
+                    const listName = currentListName || 'epistery::admin';
+                    const response = await fetch('/api/acl/update', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             address: address,
                             name: newName,
-                            isAdmin: newIsAdmin,
                             listName: listName
                         })
                     });
@@ -767,19 +733,14 @@
                     }
 
                     // Update local data
-                    whitelistMetadata[address.toLowerCase()] = {
-                        name: newName,
-                        isAdmin: newIsAdmin
+                    aclMetadata[address.toLowerCase()] = {
+                        name: newName
                     };
 
                     // Switch back to view mode
                     nameText.textContent = newName || '—';
                     nameText.style.display = '';
                     nameInput.style.display = 'none';
-
-                    adminCheckbox.disabled = true;
-                    adminCheckbox.removeAttribute('onchange');
-                    adminLabel.textContent = newIsAdmin ? 'Admin' : '';
 
                     editIcon.style.display = '';
                     saveIcon.style.display = 'none';
@@ -798,12 +759,6 @@
                 nameText.style.display = 'none';
                 nameInput.style.display = 'block';
 
-                const canToggleAdmin = adminCheckbox.getAttribute('data-editable') === 'true';
-                if (canToggleAdmin) {
-                    adminCheckbox.disabled = false;
-                    adminCheckbox.setAttribute('onchange', 'updateAdminLabel(this)');
-                }
-
                 editIcon.style.display = 'none';
                 saveIcon.style.display = '';
             }
@@ -812,7 +767,7 @@
         // Contract version checking and upgrade
         async function checkContractVersion() {
             try {
-                const response = await fetch('/.well-known/epistery/contract/version');
+                const response = await fetch('/api/domain-agent/version');
                 const versionInfo = await response.json();
 
                 if (versionInfo.needsUpgrade) {
@@ -839,7 +794,7 @@
             document.getElementById('pending-requests-section').style.display = 'block';
 
             try {
-                const response = await fetch('/agent/epistery/white-list/pending-requests', {
+                const response = await fetch('/api/acl/pending-requests', {
                     credentials: 'include'
                 });
 
@@ -883,13 +838,14 @@
             let html = '<div style="display: flex; flex-direction: column; gap: 15px;">';
 
             pendingRequests.forEach(request => {
-                const timestamp = new Date(request.timestamp).toLocaleString();
+                const timestamp = new Date(request.requestedAt).toLocaleString();
                 const shortAddress = `${request.address.substring(0, 8)}...${request.address.substring(request.address.length - 6)}`;
 
                 html += `
                     <div class="console-section" style="padding: 15px;">
                         <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">
                             <div>
+                                <strong>Name:</strong> ${request.name || 'Anonymous'}<br>
                                 <strong>Address:</strong> <code onclick="copyToClipboard('${request.address}')" style="cursor: pointer; text-decoration: underline;" title="Click to copy full address">${shortAddress}</code><br>
                                 <strong>List:</strong> ${request.listName}<br>
                                 <strong>Agent:</strong> ${request.agentName}<br>
@@ -923,14 +879,13 @@
                 button.innerHTML = '⏳ Approving...';
                 button.style.opacity = '0.6';
 
-                const response = await fetch('/agent/epistery/white-list/handle-request', {
+                const response = await fetch('/api/acl/handle-request', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         address,
                         listName,
-                        approved: true,
-                        role: 2 // write role
+                        action: 'approve'
                     })
                 });
 
@@ -944,7 +899,7 @@
                 button.style.background = '#218838';
 
                 setTimeout(async () => {
-                    // Reload pending requests and whitelist
+                    // Reload pending requests and acl
                     await loadPendingRequests();
                     await loadWhitelist();
                 }, 1000);
@@ -974,13 +929,13 @@
                 button.innerHTML = '⏳ Denying...';
                 button.style.opacity = '0.6';
 
-                const response = await fetch('/agent/epistery/white-list/handle-request', {
+                const response = await fetch('/api/acl/handle-request', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         address,
                         listName,
-                        approved: false
+                        action: 'deny'
                     })
                 });
 
@@ -1128,8 +1083,8 @@
             `;
 
             for (const agent of agents) {
-                // Skip white-list agent
-                if (agent.name === '@epistery/white-list') {
+                // Skip acl agent
+                if (agent.name === '@epistery/acl') {
                     continue;
                 }
 

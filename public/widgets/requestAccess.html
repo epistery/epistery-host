@@ -1,0 +1,240 @@
+<style>
+    .access-box {
+        background: var(--bg-color, #f9f9f9);
+        border: 1px solid var(--page-border, #ddd);
+        border-radius: 8px;
+        padding: var(--spacer2, 12px);
+    }
+    .access-box.has-access {
+        background: var(--bg-color, #f0fff0);
+        border-color: var(--page-border, #90ee90);
+    }
+    .access-box h4 {
+        margin: 0 0 var(--spacerhalf, 6px) 0;
+        font-size: 14px;
+        color: var(--text-color, #333);
+    }
+    .access-box p {
+        margin: 0 0 var(--spacer, 12px) 0;
+        font-size: 13px;
+        color: var(--text-color-quiet, #666);
+        line-height: 1.4;
+    }
+    .access-box button {
+        width: 100%;
+        padding: 8px 12px;
+        font-size: 13px;
+        background: var(--action-color, #2d5016);
+        color: white;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 500;
+        transition: all 0.2s;
+    }
+    .access-box button:hover {
+        background: var(--action-color-hilite, #3d6020);
+    }
+    .access-box button.secondary {
+        background: var(--bg-color-d, #e0e0e0);
+        color: var(--text-color, #333);
+    }
+    .access-box textarea {
+        width: 100%;
+        min-height: 80px;
+        padding: 8px;
+        border: 1px solid var(--page-border, #ddd);
+        border-radius: 4px;
+        font-size: 13px;
+        font-family: inherit;
+        resize: vertical;
+        box-sizing: border-box;
+        margin-bottom: 8px;
+    }
+    .access-box .button-group {
+        display: flex;
+        gap: 8px;
+    }
+    .access-box .button-group button {
+        flex: 1;
+    }
+    .access-address {
+        display: block;
+        text-align: center;
+        font-family: monospace;
+        cursor: pointer;
+        margin: -10px 0;
+    }
+    .hidden {
+        display: none;
+    }
+</style>
+
+<div class="access-box" id="accessBox">
+    <div id="requestButton" class="hidden">
+        <h4>🔐 Request Access</h4>
+        <p>Request the host to enable this browser for editing.</p>
+        <button onclick="showMessageForm()">Request Access</button>
+    </div>
+    <div id="messageForm" class="hidden">
+        <h4>🔐 Request Access</h4>
+        <input type="text" id="requestName" placeholder="Name (optional)" style="width: 100%; padding: 8px; border: 1px solid var(--page-border, #ddd); border-radius: 4px; font-size: 13px; font-family: inherit; box-sizing: border-box; margin-bottom: 8px;">
+        <textarea id="requestMessage" placeholder="And/or message for the host"></textarea>
+        <div class="button-group">
+            <button onclick="submitRequest()">Send</button>
+            <button onclick="cancelRequest()" class="secondary">Cancel</button>
+        </div>
+    </div>
+    <div id="hasAccess" class="hidden">
+        <span class="access-address" id="userAddress" title="Click to copy"></span>
+    </div>
+</div>
+
+<script>
+    (function() {
+        // Find our parent container to read data attributes
+        const accessBox = document.getElementById('accessBox');
+        const container = accessBox?.closest('[data-widget="requestAccess"]');
+        const agentName = container?.dataset.agent || '';
+        const listName = container?.dataset.list || 'epistery::read';
+        let userAddress = '';
+
+        console.log('[requestAccess] Initialized with agent:', agentName, 'list:', listName);
+
+        async function checkAccess() {
+            try {
+                const response = await fetch('/.well-known/epistery/id');
+                if (!response.ok) throw new Error('Not authenticated');
+
+                const data = await response.json();
+                userAddress = data.address;
+
+                // Check if user has access to the agent
+                const accessResponse = await fetch(`/api/acl/check-access?agent=${encodeURIComponent(agentName)}`);
+                const accessData = await accessResponse.json();
+
+                // Show address if user has write access (level >= 2)
+                if (accessData.level >= 2) {
+                    showHasAccess();
+                } else {
+                    showRequestButton();
+                }
+            } catch (err) {
+                console.error('[requestAccess] Error checking access:', err);
+                showRequestButton();
+            }
+        }
+
+        function showRequestButton() {
+            document.getElementById('requestButton').classList.remove('hidden');
+            document.getElementById('messageForm').classList.add('hidden');
+            document.getElementById('hasAccess').classList.add('hidden');
+        }
+
+        window.showMessageForm = function() {
+            document.getElementById('requestButton').classList.add('hidden');
+            document.getElementById('messageForm').classList.remove('hidden');
+            document.getElementById('hasAccess').classList.add('hidden');
+            setTimeout(() => {
+                document.getElementById('requestMessage')?.focus();
+            }, 0);
+        };
+
+        window.cancelRequest = function() {
+            showRequestButton();
+            document.getElementById('requestName').value = '';
+            document.getElementById('requestMessage').value = '';
+        };
+
+        function showHasAccess() {
+            document.getElementById('requestButton').classList.add('hidden');
+            document.getElementById('messageForm').classList.add('hidden');
+            document.getElementById('hasAccess').classList.remove('hidden');
+
+            const shortform = `${userAddress.slice(0,8)}...${userAddress.slice(userAddress.length-6)}`;
+            const addressEl = document.getElementById('userAddress');
+            addressEl.textContent = shortform;
+            addressEl.title = userAddress;
+
+            document.getElementById('accessBox').classList.add('has-access');
+
+            // Copy to clipboard on click
+            addressEl.addEventListener('click', async () => {
+                try {
+                    await navigator.clipboard.writeText(userAddress);
+                    addressEl.textContent = 'copied!';
+                    setTimeout(() => {
+                        addressEl.textContent = shortform;
+                    }, 500);
+                } catch (error) {
+                    console.error('[requestAccess] Failed to copy:', error);
+                }
+            });
+        }
+
+        window.submitRequest = async function() {
+            try {
+                const name = document.getElementById('requestName').value.trim() || '';
+                const message = document.getElementById('requestMessage').value || '';
+
+                // Get wallet address from localStorage
+                const data = localStorage.getItem('epistery');
+                if (!data) {
+                    alert('Please create a wallet first');
+                    return;
+                }
+
+                const parsed = JSON.parse(data);
+                let wallet = parsed.wallets?.[0];
+                if (wallet && wallet.wallet) {
+                    wallet = wallet.wallet;
+                }
+
+                if (!wallet || !wallet.address) {
+                    alert('No wallet address found');
+                    return;
+                }
+
+                const address = wallet.rivetAddress || wallet.address;
+
+                const response = await fetch('/api/acl/request-access', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        address,
+                        listName,
+                        agentName,
+                        message,
+                        name
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Request failed');
+                }
+
+                const result = await response.json();
+                if (!result.success) {
+                    throw new Error(result.error || 'Request failed');
+                }
+
+                // Show success
+                const accessBox = document.getElementById('accessBox');
+                accessBox.innerHTML = `
+                    <h4>✓ Request Submitted</h4>
+                    <p>Your access request has been sent to the administrators.</p>
+                `;
+            } catch (error) {
+                alert('Failed to request access: ' + error.message);
+            }
+        };
+
+        // Initialize
+        if (!agentName) {
+            console.error('[requestAccess] Agent name required in query string');
+        } else {
+            checkAccess();
+        }
+    })();
+</script>

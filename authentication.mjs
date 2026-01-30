@@ -2,10 +2,43 @@ import express from 'express';
 import crypto from 'crypto';
 import dns from 'dns';
 import { promisify } from 'util';
-import { Config } from 'epistery';
+import { readFileSync } from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { createRequire } from 'module';
+import { Config, Epistery } from 'epistery';
+
+const require = createRequire(import.meta.url);
+const ethers = require('ethers');
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Load DomainAgent contract artifact
+const DomainAgentArtifact = JSON.parse(
+    readFileSync(path.join(__dirname, 'artifacts/contracts/DomainAgent.sol/DomainAgent.json'), 'utf8')
+);
 
 const resolveTxt = promisify(dns.resolveTxt);
 const APP_NAME = 'epistery';
+
+// Helper to get contract instance
+async function getContract(contractAddress, domain) {
+    const cfg = new Config();
+    cfg.setPath(domain);
+
+    const serverWallet = cfg.data?.wallet;
+    const provider = cfg.data?.provider;
+
+    if (!serverWallet || !provider) {
+        throw new Error('Server wallet or provider not configured');
+    }
+
+    const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc);
+    const wallet = ethers.Wallet.fromMnemonic(serverWallet.mnemonic).connect(ethersProvider);
+
+    return new ethers.Contract(contractAddress, DomainAgentArtifact.abi, wallet);
+}
 
 export function createAuthRouter() {
     const router = express.Router();
@@ -182,33 +215,25 @@ export function createAuthRouter() {
                 return res.json({ isAdmin: false });
             }
 
-            // Use epistery instance from app.locals if available
-            const epistery = req.app.locals?.epistery;
-            if (!epistery) {
-                // Fallback to old admin_address check if epistery not available
-                const isAdmin = config.data.admin_address &&
-                    address.toLowerCase() === config.data.admin_address.toLowerCase();
-                return res.json({ isAdmin });
-            }
-
-            // Primary: Check if address is on the epistery::admin list
+            // Check if address is on the epistery::admin list using DomainAgent contract
             try {
-                const isOnAdminList = await epistery.isListed(address, 'epistery::admin');
-                if (isOnAdminList) {
-                    return res.json({ isAdmin: true });
+                const contractAddress = config.data.contract_address;
+                if (!contractAddress) {
+                    // No contract deployed, fallback to admin_address check
+                    const isAdmin = config.data.admin_address &&
+                        address.toLowerCase() === config.data.admin_address.toLowerCase();
+                    return res.json({ isAdmin });
                 }
 
-                // Fallback: If no one is on admin list, check if user is the sponsor
-                const adminList = await epistery.getList('epistery::admin');
-                if (!adminList || adminList.length === 0) {
-                    // No admins exist, check if user is the contract sponsor
-                    const sponsor = await epistery.getSponsor();
-                    const isSponsor = sponsor && address.toLowerCase() === sponsor.toLowerCase();
-                    return res.json({ isAdmin: isSponsor });
-                }
+                // Create epistery instance for this domain
+                const epistery = new Epistery();
+                await epistery.setDomain(domain);
 
-                // User is not admin
-                return res.json({ isAdmin: false });
+                const contract = await epistery.getContract(contractAddress);
+
+                // DomainAgent automatically grants admin access to sponsor and owner
+                const isOnAdminList = await contract.isInACL('epistery::admin', address);
+                return res.json({ isAdmin: isOnAdminList });
             } catch (error) {
                 console.error('[epistery-host] Admin check error:', error);
                 // On error, fallback to old admin_address check

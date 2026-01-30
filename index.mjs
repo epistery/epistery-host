@@ -10,6 +10,7 @@ import { createRequire } from 'module';
 import { Certify } from '@metric-im/administrate';
 import { Epistery, Config } from 'epistery';
 import { createAuthRouter } from './authentication.mjs';
+import { createAclRouter } from './acl.mjs';
 import { AgentManager } from './AgentManager.mjs';
 import Pages from './pages/index.mjs'
 
@@ -19,13 +20,33 @@ const ethers = require('ethers');
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Load Agent contract artifact - resolve through the symlinked epistery package
-const AgentArtifact = JSON.parse(
-    readFileSync(path.join(__dirname, 'node_modules/epistery/artifacts/contracts/agent.sol/Agent.json'), 'utf8')
+// Load DomainAgent contract artifact from local project
+const DomainAgentArtifact = JSON.parse(
+    readFileSync(path.join(__dirname, 'artifacts/contracts/DomainAgent.sol/DomainAgent.json'), 'utf8')
 );
+// Keep old name for backward compatibility with existing code
+const AgentArtifact = DomainAgentArtifact;
 
 let isShuttingDown = false;
 let app, https_server, http_server, config, agentManager;
+
+// Helper to get contract instance with server wallet
+async function getContract(contractAddress, domain) {
+    const cfg = new Config();
+    cfg.setPath(domain);
+
+    const serverWallet = cfg.data?.wallet;
+    const provider = cfg.data?.provider;
+
+    if (!serverWallet || !provider) {
+        throw new Error('Server wallet or provider not configured');
+    }
+
+    const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc);
+    const wallet = ethers.Wallet.fromMnemonic(serverWallet.mnemonic).connect(ethersProvider);
+
+    return new ethers.Contract(contractAddress, DomainAgentArtifact.abi, wallet);
+}
 
 let main = async function() {
     app = express();
@@ -54,7 +75,7 @@ let main = async function() {
         const wallet = cfg.data?.wallet || {};
         const provider = cfg.data?.provider || {};
         // Only use finalized contract address for initialized status
-        const contractAddress = cfg.data?.agent_contract_address || process.env.AGENT_CONTRACT_ADDRESS;
+        const contractAddress = cfg.data?.contract_address || process.env.CONTRACT_ADDRESS;
         const pendingContractAddress = cfg.data?.agent_contract_pending;
         const isInitialized = contractAddress && contractAddress !== '0x0000000000000000000000000000000000000000';
 
@@ -82,6 +103,49 @@ let main = async function() {
             },
             timestamp: new Date().toISOString()
         };
+    }
+
+    // Helper function to check if user is admin using DomainAgent contract
+    async function isUserAdmin(req) {
+        if (!req.episteryClient) {
+            return false;
+        }
+
+        try {
+            const domain = req.headers.host?.split(':')[0] || 'localhost';
+            const cfg = new Config();
+            cfg.setPath(domain);
+            const contractAddress = cfg.data.contract_address;
+
+            // Fallback: If no contract deployed, check admin_address
+            if (!contractAddress) {
+                const adminAddress = cfg.data.admin_address;
+                if (adminAddress && req.episteryClient.address.toLowerCase() === adminAddress.toLowerCase()) {
+                    return true;
+                }
+                return false;
+            }
+
+            if (!req.app.locals.epistery) {
+                return false;
+            }
+
+            const baseContract = await getContract(contractAddress, domain);
+            const contract = baseContract;
+
+            return await contract.isInACL('epistery::admin', req.episteryClient.address);
+        } catch (error) {
+            console.error('[isUserAdmin] Error:', error);
+            // On error, fallback to admin_address check
+            const domain = req.headers.host?.split(':')[0] || 'localhost';
+            const cfg = new Config();
+            cfg.setPath(domain);
+            const adminAddress = cfg.data.admin_address;
+            if (adminAddress && req.episteryClient?.address.toLowerCase() === adminAddress.toLowerCase()) {
+                return true;
+            }
+            return false;
+        }
     }
 
     // Main status page - returns HTML or JSON based on Accept header
@@ -136,14 +200,8 @@ let main = async function() {
         }
     });
 
-    // Initialize page route
-    app.get('/initialize', (req, res) => {
-        res.sendFile(path.join(__dirname, 'public', 'initialize.html'));
-    });
-
     // Admin page route
     app.get('/admin', (req, res) => {
-        //TODO: This makes /admin return the same status as /. It's a hack. We have to rethink this interface.
         const acceptsJson = req.accepts('json') && !req.accepts('html');
 
         if (acceptsJson) {
@@ -168,6 +226,7 @@ let main = async function() {
 
             const serverWallet = cfg.data?.wallet;
             const provider = cfg.data?.provider;
+            const adminAddress = cfg.data?.admin_address;
 
             if (!serverWallet || !serverWallet.mnemonic) {
                 return res.status(500).json({ error: 'Server wallet not configured' });
@@ -177,28 +236,47 @@ let main = async function() {
                 return res.status(500).json({ error: 'Provider not configured' });
             }
 
+            if (!adminAddress) {
+                return res.status(500).json({ error: 'Admin address not configured - cannot complete initialization' });
+            }
+
             const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc);
             const wallet = ethers.Wallet.fromMnemonic(serverWallet.mnemonic).connect(ethersProvider);
 
-            // Get current gas price from network and add buffer
+            // Check balance upfront for deployment + initialization
+            const balance = await ethersProvider.getBalance(wallet.address);
             const feeData = await ethersProvider.getFeeData();
-
-            // Polygon Amoy requires minimum 25 Gwei, use 30 Gwei to be safe
             const minGasPrice = ethers.utils.parseUnits("30", "gwei");
 
-            // Use EIP-1559 style transaction (maxPriorityFeePerGas + maxFeePerGas)
-            // Apply 120% buffer to network prices, but enforce minimum
-            const networkPriority = feeData.maxPriorityFeePerGas ? feeData.maxPriorityFeePerGas.mul(120).div(100) : minGasPrice;
-            const maxPriorityFeePerGas = networkPriority.gt(minGasPrice) ? networkPriority : minGasPrice;
+            // Estimate total cost: deployment (~750k gas) + initialization (~300k gas)
+            const deploymentGas = ethers.BigNumber.from(750000);
+            const initGas = ethers.BigNumber.from(300000);
+            const totalGas = deploymentGas.add(initGas);
 
             const networkMax = feeData.maxFeePerGas ? feeData.maxFeePerGas.mul(120).div(100) : minGasPrice.mul(2);
             const maxFeePerGas = networkMax.gt(minGasPrice.mul(2)) ? networkMax : minGasPrice.mul(2);
+            const estimatedTotalCost = totalGas.mul(maxFeePerGas);
+            const requiredBalance = estimatedTotalCost.mul(150).div(100); // 50% buffer
+
+            if (balance.lt(requiredBalance)) {
+                return res.status(400).json({
+                    error: 'Insufficient balance for deployment and initialization',
+                    balance: ethers.utils.formatEther(balance),
+                    required: ethers.utils.formatEther(requiredBalance),
+                    currency: provider.nativeCurrency?.symbol || 'POL'
+                });
+            }
+
+            // Use EIP-1559 style transaction
+            const networkPriority = feeData.maxPriorityFeePerGas ? feeData.maxPriorityFeePerGas.mul(120).div(100) : minGasPrice;
+            const maxPriorityFeePerGas = networkPriority.gt(minGasPrice) ? networkPriority : minGasPrice;
 
             const factory = new ethers.ContractFactory(AgentArtifact.abi, AgentArtifact.bytecode, wallet);
-            console.log(`Deploying Agent contract for domain: ${domain}, sponsor: ${wallet.address}...`);
+            const ownerAddress = adminAddress || wallet.address; // Owner defaults to sponsor if no admin
+            console.log(`Deploying Agent contract for domain: ${domain}, sponsor: ${wallet.address}, owner: ${ownerAddress}...`);
 
-            // Deploy with domain and sponsor parameters, plus EIP-1559 gas settings
-            const contract = await factory.deploy(domain, wallet.address, {
+            // Deploy with domain, sponsor, and owner parameters, plus EIP-1559 gas settings
+            const contract = await factory.deploy(domain, wallet.address, ownerAddress, {
                 maxPriorityFeePerGas: maxPriorityFeePerGas,
                 maxFeePerGas: maxFeePerGas
             });
@@ -213,31 +291,102 @@ let main = async function() {
                 version = await contract.VERSION();
                 console.log(`Contract version: ${version}`);
             } catch (e) {
-                // Contract doesn't have VERSION field (old version)
                 version = '1.0.0';
             }
 
-            // Store in environment for current session
-            process.env.AGENT_CONTRACT_ADDRESS = contractAddress;
+            // Auto-initialize: Add admin to acl
+            console.log(`Auto-initializing: adding ${adminAddress} to epistery::admin...`);
 
-            // Mark contract as pending until whitelist initialization completes
-            cfg.data.agent_contract_pending = contractAddress;
+            const listName = 'epistery::admin';
+            const role = 3; // admin
+            const name = 'Epistery Administrator';
+            const meta = JSON.stringify({
+                addedBy: 'auto-initialization',
+                addedAt: new Date().toISOString()
+            });
+
+            console.log(`DomainAgent deployed. Sponsor ${wallet.address} has automatic admin access.`);
+
+            // Only add the admin address if it's different from the sponsor
+            if (adminAddress.toLowerCase() !== wallet.address.toLowerCase()) {
+                console.log(`Admin address ${adminAddress} is different from sponsor, adding to ACL...`);
+
+                try {
+                    const initTx = await contract.addToACL(listName, adminAddress, name, role, meta, {
+                        maxPriorityFeePerGas: maxPriorityFeePerGas,
+                        maxFeePerGas: maxFeePerGas,
+                        gasLimit: 300000
+                    });
+
+                    console.log(`Transaction sent: ${initTx.hash}`);
+                    const initReceipt = await initTx.wait();
+
+                    if (initReceipt.status === 0) {
+                        console.log(`Warning: Failed to add ${adminAddress} to ACL, but sponsor still has admin access`);
+                    } else {
+                        console.log(`Successfully added ${adminAddress} to ACL`);
+                    }
+                } catch (error) {
+                    console.log(`Warning: Could not add ${adminAddress} to ACL: ${error.message}`);
+                    console.log(`Sponsor ${wallet.address} still has admin access via automatic privilege`);
+                }
+            } else {
+                console.log(`Admin address same as sponsor - no additional setup needed`);
+            }
+
+            // Finalize: promote to active contract
+            cfg.data.contract_address = contractAddress;
+            delete cfg.data.agent_contract_pending;
             cfg.data.contract_deployed_at = new Date().toISOString();
             cfg.data.contract_version = version;
+            cfg.data.acl_initialized_at = new Date().toISOString();
             cfg.save();
-            console.log(`Contract deployment pending initialization: ${domain}`);
+
+            // Store in environment for current session
+            process.env.CONTRACT_ADDRESS = contractAddress;
+
+            console.log(`Contract upgrade complete for domain: ${domain}`);
+            console.log(`  Contract: ${contractAddress}`);
+            console.log(`  Version: ${version}`);
 
             res.json({
                 success: true,
                 address: contractAddress,
-                contractAddress: contractAddress, // Keep for backward compatibility
+                contractAddress: contractAddress,
                 version: version,
                 domain: domain,
-                message: 'Agent contract deployed successfully'
+                initialized: true,
+                message: 'Agent contract deployed and initialized successfully'
             });
         } catch (error) {
             console.error('Error deploying contract:', error);
-            res.status(500).json({ error: error.message });
+            console.error('Error details:', {
+                message: error.message,
+                code: error.code,
+                reason: error.reason,
+                transaction: error.transaction,
+                receipt: error.receipt
+            });
+
+            // Provide more informative error messages
+            let userMessage = error.message;
+            if (error.code === 'INSUFFICIENT_FUNDS') {
+                userMessage = 'Insufficient funds in server wallet to deploy contract';
+            } else if (error.code === 'NETWORK_ERROR' || error.message.includes('timeout')) {
+                userMessage = 'Network error - RPC endpoint may be rate limiting or unavailable. Please try again in a few moments.';
+            } else if (error.code === 'UNPREDICTABLE_GAS_LIMIT') {
+                userMessage = 'Unable to estimate gas - transaction may fail. Network may be congested.';
+            } else if (error.message.includes('nonce')) {
+                userMessage = 'Transaction nonce error - please try again';
+            } else if (error.message.includes('gas')) {
+                userMessage = 'Gas estimation failed - network may be congested or rate limiting';
+            }
+
+            res.status(500).json({
+                error: userMessage,
+                technicalDetails: error.message,
+                code: error.code
+            });
         }
     }
 
@@ -301,7 +450,49 @@ let main = async function() {
     app.post('/api/deploy-agent', deployAgentContract);
     app.post('/api/contract/deploy', deployAgentContract);
 
-    // API: Request deployment help from epistery.host admins
+    // API: Check DomainAgent contract version
+    app.get('/api/domain-agent/version', async (req, res) => {
+        try {
+            const domain = req.hostname || 'localhost';
+            const cfg = new Config();
+            cfg.setPath(domain);
+
+            const DOMAIN_AGENT_VERSION = '1.0.0'; // DomainAgent.sol VERSION constant
+            const contractAddress = cfg.data?.contract_address;
+            const deployedVersion = cfg.data?.contract_version;
+
+            // If no contract deployed, indicate upgrade needed
+            if (!contractAddress || !deployedVersion) {
+                return res.json({
+                    needsUpgrade: true,
+                    reason: 'no_contract',
+                    deployedVersion: null,
+                    expectedVersion: DOMAIN_AGENT_VERSION,
+                    contractAddress: null
+                });
+            }
+
+            // Check if version matches DomainAgent.sol
+            const needsUpgrade = deployedVersion !== DOMAIN_AGENT_VERSION;
+
+            res.json({
+                needsUpgrade,
+                reason: needsUpgrade ? 'version_mismatch' : 'up_to_date',
+                deployedVersion,
+                expectedVersion: DOMAIN_AGENT_VERSION,
+                contractAddress
+            });
+        } catch (error) {
+            console.error('[api/domain-agent/version] Error:', error);
+            res.status(500).json({
+                needsUpgrade: true,
+                reason: 'check_failed',
+                error: error.message
+            });
+        }
+    });
+
+    // API: Request deployment help from epistery.host admins. This is for requesting the host to sponsor a new domain and provide some POL
     app.post('/api/request-deployment-help', async (req, res) => {
         try {
             const { domain, walletAddress, requesterRivet } = req.body;
@@ -310,7 +501,6 @@ let main = async function() {
                 return res.status(400).json({ error: 'Missing required fields' });
             }
 
-            // Create a deployment help request (similar to white-list pending request)
             // This would be stored and shown to epistery.host admins
             console.log('[deployment-help] Request received:', {
                 domain,
@@ -332,87 +522,6 @@ let main = async function() {
         }
     });
 
-    // API: Initialize whitelist with admin address
-    app.post('/api/initialize-whitelist', async (req, res) => {
-        try {
-            const { domain: reqDomain, contractAddress } = req.body;
-            const domain = req.hostname || reqDomain || 'localhost';
-            const cfg = new Config();
-            cfg.setPath(domain);
-
-            const adminAddress = cfg.data?.admin_address;
-            if (!adminAddress) {
-                return res.status(400).json({ error: 'Admin address not configured in config.ini' });
-            }
-
-            const serverWallet = cfg.data?.wallet;
-            const provider = cfg.data?.provider;
-
-            if (!serverWallet || !serverWallet.mnemonic) {
-                return res.status(500).json({ error: 'Server wallet not configured' });
-            }
-
-            if (!provider || !provider.rpc) {
-                return res.status(500).json({ error: 'Provider not configured' });
-            }
-
-            const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc);
-            const wallet = ethers.Wallet.fromMnemonic(serverWallet.mnemonic).connect(ethersProvider);
-
-            // Get current gas price from network and add buffer
-            const feeData = await ethersProvider.getFeeData();
-
-            // Polygon Amoy requires minimum 25 Gwei, use 30 Gwei to be safe
-            const minGasPrice = ethers.utils.parseUnits("30", "gwei");
-
-            // Use EIP-1559 style transaction (maxPriorityFeePerGas + maxFeePerGas)
-            // Apply 120% buffer to network prices, but enforce minimum
-            const networkPriority = feeData.maxPriorityFeePerGas ? feeData.maxPriorityFeePerGas.mul(120).div(100) : minGasPrice;
-            const maxPriorityFeePerGas = networkPriority.gt(minGasPrice) ? networkPriority : minGasPrice;
-
-            const networkMax = feeData.maxFeePerGas ? feeData.maxFeePerGas.mul(120).div(100) : minGasPrice.mul(2);
-            const maxFeePerGas = networkMax.gt(minGasPrice.mul(2)) ? networkMax : minGasPrice.mul(2);
-
-            const contract = new ethers.Contract(contractAddress, AgentArtifact.abi, wallet);
-
-            console.log(`Adding ${adminAddress} to epistery::admin list for domain ${domain}...`);
-
-            // Add to epistery::admin list with admin role (3) and metadata
-            const listName = 'epistery::admin';
-            const role = 3; // admin
-            const name = 'Epistery Administrator';
-            const meta = JSON.stringify({ addedBy: 'initialization', addedAt: new Date().toISOString() });
-
-            const tx = await contract.addToWhitelist(listName, adminAddress, name, role, meta, {
-                maxPriorityFeePerGas: maxPriorityFeePerGas,
-                maxFeePerGas: maxFeePerGas,
-                gasLimit: 600000  // Set explicit gas limit for whitelist operation
-            });
-            await tx.wait();
-
-            console.log('Admin address added to list successfully');
-
-            // Promote pending contract to finalized
-            if (cfg.data.agent_contract_pending) {
-                cfg.data.agent_contract_address = cfg.data.agent_contract_pending;
-                delete cfg.data.agent_contract_pending;
-                cfg.data.whitelist_initialized_at = new Date().toISOString();
-                cfg.save();
-                console.log(`Initialization complete for domain: ${domain}`);
-            }
-
-            res.json({
-                success: true,
-                adminAddress: adminAddress,
-                domain: domain,
-                message: 'Admin address added to whitelist'
-            });
-        } catch (error) {
-            console.error('Error initializing whitelist:', error);
-            res.status(500).json({ error: error.message });
-        }
-    });
-
     // API: Check if address is admin
     app.post('/api/check-admin', async (req, res) => {
         try {
@@ -421,24 +530,14 @@ let main = async function() {
             const cfg = new Config();
             cfg.setPath(domain);
 
-            const contractAddress = cfg.data?.agent_contract_address || process.env.AGENT_CONTRACT_ADDRESS;
+            const contractAddress = cfg.data?.contract_address || process.env.CONTRACT_ADDRESS;
             if (!contractAddress) {
                 return res.json({ isAdmin: false, reason: 'Contract not deployed' });
             }
 
-            const serverWallet = cfg.data?.wallet;
-            const provider = cfg.data?.provider;
-
-            if (!serverWallet || !provider) {
-                return res.status(500).json({ error: 'Server not configured' });
-            }
-
-            const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc);
-            const wallet = ethers.Wallet.fromMnemonic(serverWallet.mnemonic).connect(ethersProvider);
-            const contract = new ethers.Contract(contractAddress, AgentArtifact.abi, wallet);
-
+            const contract = await getContract(contractAddress, domain);
             const listName = `epistery::admin`;
-            const isListed = await contract.isWhitelisted(serverWallet.address, listName, address);
+            const isListed = await contract.isInACL(listName, address);
 
             res.json({ isAdmin: isListed });
         } catch (error) {
@@ -447,234 +546,12 @@ let main = async function() {
         }
     });
 
-    // API: Get whitelist
-    app.get('/api/whitelist', async (req, res) => {
-        try {
-            const domain = req.hostname || 'localhost';
-            const cfg = new Config();
-            cfg.setPath(domain);
-
-            const contractAddress = cfg.data?.agent_contract_address || process.env.AGENT_CONTRACT_ADDRESS;
-            if (!contractAddress) {
-                return res.status(400).json({ error: 'Contract not deployed' });
-            }
-
-            const serverWallet = cfg.data?.wallet;
-            const provider = cfg.data?.provider;
-
-            if (!serverWallet || !provider) {
-                return res.status(500).json({ error: 'Server not configured' });
-            }
-
-            const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc);
-            const wallet = ethers.Wallet.fromMnemonic(serverWallet.mnemonic).connect(ethersProvider);
-            const contract = new ethers.Contract(contractAddress, AgentArtifact.abi, wallet);
-
-            // Get list from contract (returns WhitelistEntry[] with addr, name, role, meta)
-            const listName = `${domain}::admin`;
-            const whitelistEntries = await contract.getWhitelist(serverWallet.address, listName);
-
-            // Transform to simple format for API response
-            const whitelist = whitelistEntries.map(entry => entry.addr);
-            const metadata = {};
-            whitelistEntries.forEach(entry => {
-                metadata[entry.addr.toLowerCase()] = {
-                    name: entry.name,
-                    isAdmin: entry.role >= 3  // role 3=admin, 4=owner
-                };
-            });
-
-            res.json({
-                domain: domain,
-                whitelist: whitelist,
-                metadata: metadata,
-                count: whitelist.length
-            });
-        } catch (error) {
-            console.error('Error getting whitelist:', error);
-            res.status(500).json({ error: error.message });
-        }
-    });
-
-    // API: Add address to whitelist
-    app.post('/api/whitelist/add', async (req, res) => {
-        try {
-            const { address, name, isAdmin, contractAddress: reqContractAddress } = req.body;
-            const domain = req.hostname || 'localhost';
-            const cfg = new Config();
-            cfg.setPath(domain);
-
-            const contractAddress = reqContractAddress || cfg.data?.agent_contract_address || process.env.AGENT_CONTRACT_ADDRESS;
-            if (!contractAddress) {
-                return res.status(400).json({ error: 'Contract not deployed' });
-            }
-
-            const serverWallet = cfg.data?.wallet;
-            const provider = cfg.data?.provider;
-
-            if (!serverWallet || !provider) {
-                return res.status(500).json({ error: 'Server not configured' });
-            }
-
-            const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc);
-            const wallet = ethers.Wallet.fromMnemonic(serverWallet.mnemonic).connect(ethersProvider);
-
-            // Get gas prices with minimum
-            const feeData = await ethersProvider.getFeeData();
-            const minGasPrice = ethers.utils.parseUnits("30", "gwei");
-            const networkPriority = feeData.maxPriorityFeePerGas ? feeData.maxPriorityFeePerGas.mul(120).div(100) : minGasPrice;
-            const maxPriorityFeePerGas = networkPriority.gt(minGasPrice) ? networkPriority : minGasPrice;
-            const networkMax = feeData.maxFeePerGas ? feeData.maxFeePerGas.mul(120).div(100) : minGasPrice.mul(2);
-            const maxFeePerGas = networkMax.gt(minGasPrice.mul(2)) ? networkMax : minGasPrice.mul(2);
-
-            const contract = new ethers.Contract(contractAddress, AgentArtifact.abi, wallet);
-
-            console.log(`Adding ${address} to list for domain ${domain}...`);
-
-            // Convert isAdmin to role: 3=admin, 0=none
-            const listName = `${domain}::admin`;
-            const role = isAdmin ? 3 : 0;
-            const meta = JSON.stringify({ addedBy: 'admin-ui', addedAt: new Date().toISOString() });
-
-            const tx = await contract.addToWhitelist(listName, address, name || '', role, meta, {
-                maxPriorityFeePerGas: maxPriorityFeePerGas,
-                maxFeePerGas: maxFeePerGas
-            });
-            await tx.wait();
-
-            console.log('Address added to list successfully');
-
-            res.json({
-                success: true,
-                address: address,
-                domain: domain
-            });
-        } catch (error) {
-            console.error('Error adding to whitelist:', error);
-            res.status(500).json({ error: error.message });
-        }
-    });
-
-    // API: Remove address from whitelist
-    app.post('/api/whitelist/remove', async (req, res) => {
-        try {
-            const { address, contractAddress: reqContractAddress } = req.body;
-            const domain = req.hostname || 'localhost';
-            const cfg = new Config();
-            cfg.setPath(domain);
-
-            const contractAddress = reqContractAddress || cfg.data?.agent_contract_address || process.env.AGENT_CONTRACT_ADDRESS;
-            if (!contractAddress) {
-                return res.status(400).json({ error: 'Contract not deployed' });
-            }
-
-            const serverWallet = cfg.data?.wallet;
-            const provider = cfg.data?.provider;
-
-            if (!serverWallet || !provider) {
-                return res.status(500).json({ error: 'Server not configured' });
-            }
-
-            const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc);
-            const wallet = ethers.Wallet.fromMnemonic(serverWallet.mnemonic).connect(ethersProvider);
-
-            // Get gas prices with minimum
-            const feeData = await ethersProvider.getFeeData();
-            const minGasPrice = ethers.utils.parseUnits("30", "gwei");
-            const networkPriority = feeData.maxPriorityFeePerGas ? feeData.maxPriorityFeePerGas.mul(120).div(100) : minGasPrice;
-            const maxPriorityFeePerGas = networkPriority.gt(minGasPrice) ? networkPriority : minGasPrice;
-            const networkMax = feeData.maxFeePerGas ? feeData.maxFeePerGas.mul(120).div(100) : minGasPrice.mul(2);
-            const maxFeePerGas = networkMax.gt(minGasPrice.mul(2)) ? networkMax : minGasPrice.mul(2);
-
-            const contract = new ethers.Contract(contractAddress, AgentArtifact.abi, wallet);
-
-            console.log(`Removing ${address} from list for domain ${domain}...`);
-            const listName = `${domain}::admin`;
-            const tx = await contract.removeFromWhitelist(listName, address, {
-                maxPriorityFeePerGas: maxPriorityFeePerGas,
-                maxFeePerGas: maxFeePerGas
-            });
-            await tx.wait();
-
-            console.log('Address removed from list successfully');
-
-            res.json({
-                success: true,
-                address: address,
-                domain: domain
-            });
-        } catch (error) {
-            console.error('Error removing from whitelist:', error);
-            res.status(500).json({ error: error.message });
-        }
-    });
-
-    // API: Update whitelist metadata (name and admin status)
-    app.post('/api/whitelist/update', async (req, res) => {
-        try {
-            const { address, name, isAdmin, listName: reqListName, contractAddress: reqContractAddress } = req.body;
-            const domain = req.hostname || 'localhost';
-            const cfg = new Config();
-            cfg.setPath(domain);
-
-            const contractAddress = reqContractAddress || cfg.data?.agent_contract_address || process.env.AGENT_CONTRACT_ADDRESS;
-            if (!contractAddress) {
-                return res.status(400).json({ error: 'Contract not deployed' });
-            }
-
-            const serverWallet = cfg.data?.wallet;
-            const provider = cfg.data?.provider;
-
-            if (!serverWallet || !provider) {
-                return res.status(500).json({ error: 'Server not configured' });
-            }
-
-            const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc);
-            const wallet = ethers.Wallet.fromMnemonic(serverWallet.mnemonic).connect(ethersProvider);
-
-            // Get gas prices with minimum
-            const feeData = await ethersProvider.getFeeData();
-            const minGasPrice = ethers.utils.parseUnits("30", "gwei");
-            const networkPriority = feeData.maxPriorityFeePerGas ? feeData.maxPriorityFeePerGas.mul(120).div(100) : minGasPrice;
-            const maxPriorityFeePerGas = networkPriority.gt(minGasPrice) ? networkPriority : minGasPrice;
-            const networkMax = feeData.maxFeePerGas ? feeData.maxFeePerGas.mul(120).div(100) : minGasPrice.mul(2);
-            const maxFeePerGas = networkMax.gt(minGasPrice.mul(2)) ? networkMax : minGasPrice.mul(2);
-
-            const contract = new ethers.Contract(contractAddress, AgentArtifact.abi, wallet);
-
-            // Use sentinel values to update only the fields that are provided
-            // "\x00KEEP" for strings means don't update, 255 for role means don't update
-            const listName = reqListName || `${domain}::admin`;
-
-            console.log(`Updating list entry for ${address} in list ${listName}...`);
-            const role = isAdmin !== undefined ? (isAdmin ? 3 : 0) : 255;
-            const nameToUpdate = name !== undefined ? name : '\x00KEEP';
-            const metaToUpdate = '\x00KEEP'; // Don't update meta for now
-
-            const tx = await contract.updateWhitelistEntry(listName, address, nameToUpdate, role, metaToUpdate, {
-                maxPriorityFeePerGas: maxPriorityFeePerGas,
-                maxFeePerGas: maxFeePerGas
-            });
-            await tx.wait();
-
-            console.log('List entry updated successfully');
-
-            res.json({
-                success: true,
-                address: address,
-                name: name,
-                isAdmin: isAdmin
-            });
-        } catch (error) {
-            console.error('Error updating whitelist metadata:', error);
-            res.status(500).json({ error: error.message });
-        }
-    });
 
     // Static files (after specific routes)
     app.use('/style', express.static(path.join(__dirname, 'public/style')));
     app.use('/image', express.static(path.join(__dirname, 'public/image')));
     app.use('/script', express.static(path.join(__dirname, 'public/script')));
+    app.use('/widgets', express.static(path.join(__dirname, 'public/widgets')));
 
     // Serve service worker (must be at root for scope)
     app.get('/service-worker.js', (req, res) => {
@@ -693,6 +570,10 @@ let main = async function() {
     // Attach epistery at root
     const epistery = await Epistery.connect();
     await epistery.attach(app,'/');
+
+    // Mount ACL routes BEFORE epistery.routes() to override specific paths
+    // (epistery.attach() has already run, so req.episteryClient will be available)
+    app.use(createAclRouter());
 
     // Also mount the same routes at RFC 8615 well-known path
     // Note: We reuse the routes() to avoid duplicate middleware
@@ -754,14 +635,7 @@ let main = async function() {
         const verified = cfg.data?.verified || false;
 
         // Check if authenticated user is admin
-        let isAdmin = false;
-        if (req.episteryClient && req.app.locals.epistery) {
-            try {
-                isAdmin = await req.app.locals.epistery.isListed(req.episteryClient.address, 'epistery::admin');
-            } catch (error) {
-                console.error('[nav-menu] Error checking admin status:', error);
-            }
-        }
+        const isAdmin = await isUserAdmin(req);
 
         let navBar = "";
         for (const [, agentData] of agentManager.agents) {
@@ -789,11 +663,7 @@ let main = async function() {
             }
 
             // Check if user is admin
-            if (!req.episteryClient || !req.app.locals.epistery) {
-                return res.status(401).json({ error: 'Not authenticated' });
-            }
-
-            const isAdmin = await req.app.locals.epistery.isListed(req.episteryClient.address, 'epistery::admin');
+            const isAdmin = await isUserAdmin(req);
             if (!isAdmin) {
                 return res.status(403).json({ error: 'Not authorized' });
             }
@@ -848,11 +718,7 @@ let main = async function() {
             }
 
             // Check if user is admin
-            if (!req.episteryClient || !req.app.locals.epistery) {
-                return res.status(401).json({ error: 'Not authenticated' });
-            }
-
-            const isAdmin = await req.app.locals.epistery.isListed(req.episteryClient.address, 'epistery::admin');
+            const isAdmin = await isUserAdmin(req);
             if (!isAdmin) {
                 return res.status(403).json({ error: 'Not authorized' });
             }
@@ -874,6 +740,137 @@ let main = async function() {
             res.status(500).json({ error: error.message });
         }
     });
+
+    // ACL Management Routes (for admin.html compatibility)
+    app.get('/agent/epistery/acl/lists', async (req, res) => {
+        try {
+            const isAdmin = await isUserAdmin(req);
+            if (!isAdmin) {
+                return res.status(403).json({ error: 'Not authorized' });
+            }
+
+            const domain = req.headers.host?.split(':')[0] || 'localhost';
+            const cfg = new Config();
+            cfg.setPath(domain);
+            const contractAddress = cfg.data.contract_address;
+
+            if (!contractAddress) {
+                return res.json({ lists: [] });
+            }
+
+            const baseContract = await getContract(contractAddress, domain);
+            const contract = baseContract;
+
+            // Get all ACL lists
+            const allLists = await contract.getListNames();
+
+            res.json({ lists: allLists });
+        } catch (error) {
+            console.error('[acl] Error loading lists:', error);
+            res.status(500).json({ error: error.message });
+        }
+    });
+
+    app.get('/agent/epistery/acl/list', async (req, res) => {
+        try {
+            const isAdmin = await isUserAdmin(req);
+            if (!isAdmin) {
+                return res.status(403).json({ error: 'Not authorized' });
+            }
+
+            const listName = req.query.list || 'epistery::admin';
+            const domain = req.headers.host?.split(':')[0] || 'localhost';
+            const cfg = new Config();
+            cfg.setPath(domain);
+            const contractAddress = cfg.data.contract_address;
+
+            if (!contractAddress) {
+                return res.json({ entries: [] });
+            }
+
+            const baseContract = await getContract(contractAddress, domain);
+            const contract = baseContract;
+
+            // Get ACL entries
+            const entries = await contract.getACL(listName);
+
+            res.json({ entries });
+        } catch (error) {
+            console.error('[acl] Error loading list:', error);
+            res.status(500).json({ error: error.message });
+        }
+    });
+
+    app.post('/agent/epistery/acl/add', async (req, res) => {
+        try {
+            if (!req.episteryClient || !req.app.locals.epistery) {
+                return res.status(401).json({ error: 'Not authenticated' });
+            }
+
+            const isAdmin = await req.app.locals.epistery.isListed(req.episteryClient.address, 'epistery::admin');
+            if (!isAdmin) {
+                return res.status(403).json({ error: 'Not authorized' });
+            }
+
+            const { list, address, name, role, meta } = req.body;
+            const domain = req.headers.host?.split(':')[0] || 'localhost';
+            const cfg = new Config();
+            cfg.setPath(domain);
+            const contractAddress = cfg.data.contract_address;
+
+            if (!contractAddress) {
+                return res.status(500).json({ error: 'No contract deployed' });
+            }
+
+            const baseContract = await getContract(contractAddress, domain);
+            const contract = baseContract;
+
+            // Add to ACL
+            const tx = await contract.addToACL(list, address, name || '', role || 1, meta || '');
+            await tx.wait();
+
+            res.json({ success: true });
+        } catch (error) {
+            console.error('[acl] Error adding to list:', error);
+            res.status(500).json({ error: error.message });
+        }
+    });
+
+    app.post('/agent/epistery/acl/remove', async (req, res) => {
+        try {
+            if (!req.episteryClient || !req.app.locals.epistery) {
+                return res.status(401).json({ error: 'Not authenticated' });
+            }
+
+            const isAdmin = await req.app.locals.epistery.isListed(req.episteryClient.address, 'epistery::admin');
+            if (!isAdmin) {
+                return res.status(403).json({ error: 'Not authorized' });
+            }
+
+            const { list, address } = req.body;
+            const domain = req.headers.host?.split(':')[0] || 'localhost';
+            const cfg = new Config();
+            cfg.setPath(domain);
+            const contractAddress = cfg.data.contract_address;
+
+            if (!contractAddress) {
+                return res.status(500).json({ error: 'No contract deployed' });
+            }
+
+            const baseContract = await getContract(contractAddress, domain);
+            const contract = baseContract;
+
+            // Remove from ACL
+            const tx = await contract.removeFromACL(list, address);
+            await tx.wait();
+
+            res.json({ success: true });
+        } catch (error) {
+            console.error('[acl] Error removing from list:', error);
+            res.status(500).json({ error: error.message });
+        }
+    });
+
 
     config = new Config();
     const http_port = parseInt(process.env.PORT || 4080);

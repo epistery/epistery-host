@@ -6,23 +6,40 @@
     <title>Access Control - {{server.contractAddress}}</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body {
+            height: 100%;
+            overflow: hidden;
+        }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             font-size: 14px;
             background: #fff;
             color: #333;
+            display: flex;
+            flex-direction: column;
+        }
+        #container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
             padding: 16px;
         }
-        h2 {
-            font-size: 16px;
+        #tableWrapper {
+            flex: 1;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            min-height: 150px;
             margin-bottom: 12px;
-            font-weight: 600;
         }
         table {
             width: 100%;
             border-collapse: collapse;
             background: #fff;
-            border: 1px solid #ddd;
+        }
+        #aclBody TR>TD:first-child {
+            width: 100%;
         }
         th, td {
             padding: 8px 12px;
@@ -35,9 +52,12 @@
             font-size: 12px;
             text-transform: uppercase;
             color: #666;
+            position: sticky;
+            top: 0;
+            z-index: 10;
         }
         td:first-child {
-            width:50%;
+            width: 50%;
         }
         tr:hover {
             background: #f9f9f9;
@@ -53,6 +73,7 @@
             cursor: pointer;
             border-radius: 3px;
             font-size: 12px;
+            min-width:60px;
         }
         button:hover {
             background: #f5f5f5;
@@ -86,14 +107,16 @@
             background: #f9f9f9;
             border: 1px solid #ddd;
             border-radius: 3px;
+            flex-shrink: 0;
         }
         .add-row input {
             margin-right: 8px;
         }
         .error {
             color: #c0392b;
-            margin-top: 8px;
+            margin-bottom: 8px;
             font-size: 12px;
+            flex-shrink: 0;
         }
         .loading {
             text-align: center;
@@ -103,43 +126,96 @@
         .editing input {
             width: 100%;
         }
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        .public-row {
+            background: #fffef0;
+        }
+        .public-row:hover {
+            background: #fffce0;
+        }
+        .public-badge {
+            display: inline-block;
+            padding: 2px 6px;
+            background: #f0ad4e;
+            color: #fff;
+            border-radius: 3px;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            margin-left: 6px;
+        }
+        .spinner {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border: 2px solid rgba(0,0,0,0.1);
+            border-top-color: #333;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+            vertical-align: middle;
+        }
+        button.save .spinner {
+            border-color: rgba(255,255,255,0.3);
+            border-top-color: #fff;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
-    <h2>Access Control Lists</h2>
-    <div id="loading" class="loading">Loading...</div>
-    <div id="error" class="error" style="display:none;"></div>
-    <table id="aclTable" style="display:none;">
-        <thead>
-            <tr>
-                <th>Access Control List</th>
-                <th>Access</th>
-                <th>Actions</th>
-            </tr>
-        </thead>
-        <tbody id="aclBody">
-        </tbody>
-    </table>
-    <div id="addRow" class="add-row" style="display:none;">
-        <input type="text" id="newList" placeholder="List name (e.g., epistery::admin)" />
-        <select id="newAccess">
-            <option value="read">Read</option>
-            <option value="write">Write</option>
-            <option value="admin">Admin</option>
-            <option value="none">None</option>
-        </select>
-        <button onclick="addACL()">Add</button>
+    <div id="container">
+        <div id="loading" class="loading">Loading...</div>
+        <div id="error" class="error" style="display:none;"></div>
+        <div id="tableWrapper" style="display:none;">
+            <table id="aclTable">
+                <thead>
+                    <tr>
+                        <th style="min-width:100%">Access Control List</th>
+                        <th style="min-width:80px">Access</th>
+                        <th style="min-width:80px">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="aclBody">
+                </tbody>
+            </table>
+        </div>
+        <div id="authStrategy" style="display:none; margin-top: 8px;justify-content: space-between">
+            <div style="margin-bottom: 12px;">
+                <label>
+                    <input type="checkbox" id="enableRequestAccess">
+                    Enable "Request Access" button for denied users
+                </label>
+            </div>
+            <div>
+                <button onclick="saveAuthStrategy()" class="save">Save</button>
+            </div>
+        </div>
     </div>
 
     <script>
         let acls = [];
+        let authConfig = {
+            enableRequestAccess: false
+        };
         // parse query string
-        let queryString = window.location.search.split('&').reduce((a,c)=>{
+        let queryString = window.location.search.slice(1).split('&').reduce((a,c)=>{
           let parts = c.split('=');
           a[parts[0]] = parts[1];
           return a;
         },{});
         const agentName = queryString.agent;
+
+        // Access level mapping
+        const accessLevels = {
+            0: 'None',
+            1: 'Read',
+            2: 'Write',
+            3: 'Admin'
+        };
 
         async function loadACLs() {
             try {
@@ -148,13 +224,57 @@
 
                 const data = await response.json();
                 acls = data.acl || [];
+                authConfig = data.authConfig || authConfig;
 
                 renderACLs();
+                renderAuthConfig();
                 document.getElementById('loading').style.display = 'none';
-                document.getElementById('aclTable').style.display = 'table';
-                document.getElementById('addRow').style.display = 'block';
+                document.getElementById('tableWrapper').style.display = 'block';
+                document.getElementById('authStrategy').style.display = 'flex';
             } catch (err) {
                 showError('Error loading ACLs: ' + err.message);
+            }
+        }
+
+        function renderAuthConfig() {
+            // Set request access checkbox
+            document.getElementById('enableRequestAccess').checked = authConfig.enableRequestAccess || false;
+        }
+
+        async function saveAuthStrategy() {
+            const btn = event.target;
+            const originalText = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span>';
+
+            try {
+                const enableRequest = document.getElementById('enableRequestAccess').checked;
+
+                authConfig = {
+                    enableRequestAccess: enableRequest
+                };
+
+                const response = await fetch('/api/acl/auth-strategy', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ agent: agentName, authConfig })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to save setting');
+                }
+
+                showError(''); // Clear errors
+                btn.innerHTML = 'Saved!';
+                setTimeout(() => {
+                    btn.innerHTML = originalText;
+                    btn.disabled = false;
+                }, 2000);
+            } catch (err) {
+                showError('Error saving setting: ' + err.message);
+                btn.innerHTML = originalText;
+                btn.disabled = false;
             }
         }
 
@@ -165,9 +285,17 @@
             acls.forEach((acl, index) => {
                 const tr = document.createElement('tr');
                 tr.id = 'row-' + index;
+                const accessLevel = parseInt(acl.access);
+                const isDefault = acl.list === 'default';
+
+                if (isDefault) tr.classList.add('public-row');
+
                 tr.innerHTML = `
-                    <td class="list-name">${escapeHtml(acl.list)}</td>
-                    <td class="access-level">${escapeHtml(acl.access)}</td>
+                    <td class="list-name">
+                        ${escapeHtml(acl.list)}
+                        ${isDefault ? '<span class="public-badge">Default</span>' : ''}
+                    </td>
+                    <td class="access-level">${accessLevels[accessLevel] || 'Unknown'}</td>
                     <td class="actions">
                         <button onclick="editACL(${index})">Edit</button>
                         <button onclick="deleteACL(${index})" class="delete">Delete</button>
@@ -175,21 +303,40 @@
                 `;
                 tbody.appendChild(tr);
             });
+
+            // Add "Add" row at the end
+            const addRow = document.createElement('tr');
+            addRow.innerHTML = `
+                <td><input type="text" id="newList" placeholder="List name" style="width: 100%;" /></td>
+                <td>
+                    <select id="newAccess" style="width: 100%;">
+                        <option value="0">None</option>
+                        <option value="1">Read</option>
+                        <option value="2">Write</option>
+                        <option value="3">Admin</option>
+                    </select>
+                </td>
+                <td class="actions">
+                    <button onclick="addACL()" class="save">Add</button>
+                </td>
+            `;
+            tbody.appendChild(addRow);
         }
 
         function editACL(index) {
             const tr = document.getElementById('row-' + index);
             const acl = acls[index];
+            const accessLevel = parseInt(acl.access);
 
             tr.classList.add('editing');
             tr.innerHTML = `
                 <td><input type="text" id="edit-list-${index}" value="${escapeHtml(acl.list)}" /></td>
                 <td>
                     <select id="edit-access-${index}">
-                        <option value="read" ${acl.access === 'read' ? 'selected' : ''}>Read</option>
-                        <option value="write" ${acl.access === 'write' ? 'selected' : ''}>Write</option>
-                        <option value="admin" ${acl.access === 'admin' ? 'selected' : ''}>Admin</option>
-                        <option value="none" ${acl.access === 'none' ? 'selected' : ''}>None</option>
+                        <option value="0" ${accessLevel === 0 ? 'selected' : ''}>None</option>
+                        <option value="1" ${accessLevel === 1 ? 'selected' : ''}>Read</option>
+                        <option value="2" ${accessLevel === 2 ? 'selected' : ''}>Write</option>
+                        <option value="3" ${accessLevel === 3 ? 'selected' : ''}>Admin</option>
                     </select>
                 </td>
                 <td class="actions">
@@ -201,7 +348,7 @@
 
         async function saveACL(index) {
             const list = document.getElementById('edit-list-' + index).value.trim();
-            const access = document.getElementById('edit-access-' + index).value;
+            const access = parseInt(document.getElementById('edit-access-' + index).value);
 
             if (!list) {
                 showError('List name cannot be empty');
@@ -218,7 +365,7 @@
 
         async function addACL() {
             const list = document.getElementById('newList').value.trim();
-            const access = document.getElementById('newAccess').value;
+            const access = parseInt(document.getElementById('newAccess').value);
 
             if (!list) {
                 showError('List name cannot be empty');
@@ -236,7 +383,7 @@
 
             // Clear inputs
             document.getElementById('newList').value = '';
-            document.getElementById('newAccess').value = 'read';
+            document.getElementById('newAccess').value = '1';
         }
 
         async function deleteACL(index) {
@@ -247,6 +394,16 @@
         }
 
         async function saveACLs() {
+            // Disable all buttons and show loading state
+            const buttons = document.querySelectorAll('button');
+            buttons.forEach(btn => {
+                btn.disabled = true;
+                if (btn.classList.contains('save')) {
+                    btn.dataset.originalText = btn.innerHTML;
+                    btn.innerHTML = '<span class="spinner"></span>';
+                }
+            });
+
             try {
                 const response = await fetch('/api/acl', {
                     method: 'PUT',
@@ -263,6 +420,15 @@
                 showError(''); // Clear any errors
             } catch (err) {
                 showError('Error saving ACLs: ' + err.message);
+                // Re-enable buttons on error
+                const currentButtons = document.querySelectorAll('button');
+                currentButtons.forEach(btn => {
+                    btn.disabled = false;
+                    if (btn.dataset.originalText) {
+                        btn.innerHTML = btn.dataset.originalText;
+                        delete btn.dataset.originalText;
+                    }
+                });
             }
         }
 
