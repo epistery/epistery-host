@@ -272,11 +272,13 @@ let main = async function() {
             const maxPriorityFeePerGas = networkPriority.gt(minGasPrice) ? networkPriority : minGasPrice;
 
             const factory = new ethers.ContractFactory(AgentArtifact.abi, AgentArtifact.bytecode, wallet);
-            const ownerAddress = adminAddress || wallet.address; // Owner defaults to sponsor if no admin
-            console.log(`Deploying Agent contract for domain: ${domain}, sponsor: ${wallet.address}, owner: ${ownerAddress}...`);
+            // Server wallet is owner (pays for and owns the contract)
+            // Browser wallet (admin_address) is sponsor (gets automatic admin access)
+            const sponsorAddress = adminAddress || wallet.address; // Sponsor defaults to server if no admin
+            console.log(`Deploying Agent contract for domain: ${domain}, sponsor: ${sponsorAddress}, owner: ${wallet.address}...`);
 
             // Deploy with domain, sponsor, and owner parameters, plus EIP-1559 gas settings
-            const contract = await factory.deploy(domain, wallet.address, ownerAddress, {
+            const contract = await factory.deploy(domain, sponsorAddress, wallet.address, {
                 maxPriorityFeePerGas: maxPriorityFeePerGas,
                 maxFeePerGas: maxFeePerGas
             });
@@ -294,45 +296,10 @@ let main = async function() {
                 version = '1.0.0';
             }
 
-            // Auto-initialize: Add admin to acl
-            console.log(`Auto-initializing: adding ${adminAddress} to epistery::admin...`);
-
-            const listName = 'epistery::admin';
-            const role = 3; // admin
-            const name = 'Epistery Administrator';
-            const meta = JSON.stringify({
-                addedBy: 'auto-initialization',
-                addedAt: new Date().toISOString()
-            });
-
-            console.log(`DomainAgent deployed. Sponsor ${wallet.address} has automatic admin access.`);
-
-            // Only add the admin address if it's different from the sponsor
-            if (adminAddress.toLowerCase() !== wallet.address.toLowerCase()) {
-                console.log(`Admin address ${adminAddress} is different from sponsor, adding to ACL...`);
-
-                try {
-                    const initTx = await contract.addToACL(listName, adminAddress, name, role, meta, {
-                        maxPriorityFeePerGas: maxPriorityFeePerGas,
-                        maxFeePerGas: maxFeePerGas,
-                        gasLimit: 300000
-                    });
-
-                    console.log(`Transaction sent: ${initTx.hash}`);
-                    const initReceipt = await initTx.wait();
-
-                    if (initReceipt.status === 0) {
-                        console.log(`Warning: Failed to add ${adminAddress} to ACL, but sponsor still has admin access`);
-                    } else {
-                        console.log(`Successfully added ${adminAddress} to ACL`);
-                    }
-                } catch (error) {
-                    console.log(`Warning: Could not add ${adminAddress} to ACL: ${error.message}`);
-                    console.log(`Sponsor ${wallet.address} still has admin access via automatic privilege`);
-                }
-            } else {
-                console.log(`Admin address same as sponsor - no additional setup needed`);
-            }
+            console.log(`DomainAgent deployed successfully.`);
+            console.log(`  Owner: ${wallet.address} (server wallet - pays for contract)`);
+            console.log(`  Sponsor: ${sponsorAddress} (admin wallet - automatic epistery::admin access)`);
+            console.log(`Contract initialization complete - no additional ACL setup needed.`);
 
             // Finalize: promote to active contract
             cfg.data.contract_address = contractAddress;
@@ -457,7 +424,7 @@ let main = async function() {
             const cfg = new Config();
             cfg.setPath(domain);
 
-            const DOMAIN_AGENT_VERSION = '1.0.0'; // DomainAgent.sol VERSION constant
+            const DOMAIN_AGENT_VERSION = '1.0.2'; // DomainAgent.sol VERSION constant
             const contractAddress = cfg.data?.contract_address;
             const deployedVersion = cfg.data?.contract_version;
 

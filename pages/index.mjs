@@ -63,9 +63,7 @@ export default class Pages {
 
             // If authenticated, check user's list memberships
             if (req.episteryClient?.address) {
-              const ownerAddress = cfg.data?.wallet?.address;
-              if (ownerAddress) {
-                const membershipEntries = await contract.getListsForMember(ownerAddress, req.episteryClient.address);
+                const membershipEntries = await contract.getListsForMember(req.episteryClient.address);
                 const lists = membershipEntries.map(entry => entry.listName);
 
                 // Find highest access level from user's lists
@@ -76,7 +74,6 @@ export default class Pages {
                     if (level > maxLevel) maxLevel = level;
                   }
                 }
-              }
             }
 
             return maxLevel;

@@ -14,7 +14,7 @@ pragma solidity ^0.8.0;
  */
 contract DomainAgent {
   // Contract version
-  string public constant VERSION = "1.0.0";
+  string public constant VERSION = "1.0.2";
 
   // Domain this contract serves
   string public domain;
@@ -317,7 +317,35 @@ contract DomainAgent {
    * @return MembershipEntry[] Array of memberships
    */
   function getListsForMember(address member) external view returns (MembershipEntry[] memory) {
-    return memberMemberships[member];
+    MembershipEntry[] memory memberships = memberMemberships[member];
+
+    // Special handling: owner and sponsor are always in epistery::admin
+    if (member == owner || member == sponsor) {
+      // Check if epistery::admin is already in their memberships
+      bool hasAdmin = false;
+      for (uint256 i = 0; i < memberships.length; i++) {
+        if (keccak256(bytes(memberships[i].listName)) == keccak256(bytes("epistery::admin"))) {
+          hasAdmin = true;
+          break;
+        }
+      }
+
+      // If not already in list, add it
+      if (!hasAdmin) {
+        MembershipEntry[] memory result = new MembershipEntry[](memberships.length + 1);
+        for (uint256 i = 0; i < memberships.length; i++) {
+          result[i] = memberships[i];
+        }
+        result[memberships.length] = MembershipEntry({
+          listName: "epistery::admin",
+          role: 3, // admin role
+          addedAt: 0 // special marker for implicit membership
+        });
+        return result;
+      }
+    }
+
+    return memberships;
   }
 
   /**

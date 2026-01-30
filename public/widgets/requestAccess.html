@@ -103,15 +103,12 @@
 
         async function checkAccess() {
             try {
-                const response = await fetch('/.well-known/epistery/id');
-                if (!response.ok) throw new Error('Not authenticated');
-
-                const data = await response.json();
-                userAddress = data.address;
-
                 // Check if user has access to the agent
                 const accessResponse = await fetch(`/api/acl/check-access?agent=${encodeURIComponent(agentName)}`);
                 const accessData = await accessResponse.json();
+
+                // Get user address from response (if authenticated)
+                userAddress = accessData.address || '';
 
                 // Show address if user has write access (level >= 2)
                 if (accessData.level >= 2) {

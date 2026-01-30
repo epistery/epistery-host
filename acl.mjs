@@ -116,51 +116,19 @@ export async function checkAgentAccess(agentName, userAddress, domain, customAut
         ],
         enableRequestAccess: false
     };
-
     const aclStance = agentConfig.aclStance || defaultAclStance;
     const acl = aclStance.acl || defaultAclStance.acl;
-
-    let defaultEntry = null;
-
-    // Check if user is in any named ACL list (skip 'default')
-    for (const entry of acl) {
-        const listName = entry.list;
-        const accessLevel = parseInt(entry.access);
-
-        // Save default entry for later
-        if (listName === 'default') {
-            defaultEntry = entry;
-            continue;
-        }
-
-        // Check contract ACL for named lists
-        try {
-            const contract = await getContract(contractAddress, domain);
-            const isInList = await contract.isInACL(contract.signer.address, listName, userAddress);
-            if (isInList) {
-                return {
-                    allowed: accessLevel > 0,
-                    level: accessLevel,
-                    strategy: 'acl-list',
-                    list: listName,
-                    enableRequestAccess: aclStance.enableRequestAccess || false
-                };
-            }
-        } catch (error) {
-            console.error(`[checkAgentAccess] Error checking ACL list ${listName}:`, error);
-        }
-    }
-
-    // User not in any named list - apply default entry
-    if (!defaultEntry) {
-        defaultEntry = { list: 'default', access: 0 };
-    }
-
-    const defaultAccess = parseInt(defaultEntry.access);
+    // get lists and access for this address. default stance included automatically
+    const membershipEntries = await contract.getListsForMember(userAddress);
+    const userLists = membershipEntries.map(entry => entry.listName);
+    const userTests = ['default',...userLists];
+    const accessLevel = acl.reduce((level,entry)=>{
+        if (userTests.includes(entry.list) && entry.access > level) level = entry.access;
+        return level;
+    },0);
     return {
-        allowed: defaultAccess > 0,
-        level: defaultAccess,
-        strategy: 'default',
+        allowed: accessLevel > 0,
+        level: accessLevel,
         enableRequestAccess: aclStance.enableRequestAccess || false
     };
 }
@@ -700,20 +668,14 @@ export function createAclRouter() {
     // API: Get pending access requests (admin only)
     router.get('/api/acl/pending-requests', async (req, res) => {
         try {
-            console.log('[pending-requests] GET request received');
-
             if (!req.episteryClient) {
-                console.log('[pending-requests] No episteryClient - witness authentication not complete');
                 return res.status(403).json({ error: 'Not authorized - authentication required' });
             }
 
             const domain = req.headers.host?.split(':')[0] || 'localhost';
-            console.log('[pending-requests] Domain:', domain);
 
             const cfg = new Config();
             cfg.setPath(domain);
-            console.log('[pending-requests] Config file path:', cfg.currentFile);
-            console.log('[pending-requests] Config data:', JSON.stringify(cfg.data, null, 2));
 
             const contractAddress = cfg.data?.contract_address;
             if (!contractAddress) {
@@ -722,7 +684,6 @@ export function createAclRouter() {
 
             const contract = await getContract(contractAddress, domain);
             const isInAdminList = await contract.isInACL('epistery::admin', req.episteryClient.address);
-            console.log('[pending-requests] User is in admin list:', isInAdminList);
 
             if (!isInAdminList) {
                 return res.status(403).json({ error: 'Not authorized' });
@@ -731,11 +692,10 @@ export function createAclRouter() {
             // Load from JSON file
             const allRequests = loadPendingRequests(domain);
             const requests = allRequests.filter(r => r.status === 'pending');
-            console.log('[pending-requests] Pending requests found:', requests.length);
 
             res.json({ requests });
         } catch (error) {
-            console.error('[pending-requests] Error loading pending requests:', error);
+            console.error('[acl] Error loading pending requests:', error);
             res.status(500).json({ error: error.message });
         }
     });
