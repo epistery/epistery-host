@@ -48,7 +48,10 @@ async function getContract(contractAddress, domain) {
         throw new Error('Server wallet or provider not configured');
     }
 
-    const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc);
+    const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc, {
+        chainId: provider.chainId,
+        name: provider.name
+    });
     const wallet = ethers.Wallet.fromMnemonic(serverWallet.mnemonic).connect(ethersProvider);
 
     return new ethers.Contract(contractAddress, DomainAgentArtifact.abi, wallet);
@@ -259,7 +262,10 @@ export function createAclRouter() {
                 return res.status(500).json({ error: 'Server not configured' });
             }
 
-            const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc);
+            const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc, {
+        chainId: provider.chainId,
+        name: provider.name
+    });
             const wallet = ethers.Wallet.fromMnemonic(serverWallet.mnemonic).connect(ethersProvider);
             const contract = new ethers.Contract(contractAddress, DomainAgentArtifact.abi, wallet);
 
@@ -308,7 +314,10 @@ export function createAclRouter() {
                 return res.status(500).json({ error: 'Server not configured' });
             }
 
-            const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc);
+            const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc, {
+        chainId: provider.chainId,
+        name: provider.name
+    });
             const wallet = ethers.Wallet.fromMnemonic(serverWallet.mnemonic).connect(ethersProvider);
 
             // Get gas prices with minimum
@@ -368,7 +377,10 @@ export function createAclRouter() {
                 return res.status(500).json({ error: 'Server not configured' });
             }
 
-            const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc);
+            const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc, {
+        chainId: provider.chainId,
+        name: provider.name
+    });
             const wallet = ethers.Wallet.fromMnemonic(serverWallet.mnemonic).connect(ethersProvider);
 
             // Get gas prices with minimum
@@ -423,7 +435,10 @@ export function createAclRouter() {
                 return res.status(500).json({ error: 'Server not configured' });
             }
 
-            const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc);
+            const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc, {
+        chainId: provider.chainId,
+        name: provider.name
+    });
             const wallet = ethers.Wallet.fromMnemonic(serverWallet.mnemonic).connect(ethersProvider);
 
             // Get gas prices with minimum
@@ -747,7 +762,10 @@ export function createAclRouter() {
                     return res.status(500).json({ error: 'Server not configured' });
                 }
 
-                const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc);
+                const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc, {
+        chainId: provider.chainId,
+        name: provider.name
+    });
                 const wallet = ethers.Wallet.fromMnemonic(serverWallet.mnemonic).connect(ethersProvider);
 
                 const feeData = await ethersProvider.getFeeData();

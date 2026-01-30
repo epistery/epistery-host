@@ -63,7 +63,10 @@ async function getContract(contractAddress, domain) {
         throw new Error('Server wallet or provider not configured');
     }
 
-    const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc);
+    const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc, {
+        chainId: provider.chainId,
+        name: provider.name
+    });
     const wallet = ethers.Wallet.fromMnemonic(serverWallet.mnemonic).connect(ethersProvider);
 
     return new ethers.Contract(contractAddress, DomainAgentArtifact.abi, wallet);
@@ -261,7 +264,10 @@ let main = async function() {
                 return res.status(500).json({ error: 'Admin address not configured - cannot complete initialization' });
             }
 
-            const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc);
+            const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc, {
+                chainId: provider.chainId,
+                name: provider.name
+            });
             const wallet = ethers.Wallet.fromMnemonic(serverWallet.mnemonic).connect(ethersProvider);
 
             // Check balance upfront for deployment + initialization
@@ -395,7 +401,10 @@ let main = async function() {
                 return res.status(500).json({ error: 'Server wallet not configured' });
             }
 
-            const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc);
+            const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc, {
+                chainId: provider.chainId,
+                name: provider.name
+            });
             const wallet = ethers.Wallet.fromMnemonic(serverWallet.mnemonic).connect(ethersProvider);
 
             // Get current balance

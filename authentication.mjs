@@ -34,7 +34,10 @@ async function getContract(contractAddress, domain) {
         throw new Error('Server wallet or provider not configured');
     }
 
-    const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc);
+    const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc, {
+        chainId: provider.chainId,
+        name: provider.name
+    });
     const wallet = ethers.Wallet.fromMnemonic(serverWallet.mnemonic).connect(ethersProvider);
 
     return new ethers.Contract(contractAddress, DomainAgentArtifact.abi, wallet);
