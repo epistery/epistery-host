@@ -35,7 +35,7 @@ async function getContract(contractAddress, domain) {
     }
 
     const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc, {
-        chainId: provider.chainId,
+        chainId: parseInt(provider.chainId),
         name: provider.name
     });
     const wallet = ethers.Wallet.fromMnemonic(serverWallet.mnemonic).connect(ethersProvider);
