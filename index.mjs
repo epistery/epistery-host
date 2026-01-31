@@ -305,9 +305,25 @@ let main = async function() {
             console.log(`Deploying Agent contract for domain: ${domain}, sponsor: ${sponsorAddress}, owner: ${wallet.address}...`);
 
             // Deploy with domain, sponsor, and owner parameters, plus EIP-1559 gas settings
+            // Try to estimate gas, fallback to calculated limit if estimation fails
+            let gasLimit;
+            try {
+                const deployTx = factory.getDeployTransaction(domain, sponsorAddress, wallet.address);
+                gasLimit = await ethersProvider.estimateGas({ ...deployTx, from: wallet.address });
+                gasLimit = gasLimit.mul(120).div(100); // Add 20% buffer
+                console.log(`Gas estimated: ${gasLimit.toString()}`);
+            } catch (estimateError) {
+                // Estimation failed - calculate based on bytecode size
+                // Rough formula: 21000 base + (bytecode_length * 200) + 50000 constructor overhead
+                const bytecodeLength = AgentArtifact.bytecode.length / 2; // Convert hex to bytes
+                gasLimit = ethers.BigNumber.from(21000 + (bytecodeLength * 200) + 50000);
+                console.log(`Gas estimation failed, using calculated limit: ${gasLimit.toString()}`);
+            }
+
             const contract = await factory.deploy(domain, sponsorAddress, wallet.address, {
                 maxPriorityFeePerGas: maxPriorityFeePerGas,
-                maxFeePerGas: maxFeePerGas
+                maxFeePerGas: maxFeePerGas,
+                gasLimit: gasLimit
             });
             await retryWithBackoff(() => contract.deployed());
 
@@ -364,10 +380,12 @@ let main = async function() {
 
             // Provide more informative error messages
             let userMessage = error.message;
+            let errorDetails = `Code: ${error.code}, Reason: ${error.reason}`;
+
             if (error.code === 'INSUFFICIENT_FUNDS') {
                 userMessage = 'Insufficient funds in server wallet to deploy contract';
             } else if (error.code === 'NETWORK_ERROR' || error.message.includes('timeout')) {
-                userMessage = 'Network error - RPC endpoint may be rate limiting or unavailable. Please try again in a few moments.';
+                userMessage = `Network error - RPC endpoint may be rate limiting or unavailable. ${errorDetails}. Please try again in a few moments.`;
             } else if (error.code === 'UNPREDICTABLE_GAS_LIMIT') {
                 userMessage = 'Unable to estimate gas - transaction may fail. Network may be congested.';
             } else if (error.message.includes('nonce')) {

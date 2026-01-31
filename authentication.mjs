@@ -228,11 +228,8 @@ export function createAuthRouter() {
                     return res.json({ isAdmin });
                 }
 
-                // Create epistery instance for this domain
-                const epistery = new Epistery();
-                await epistery.setDomain(domain);
-
-                const contract = await epistery.getContract(contractAddress);
+                // Get contract instance using helper function
+                const contract = await getContract(contractAddress, domain);
 
                 // DomainAgent automatically grants admin access to sponsor and owner
                 const isOnAdminList = await contract.isInACL('epistery::admin', address);
