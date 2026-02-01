@@ -174,7 +174,7 @@
             <table id="aclTable">
                 <thead>
                     <tr>
-                        <th style="min-width:100%">Access Control List</th>
+                        <th style="min-width:100%">List Name</th>
                         <th style="min-width:80px">Access</th>
                         <th style="min-width:80px">Actions</th>
                     </tr>
@@ -186,12 +186,12 @@
         <div id="authStrategy" style="display:none; margin-top: 8px;justify-content: space-between">
             <div style="margin-bottom: 12px;">
                 <label>
-                    <input type="checkbox" id="enableRequestAccess">
+                    <input type="checkbox" id="enableRequestAccess" onchange="markDirty()">
                     Enable "Request Access" button for denied users
                 </label>
             </div>
             <div>
-                <button onclick="saveAuthStrategy()" class="save">Save</button>
+                <button id="saveAllBtn" onclick="saveAll()" class="save">Save</button>
             </div>
         </div>
     </div>
@@ -226,11 +226,15 @@
                 acls = data.acl || [];
                 authConfig = data.authConfig || authConfig;
 
+                isDirty = false;
                 renderACLs();
                 renderAuthConfig();
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('tableWrapper').style.display = 'block';
                 document.getElementById('authStrategy').style.display = 'flex';
+                // Disable save button initially (no changes yet)
+                const saveBtn = document.getElementById('saveAllBtn');
+                if (saveBtn) saveBtn.disabled = true;
             } catch (err) {
                 showError('Error loading ACLs: ' + err.message);
             }
@@ -241,40 +245,58 @@
             document.getElementById('enableRequestAccess').checked = authConfig.enableRequestAccess || false;
         }
 
-        async function saveAuthStrategy() {
-            const btn = event.target;
-            const originalText = btn.innerHTML;
-            btn.disabled = true;
-            btn.innerHTML = '<span class="spinner"></span>';
+        async function saveAll() {
+            if (!isDirty) {
+                return; // No changes to save
+            }
+
+            const saveBtn = document.getElementById('saveAllBtn');
+            const originalText = saveBtn.innerHTML;
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '<span class="spinner"></span>';
 
             try {
-                const enableRequest = document.getElementById('enableRequestAccess').checked;
+                // Save ACLs
+                const aclResponse = await fetch('/api/acl/agent', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ agent: agentName, acl: acls })
+                });
 
+                if (!aclResponse.ok) {
+                    const error = await aclResponse.json();
+                    throw new Error(error.error || 'Failed to save ACLs');
+                }
+
+                // Save auth strategy
+                const enableRequest = document.getElementById('enableRequestAccess').checked;
                 authConfig = {
                     enableRequestAccess: enableRequest
                 };
 
-                const response = await fetch('/api/acl/auth-strategy', {
+                const authResponse = await fetch('/api/acl/auth-strategy', {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ agent: agentName, authConfig })
                 });
 
-                if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.error || 'Failed to save setting');
+                if (!authResponse.ok) {
+                    const error = await authResponse.json();
+                    throw new Error(error.error || 'Failed to save auth strategy');
                 }
 
-                showError(''); // Clear errors
-                btn.innerHTML = 'Saved!';
+                isDirty = false;
+                saveBtn.innerHTML = 'Saved!';
                 setTimeout(() => {
-                    btn.innerHTML = originalText;
-                    btn.disabled = false;
+                    saveBtn.innerHTML = originalText;
+                    saveBtn.disabled = true; // Disable again when no changes
                 }, 2000);
+                renderACLs(); // Re-render to clean up edit mode
+                showError(''); // Clear any errors
             } catch (err) {
-                showError('Error saving setting: ' + err.message);
-                btn.innerHTML = originalText;
-                btn.disabled = false;
+                showError('Error saving: ' + err.message);
+                saveBtn.innerHTML = originalText;
+                saveBtn.disabled = false;
             }
         }
 
@@ -356,7 +378,8 @@
             }
 
             acls[index] = { list, access };
-            await saveACLs();
+            markDirty();
+            renderACLs();
         }
 
         function cancelEdit(index) {
@@ -379,58 +402,32 @@
             }
 
             acls.push({ list, access });
-            await saveACLs();
+            markDirty();
 
             // Clear inputs
             document.getElementById('newList').value = '';
             document.getElementById('newAccess').value = '1';
+
+            renderACLs();
         }
 
         async function deleteACL(index) {
             if (!confirm('Delete this ACL entry?')) return;
 
             acls.splice(index, 1);
-            await saveACLs();
+            markDirty();
+            renderACLs();
         }
 
-        async function saveACLs() {
-            // Disable all buttons and show loading state
-            const buttons = document.querySelectorAll('button');
-            buttons.forEach(btn => {
-                btn.disabled = true;
-                if (btn.classList.contains('save')) {
-                    btn.dataset.originalText = btn.innerHTML;
-                    btn.innerHTML = '<span class="spinner"></span>';
-                }
-            });
-
-            try {
-                const response = await fetch('/api/acl/agent', {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ agent: agentName, acl: acls })
-                });
-
-                if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.error || 'Failed to save ACLs');
-                }
-
-                renderACLs();
-                showError(''); // Clear any errors
-            } catch (err) {
-                showError('Error saving ACLs: ' + err.message);
-                // Re-enable buttons on error
-                const currentButtons = document.querySelectorAll('button');
-                currentButtons.forEach(btn => {
-                    btn.disabled = false;
-                    if (btn.dataset.originalText) {
-                        btn.innerHTML = btn.dataset.originalText;
-                        delete btn.dataset.originalText;
-                    }
-                });
+        let isDirty = false;
+        function markDirty() {
+            isDirty = true;
+            const saveBtn = document.getElementById('saveAllBtn');
+            if (saveBtn) {
+                saveBtn.disabled = false;
             }
         }
+
 
         function showError(msg) {
             const errorDiv = document.getElementById('error');

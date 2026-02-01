@@ -586,7 +586,10 @@ let main = async function() {
         const verified = cfg.data?.verified || false;
 
         // Check if authenticated user is admin
-        const isAdmin = await req.domainAcl.isAdmin(req.episteryClient.address);
+        let isAdmin = false;
+        if (req.episteryClient) {
+            isAdmin = await req.domainAcl.isAdmin(req.episteryClient.address);
+        }
 
         let navBar = "";
         for (const [, agentData] of agentManager.agents) {

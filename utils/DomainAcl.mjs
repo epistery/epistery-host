@@ -1,7 +1,6 @@
 import express from 'express';
 import { Config } from 'epistery';
 import { DomainChain } from './DomainChain.mjs';
-import { readFileSync } from 'fs';
 
 export class DomainAcl {
     constructor(domain) {
@@ -11,7 +10,7 @@ export class DomainAcl {
     }
     loadPendingRequests() {
         try {
-            const data = this.config.readFileAsync('pending-requests.json');
+            const data = this.config.readFile('pending-requests.json');
             return JSON.parse(data.toString('utf8'));
         } catch (e) {
             // File doesn't exist or invalid JSON
@@ -45,6 +44,52 @@ export class DomainAcl {
             return false;
         }
     }
+    /**
+     * Check agent access based on ACL configuration
+     * @param {string} agentName - Name of the agent
+     * @param {string} userAddress - User's wallet address
+     * @param {string} domain - Domain name
+     * @param {object} customAuthFunctions - Object mapping function names to async functions
+     * @returns {Promise<{allowed: boolean, level: number, strategy: string}>}
+     */
+    async checkAgentAccess(agentName, userAddress, domain, customAuthFunctions = {}) {
+        const domainChain = new DomainChain(domain);
+        const contract = domainChain.contract;
+        const configJson = await contract.getPublicAttribute(contract.signer.address, agentName);
+        let agentConfig = {};
+        if (configJson) {
+            try {
+                agentConfig = JSON.parse(configJson);
+            } catch (e) {
+                console.error(`[checkAgentAccess] Error parsing config for ${agentName}:`, e);
+            }
+        }
+
+        // Default aclStance - epistery::admin always has admin access, default denies
+        const defaultAclStance = {
+            acl: [
+                { list: 'epistery::admin', access: 3 },
+                { list: 'default', access: 0 }
+            ],
+            enableRequestAccess: false
+        };
+        const aclStance = agentConfig.aclStance || defaultAclStance;
+        const acl = aclStance.acl || defaultAclStance.acl;
+        // get lists and access for this address. default stance included automatically
+        const membershipEntries = await contract.getListsForMember(userAddress);
+        const userLists = membershipEntries.map(entry => entry.listName);
+        const userTests = ['default',...userLists];
+        const accessLevel = acl.reduce((level,entry)=>{
+            if (userTests.includes(entry.list) && entry.access > level) level = entry.access;
+            return level;
+        },0);
+        return {
+            allowed: accessLevel > 0,
+            level: accessLevel,
+            enableRequestAccess: aclStance.enableRequestAccess || false
+        };
+    }
+
     static attach(router) {
         router.use((req, res, next) => {
             try {
@@ -323,7 +368,7 @@ export class DomainAcl {
                 }
 
                 // Load pending requests from JSON file
-                const pendingRequests = loadPendingRequests(domain);
+                const pendingRequests = req.domainAcl.loadPendingRequests(domain);
                 console.log('[request-access] Loaded', pendingRequests.length, 'pending requests');
 
                 // Check if already requested
@@ -354,7 +399,7 @@ export class DomainAcl {
                 pendingRequests.push(newRequest);
 
                 // Save to JSON file
-                savePendingRequests(domain, pendingRequests);
+                req.domainAcl.savePendingRequests(domain, pendingRequests);
                 console.log('[request-access] Saved', pendingRequests.length, 'pending requests');
 
                 res.json({ success: true, message: 'Access request submitted' });
@@ -380,7 +425,7 @@ export class DomainAcl {
                     return res.json({ allowed: false, level: 0 });
                 }
 
-                const result = await checkAgentAccess(agent, req.episteryClient.address, req.hostname);
+                const result = await req.domainAcl.checkAgentAccess(agent, req.episteryClient.address, req.hostname);
 
                 res.json({
                     allowed: result.allowed,
@@ -423,7 +468,7 @@ export class DomainAcl {
         // API: Handle access request (approve/deny) (admin only)
         router.post('/api/acl/handle-request', async (req, res) => {
             try {
-                const isAdmin = await isUserAdmin(req);
+                const isAdmin = await req.domainAcl.isAdmin(req.episteryClient?.address);
                 if (!isAdmin) {
                     return res.status(403).json({ error: 'Not authorized' });
                 }
@@ -435,7 +480,7 @@ export class DomainAcl {
                 const domainChain = req.domainAcl.chain;
 
                 // Load from JSON file
-                const allRequests = loadPendingRequests(domainChain.domain);
+                const allRequests = req.domainAcl.loadPendingRequests(domainChain.domain);
 
                 const requestIndex = allRequests.findIndex(
                   r => r.address.toLowerCase() === address.toLowerCase() &&
@@ -472,7 +517,7 @@ export class DomainAcl {
                 }
 
                 // Save back to JSON file
-                savePendingRequests(domainChain.domain, allRequests);
+                req.domainAcl.savePendingRequests(domainChain.domain, allRequests);
 
                 res.json({
                     success: true,
@@ -487,52 +532,6 @@ export class DomainAcl {
 }
 
 /**
- * Check agent access based on ACL configuration
- * @param {string} agentName - Name of the agent
- * @param {string} userAddress - User's wallet address
- * @param {string} domain - Domain name
- * @param {object} customAuthFunctions - Object mapping function names to async functions
- * @returns {Promise<{allowed: boolean, level: number, strategy: string}>}
- */
-export async function checkAgentAccess(agentName, userAddress, domain, customAuthFunctions = {}) {
-    const domainChain = new DomainChain(domain);
-    const contract = domainChain.contract;
-    const configJson = await contract.getPublicAttribute(contract.signer.address, agentName);
-    let agentConfig = {};
-    if (configJson) {
-        try {
-            agentConfig = JSON.parse(configJson);
-        } catch (e) {
-            console.error(`[checkAgentAccess] Error parsing config for ${agentName}:`, e);
-        }
-    }
-
-    // Default aclStance - epistery::admin always has admin access, default denies
-    const defaultAclStance = {
-        acl: [
-            { list: 'epistery::admin', access: 3 },
-            { list: 'default', access: 0 }
-        ],
-        enableRequestAccess: false
-    };
-    const aclStance = agentConfig.aclStance || defaultAclStance;
-    const acl = aclStance.acl || defaultAclStance.acl;
-    // get lists and access for this address. default stance included automatically
-    const membershipEntries = await contract.getListsForMember(userAddress);
-    const userLists = membershipEntries.map(entry => entry.listName);
-    const userTests = ['default',...userLists];
-    const accessLevel = acl.reduce((level,entry)=>{
-        if (userTests.includes(entry.list) && entry.access > level) level = entry.access;
-        return level;
-    },0);
-    return {
-        allowed: accessLevel > 0,
-        level: accessLevel,
-        enableRequestAccess: aclStance.enableRequestAccess || false
-    };
-}
-
-/**
  * Express middleware to check agent access
  * Usage: app.use('/agent/myagent', agentAccessMiddleware('myagent', customAuthFunctions))
  */
@@ -543,7 +542,7 @@ export function agentAccessMiddleware(agentName, customAuthFunctions = {}) {
         }
         const userAddress = req.episteryClient.address;
 
-        const result = await checkAgentAccess(agentName, userAddress, req.hostname, customAuthFunctions);
+        const result = await req.domainAcl.checkAgentAccess(agentName, userAddress, req.hostname, customAuthFunctions);
 
         if (!result.allowed) {
             // enableRequestAccess is already checked in checkAgentAccess result
