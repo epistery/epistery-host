@@ -2,47 +2,17 @@ import express from 'express';
 import crypto from 'crypto';
 import dns from 'dns';
 import { promisify } from 'util';
-import { readFileSync } from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { createRequire } from 'module';
-import { Config, Epistery } from 'epistery';
-
-const require = createRequire(import.meta.url);
-const ethers = require('ethers');
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Load DomainAgent contract artifact
-const DomainAgentArtifact = JSON.parse(
-    readFileSync(path.join(__dirname, 'artifacts/contracts/DomainAgent.sol/DomainAgent.json'), 'utf8')
-);
+import { Config } from 'epistery';
 
 const resolveTxt = promisify(dns.resolveTxt);
 const APP_NAME = 'epistery';
 
-// Helper to get contract instance
-async function getContract(contractAddress, domain) {
-    const cfg = new Config();
-    cfg.setPath(domain);
-
-    const serverWallet = cfg.data?.wallet;
-    const provider = cfg.data?.provider;
-
-    if (!serverWallet || !provider) {
-        throw new Error('Server wallet or provider not configured');
-    }
-
-    const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc, {
-        chainId: parseInt(provider.chainId),
-        name: provider.name
-    });
-    const wallet = ethers.Wallet.fromMnemonic(serverWallet.mnemonic).connect(ethersProvider);
-
-    return new ethers.Contract(contractAddress, DomainAgentArtifact.abi, wallet);
-}
-
+/**
+ *  AuthRouter handles the process of claiming a domain, minting a contract
+ *  and binding it to the client address
+ *
+ * @returns {Router}
+ */
 export function createAuthRouter() {
     const router = express.Router();
 
@@ -195,55 +165,6 @@ export function createAuthRouter() {
         } catch (error) {
             console.error('Claim verification error:', error);
             res.status(500).json({ status: 'error', message: error.message });
-        }
-    });
-
-    /**
-     * Check if user is an administrator
-     * Uses epistery 1.3.0 whitelist system with fallback to sponsor
-     */
-    router.post("/api/check-admin", async (req, res) => {
-        try {
-            const domain = req.hostname;
-            const address = req.body.address;
-
-            if (!address) {
-                return res.json({ isAdmin: false });
-            }
-
-            const config = new Config();
-            config.setPath(domain);
-
-            if (!config.data || !config.data.verified) {
-                return res.json({ isAdmin: false });
-            }
-
-            // Check if address is on the epistery::admin list using DomainAgent contract
-            try {
-                const contractAddress = config.data.contract_address;
-                if (!contractAddress) {
-                    // No contract deployed, fallback to admin_address check
-                    const isAdmin = config.data.admin_address &&
-                        address.toLowerCase() === config.data.admin_address.toLowerCase();
-                    return res.json({ isAdmin });
-                }
-
-                // Get contract instance using helper function
-                const contract = await getContract(contractAddress, domain);
-
-                // DomainAgent automatically grants admin access to sponsor and owner
-                const isOnAdminList = await contract.isInACL('epistery::admin', address);
-                return res.json({ isAdmin: isOnAdminList });
-            } catch (error) {
-                console.error('[epistery-host] Admin check error:', error);
-                // On error, fallback to old admin_address check
-                const isAdmin = config.data.admin_address &&
-                    address.toLowerCase() === config.data.admin_address.toLowerCase();
-                return res.json({ isAdmin });
-            }
-        } catch (error) {
-            console.error('Admin check error:', error);
-            res.json({ isAdmin: false });
         }
     });
 

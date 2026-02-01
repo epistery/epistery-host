@@ -9,9 +9,9 @@ import { readFileSync } from 'fs';
 import { createRequire } from 'module';
 import { Certify } from '@metric-im/administrate';
 import { Epistery, Config } from 'epistery';
-import { createAuthRouter } from './authentication.mjs';
-import { createAclRouter } from './acl.mjs';
-import { AgentManager } from './AgentManager.mjs';
+import { createAuthRouter } from './utils/authentication.mjs';
+import { DomainAcl } from './utils/DomainAcl.mjs';
+import { AgentManager } from './utils/AgentManager.mjs';
 import Pages from './pages/index.mjs'
 
 const require = createRequire(import.meta.url);
@@ -49,27 +49,6 @@ async function retryWithBackoff(fn, maxRetries = 3, baseDelay = 10000) {
             await new Promise(resolve => setTimeout(resolve, delay));
         }
     }
-}
-
-// Helper to get contract instance with server wallet
-async function getContract(contractAddress, domain) {
-    const cfg = new Config();
-    cfg.setPath(domain);
-
-    const serverWallet = cfg.data?.wallet;
-    const provider = cfg.data?.provider;
-
-    if (!serverWallet || !provider) {
-        throw new Error('Server wallet or provider not configured');
-    }
-
-    const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc, {
-        chainId: parseInt(provider.chainId),
-        name: provider.name
-    });
-    const wallet = ethers.Wallet.fromMnemonic(serverWallet.mnemonic).connect(ethersProvider);
-
-    return new ethers.Contract(contractAddress, DomainAgentArtifact.abi, wallet);
 }
 
 let main = async function() {
@@ -127,49 +106,6 @@ let main = async function() {
             },
             timestamp: new Date().toISOString()
         };
-    }
-
-    // Helper function to check if user is admin using DomainAgent contract
-    async function isUserAdmin(req) {
-        if (!req.episteryClient) {
-            return false;
-        }
-
-        try {
-            const domain = req.headers.host?.split(':')[0] || 'localhost';
-            const cfg = new Config();
-            cfg.setPath(domain);
-            const contractAddress = cfg.data.contract_address;
-
-            // Fallback: If no contract deployed, check admin_address
-            if (!contractAddress) {
-                const adminAddress = cfg.data.admin_address;
-                if (adminAddress && req.episteryClient.address.toLowerCase() === adminAddress.toLowerCase()) {
-                    return true;
-                }
-                return false;
-            }
-
-            if (!req.app.locals.epistery) {
-                return false;
-            }
-
-            const baseContract = await getContract(contractAddress, domain);
-            const contract = baseContract;
-
-            return await contract.isInACL('epistery::admin', req.episteryClient.address);
-        } catch (error) {
-            console.error('[isUserAdmin] Error:', error);
-            // On error, fallback to admin_address check
-            const domain = req.headers.host?.split(':')[0] || 'localhost';
-            const cfg = new Config();
-            cfg.setPath(domain);
-            const adminAddress = cfg.data.admin_address;
-            if (adminAddress && req.episteryClient?.address.toLowerCase() === adminAddress.toLowerCase()) {
-                return true;
-            }
-            return false;
-        }
     }
 
     // Main status page - returns HTML or JSON based on Accept header
@@ -588,7 +524,7 @@ let main = async function() {
 
     // Mount ACL routes BEFORE epistery.routes() to override specific paths
     // (epistery.attach() has already run, so req.episteryClient will be available)
-    app.use(createAclRouter());
+    DomainAcl.attach(app)
 
     // Also mount the same routes at RFC 8615 well-known path
     // Note: We reuse the routes() to avoid duplicate middleware
@@ -650,7 +586,7 @@ let main = async function() {
         const verified = cfg.data?.verified || false;
 
         // Check if authenticated user is admin
-        const isAdmin = await isUserAdmin(req);
+        const isAdmin = await req.domainAcl.isAdmin(req.episteryClient.address);
 
         let navBar = "";
         for (const [, agentData] of agentManager.agents) {
@@ -678,7 +614,7 @@ let main = async function() {
             }
 
             // Check if user is admin
-            const isAdmin = await isUserAdmin(req);
+            const isAdmin = await req.domainAcl.isAdmin(req.hostname);
             if (!isAdmin) {
                 return res.status(403).json({ error: 'Not authorized' });
             }
@@ -733,7 +669,7 @@ let main = async function() {
             }
 
             // Check if user is admin
-            const isAdmin = await isUserAdmin(req);
+            const isAdmin = await req.domainAcl.isAdmin(req.hostname);
             if (!isAdmin) {
                 return res.status(403).json({ error: 'Not authorized' });
             }
@@ -755,137 +691,6 @@ let main = async function() {
             res.status(500).json({ error: error.message });
         }
     });
-
-    // ACL Management Routes (for admin.html compatibility)
-    app.get('/agent/epistery/acl/lists', async (req, res) => {
-        try {
-            const isAdmin = await isUserAdmin(req);
-            if (!isAdmin) {
-                return res.status(403).json({ error: 'Not authorized' });
-            }
-
-            const domain = req.headers.host?.split(':')[0] || 'localhost';
-            const cfg = new Config();
-            cfg.setPath(domain);
-            const contractAddress = cfg.data.contract_address;
-
-            if (!contractAddress) {
-                return res.json({ lists: [] });
-            }
-
-            const baseContract = await getContract(contractAddress, domain);
-            const contract = baseContract;
-
-            // Get all ACL lists
-            const allLists = await contract.getListNames();
-
-            res.json({ lists: allLists });
-        } catch (error) {
-            console.error('[acl] Error loading lists:', error);
-            res.status(500).json({ error: error.message });
-        }
-    });
-
-    app.get('/agent/epistery/acl/list', async (req, res) => {
-        try {
-            const isAdmin = await isUserAdmin(req);
-            if (!isAdmin) {
-                return res.status(403).json({ error: 'Not authorized' });
-            }
-
-            const listName = req.query.list || 'epistery::admin';
-            const domain = req.headers.host?.split(':')[0] || 'localhost';
-            const cfg = new Config();
-            cfg.setPath(domain);
-            const contractAddress = cfg.data.contract_address;
-
-            if (!contractAddress) {
-                return res.json({ entries: [] });
-            }
-
-            const baseContract = await getContract(contractAddress, domain);
-            const contract = baseContract;
-
-            // Get ACL entries
-            const entries = await contract.getACL(listName);
-
-            res.json({ entries });
-        } catch (error) {
-            console.error('[acl] Error loading list:', error);
-            res.status(500).json({ error: error.message });
-        }
-    });
-
-    app.post('/agent/epistery/acl/add', async (req, res) => {
-        try {
-            if (!req.episteryClient || !req.app.locals.epistery) {
-                return res.status(401).json({ error: 'Not authenticated' });
-            }
-
-            const isAdmin = await req.app.locals.epistery.isListed(req.episteryClient.address, 'epistery::admin');
-            if (!isAdmin) {
-                return res.status(403).json({ error: 'Not authorized' });
-            }
-
-            const { list, address, name, role, meta } = req.body;
-            const domain = req.headers.host?.split(':')[0] || 'localhost';
-            const cfg = new Config();
-            cfg.setPath(domain);
-            const contractAddress = cfg.data.contract_address;
-
-            if (!contractAddress) {
-                return res.status(500).json({ error: 'No contract deployed' });
-            }
-
-            const baseContract = await getContract(contractAddress, domain);
-            const contract = baseContract;
-
-            // Add to ACL
-            const tx = await contract.addToACL(list, address, name || '', role || 1, meta || '');
-            await tx.wait();
-
-            res.json({ success: true });
-        } catch (error) {
-            console.error('[acl] Error adding to list:', error);
-            res.status(500).json({ error: error.message });
-        }
-    });
-
-    app.post('/agent/epistery/acl/remove', async (req, res) => {
-        try {
-            if (!req.episteryClient || !req.app.locals.epistery) {
-                return res.status(401).json({ error: 'Not authenticated' });
-            }
-
-            const isAdmin = await req.app.locals.epistery.isListed(req.episteryClient.address, 'epistery::admin');
-            if (!isAdmin) {
-                return res.status(403).json({ error: 'Not authorized' });
-            }
-
-            const { list, address } = req.body;
-            const domain = req.headers.host?.split(':')[0] || 'localhost';
-            const cfg = new Config();
-            cfg.setPath(domain);
-            const contractAddress = cfg.data.contract_address;
-
-            if (!contractAddress) {
-                return res.status(500).json({ error: 'No contract deployed' });
-            }
-
-            const baseContract = await getContract(contractAddress, domain);
-            const contract = baseContract;
-
-            // Remove from ACL
-            const tx = await contract.removeFromACL(list, address);
-            await tx.wait();
-
-            res.json({ success: true });
-        } catch (error) {
-            console.error('[acl] Error removing from list:', error);
-            res.status(500).json({ error: error.message });
-        }
-    });
-
 
     config = new Config();
     const http_port = parseInt(process.env.PORT || 4080);

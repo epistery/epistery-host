@@ -14,7 +14,7 @@ pragma solidity ^0.8.0;
  */
 contract DomainAgent {
   // Contract version
-  string public constant VERSION = "1.0.2";
+  string public constant VERSION = "1.0.3";
 
   // Domain this contract serves
   string public domain;

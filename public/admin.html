@@ -309,8 +309,7 @@
 
     <script type="module">
         let currentPolicy = 'public';
-        let acl = [];
-        let aclMetadata = {}; // {address: {name: string, isAdmin: boolean}}
+        let acl = []; // Array of {address, name, role, meta}
         let contractAddress = null;
         let currentListName = '';
         let availableLists = [];
@@ -335,14 +334,10 @@
                 const clientAddress = status.client.address;
 
                 // Check if user is admin
-                const checkResponse = await fetch('/api/check-admin', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ address: clientAddress })
+                const checkResponse = await fetch(`/api/acl/check-admin/${clientAddress}`, {
+                    headers: { 'Content-Type': 'application/json' }
                 });
-
                 const checkData = await checkResponse.json();
-
                 if (!checkData.isAdmin) {
                     showNotAuthorized();
                     return;
@@ -410,7 +405,7 @@
         // Load ACL lists from contract
         async function loadLists() {
             try {
-                const response = await fetch('/api/acl/lists');
+                const response = await fetch('/api/acl/list');
                 const data = await response.json();
                 let lists = data.lists || [];
 
@@ -454,7 +449,7 @@
         async function loadWhitelist() {
             try {
                 const listName = currentListName || 'epistery::admin';
-                const response = await fetch(`/api/acl?listName=${encodeURIComponent(listName)}`);
+                const response = await fetch(`/api/acl/list/${encodeURIComponent(listName)}`);
 
                 if (!response.ok) {
                     throw new Error('Failed to load acl');
@@ -462,8 +457,7 @@
 
                 const data = await response.json();
 
-                acl = data.acl || [];
-                aclMetadata = data.metadata || {};
+                acl = data || [];
 
                 document.getElementById('acl-loading').style.display = 'none';
                 document.getElementById('acl-container').style.display = 'block';
@@ -509,9 +503,10 @@
             }
 
             let html = '';
-            for (const address of acl) {
-                const meta = aclMetadata[address.toLowerCase()] || {};
-                const name = meta.name || '';
+            for (const entry of acl) {
+                const address = entry.address;
+                const name = entry.name || '';
+                const role = entry.role || 0;
 
                 html += `
                     <div class="acl-item" data-address="${address}">
@@ -565,7 +560,7 @@
                 return;
             }
 
-            if (acl.some(a => a.toLowerCase() === address.toLowerCase())) {
+            if (acl.some(entry => entry.address.toLowerCase() === address.toLowerCase())) {
                 alert('Address already in list');
                 return;
             }

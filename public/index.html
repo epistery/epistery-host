@@ -160,13 +160,10 @@
                 const clientWallet = status.client.address;
                 document.getElementById('client-wallet').textContent = clientWallet;
 
-                // Check if user address is whitelisted (this will be a server API call)
-                const response = await fetch('/api/check-admin', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ address: clientWallet })
+                // Check if user address is epistery::admin
+                const response = await fetch(`/api/acl/check-admin/${clientWallet}`, {
+                    headers: { 'Content-Type': 'application/json' }
                 });
-
                 const data = await response.json();
                 if (data.isAdmin) {
                     document.getElementById('admin-button').style.display = 'inline-block';

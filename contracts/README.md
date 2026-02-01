@@ -3,6 +3,7 @@
 ## DomainAgent.sol
 
 The DomainAgent contract is the core access control and data management contract for epistery-host domains.
+This is forked from epistery's Agent.sol
 
 ### Features
 

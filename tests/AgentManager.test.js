@@ -11,7 +11,7 @@ vi.mock('fs', () => ({
 }));
 
 // Import after mocking
-const { AgentManager } = await import('../AgentManager.mjs');
+const { AgentManager } = await import('../utils/AgentManager.mjs');
 
 /**
  * Test suite for AgentManager

@@ -219,7 +219,7 @@
 
         async function loadACLs() {
             try {
-                const response = await fetch('/api/acl?agent=' + encodeURIComponent(agentName));
+                const response = await fetch('/api/acl/agent/' + encodeURIComponent(agentName));
                 if (!response.ok) throw new Error('Failed to load ACLs');
 
                 const data = await response.json();
@@ -405,7 +405,7 @@
             });
 
             try {
-                const response = await fetch('/api/acl', {
+                const response = await fetch('/api/acl/agent', {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ agent: agentName, acl: acls })
