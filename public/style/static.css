@@ -888,8 +888,8 @@ footer {
     margin: var(--spacer) 0;
 }
 
-/* Mobile Responsive */
-@media (max-width: 1024px) {
+/* Sidebar Mobile Responsive */
+@media (max-width: 768px) {
     .console-layout {
         grid-template-columns: 1fr !important;
         display: flex !important;
@@ -929,7 +929,7 @@ footer {
 }
 
 @media (max-width: 800px) {
-    /* Stack status rows vertically for better readability - CRITICAL FIX */
+    /* Stack status rows vertically for better readability */
     .status-row {
         display: flex !important;
         flex-direction: column !important;
