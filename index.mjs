@@ -133,6 +133,16 @@ let main = async function() {
                 return res.send(html);
             }
 
+            // Check if contract is deployed (unless bypassed with ?home query param)
+            const contractAddress = cfg.data?.contract_address;
+            const isInitialized = contractAddress && contractAddress !== '0x0000000000000000000000000000000000000000';
+
+            if (!isInitialized && !('home' in req.query)) {
+                // Domain verified but no contract - show initialize page
+                const initTemplate = readFileSync(path.join(__dirname, 'public', 'initialize.html'), 'utf8');
+                return res.send(initTemplate);
+            }
+
             // Check if there's a default agent set (and not bypassed with ?home query param)
             const defaultAgent = cfg.data?.default_agent;
             if (defaultAgent && !('home' in req.query) && agentManager) {
@@ -158,6 +168,11 @@ let main = async function() {
             console.error('Error serving index:', error);
             res.status(500).send('Error loading page');
         }
+    });
+
+    // Initialize page route
+    app.get('/initialize', (req, res) => {
+        res.sendFile(path.join(__dirname, 'public', 'initialize.html'));
     });
 
     // Admin page route
