@@ -526,7 +526,7 @@ let main = async function() {
 
     // Serve qrcode library
     app.get('/lib/qrcode.js', (req, res) => {
-        res.sendFile(path.join(__dirname, 'node_modules/qrcode-generator/qrcode.js'));
+        res.sendFile(path.join(__dirname, 'node_modules/qrcode-generator/dist/qrcode.js'));
     });
     // Serve zebratime library
     app.get('/lib/zebratime.js', (req, res) => {
