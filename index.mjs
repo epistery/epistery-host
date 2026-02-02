@@ -226,8 +226,11 @@ let main = async function() {
             const feeData = await retryWithBackoff(() => ethersProvider.getFeeData());
             const minGasPrice = ethers.utils.parseUnits("30", "gwei");
 
-            // Estimate total cost: deployment (~750k gas) + initialization (~300k gas)
-            const deploymentGas = ethers.BigNumber.from(750000);
+            // Estimate based on actual bytecode size (more accurate than fixed 750k)
+            const bytecodeLength = AgentArtifact.bytecode.length / 2;
+            const estimatedDeploymentGas = ethers.BigNumber.from(21000 + (bytecodeLength * 200) + 50000);
+            // Add 20% buffer to gas estimate
+            const deploymentGas = estimatedDeploymentGas.mul(120).div(100);
             const initGas = ethers.BigNumber.from(300000);
             const totalGas = deploymentGas.add(initGas);
 
@@ -236,14 +239,26 @@ let main = async function() {
             const estimatedTotalCost = totalGas.mul(maxFeePerGas);
             const requiredBalance = estimatedTotalCost.mul(150).div(100); // 50% buffer
 
+            console.log('[deploy] Balance check:');
+            console.log('  Server wallet:', wallet.address);
+            console.log('  Current balance:', ethers.utils.formatEther(balance), provider.nativeCurrency?.symbol || 'POL');
+            console.log('  Estimated gas:', totalGas.toString());
+            console.log('  Max fee per gas:', ethers.utils.formatUnits(maxFeePerGas, 'gwei'), 'gwei');
+            console.log('  Estimated cost:', ethers.utils.formatEther(estimatedTotalCost), provider.nativeCurrency?.symbol || 'POL');
+            console.log('  Required (with buffer):', ethers.utils.formatEther(requiredBalance), provider.nativeCurrency?.symbol || 'POL');
+
             if (balance.lt(requiredBalance)) {
+                console.log('[deploy] Insufficient balance!');
                 return res.status(400).json({
                     error: 'Insufficient balance for deployment and initialization',
                     balance: ethers.utils.formatEther(balance),
                     required: ethers.utils.formatEther(requiredBalance),
-                    currency: provider.nativeCurrency?.symbol || 'POL'
+                    currency: provider.nativeCurrency?.symbol || 'POL',
+                    serverWallet: wallet.address
                 });
             }
+
+            console.log('[deploy] Balance check passed');
 
             // Use EIP-1559 style transaction
             const networkPriority = feeData.maxPriorityFeePerGas ? feeData.maxPriorityFeePerGas.mul(120).div(100) : minGasPrice;
@@ -379,21 +394,21 @@ let main = async function() {
             // Get current balance
             const balance = await ethersProvider.getBalance(wallet.address);
 
-            // Estimate deployment cost
-            // Gas limit ~750k, current gas prices
+            // Estimate deployment cost using same logic as actual deployment
             const feeData = await ethersProvider.getFeeData();
-            const estimatedGas = ethers.BigNumber.from(750000);
             const minGasPrice = ethers.utils.parseUnits("30", "gwei");
 
-            let estimatedCost;
-            if (feeData.maxFeePerGas) {
-                const maxFee = feeData.maxFeePerGas.mul(120).div(100);
-                const adjustedMaxFee = maxFee.gt(minGasPrice.mul(2)) ? maxFee : minGasPrice.mul(2);
-                estimatedCost = estimatedGas.mul(adjustedMaxFee);
-            } else {
-                const gasPrice = feeData.gasPrice ? feeData.gasPrice.mul(120).div(100) : minGasPrice.mul(2);
-                estimatedCost = estimatedGas.mul(gasPrice);
-            }
+            // Estimate based on actual bytecode size (same as deployment)
+            const bytecodeLength = AgentArtifact.bytecode.length / 2;
+            const estimatedDeploymentGas = ethers.BigNumber.from(21000 + (bytecodeLength * 200) + 50000);
+            // Add 20% buffer to gas estimate
+            const deploymentGas = estimatedDeploymentGas.mul(120).div(100);
+            const initGas = ethers.BigNumber.from(300000);
+            const totalGas = deploymentGas.add(initGas);
+
+            const networkMax = feeData.maxFeePerGas ? feeData.maxFeePerGas.mul(120).div(100) : minGasPrice.mul(2);
+            const maxFeePerGas = networkMax.gt(minGasPrice.mul(2)) ? networkMax : minGasPrice.mul(2);
+            const estimatedCost = totalGas.mul(maxFeePerGas);
 
             // Add 50% buffer
             const required = estimatedCost.mul(150).div(100);
@@ -405,7 +420,9 @@ let main = async function() {
                 currencySymbol: provider.nativeCurrencySymbol || 'POL',
                 estimatedCost: ethers.utils.formatEther(estimatedCost),
                 required: ethers.utils.formatEther(required),
-                sufficient: sufficient
+                sufficient: sufficient,
+                gasEstimate: totalGas.toString(),
+                maxFeePerGas: ethers.utils.formatUnits(maxFeePerGas, 'gwei')
             });
         } catch (error) {
             console.error('Balance check error:', error);

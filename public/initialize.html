@@ -130,6 +130,9 @@
             opacity: 0.5;
             cursor: not-allowed;
         }
+        ul,ol {
+            margin-left: var(--spacer);
+        }
     </style>
 </head>
 <body>
@@ -188,6 +191,7 @@
                         <div id="balance-insufficient" class="warning-box" style="display: none;">
                             <p><strong>⚠️ Insufficient Balance</strong></p>
                             <p>The server wallet needs <strong id="required-amount">...</strong> to deploy the contract.</p>
+                            <p style="margin-top: var(--spacerhalf); font-size: 0.9em;">Estimated gas: <span id="gas-estimate-insufficient">...</span> at <span id="gas-price-insufficient">...</span> gwei</p>
                             <p>Please send funds to the address above. The QR code below can be scanned with a mobile wallet.</p>
                             <div class="qr-container">
                                 <div id="qr-code"></div>
@@ -200,6 +204,7 @@
                         <div id="balance-sufficient" class="success-box" style="display: none;">
                             <p><strong>✓ Balance Sufficient</strong></p>
                             <p>The server wallet has enough funds to deploy the contract.</p>
+                            <p style="margin-top: var(--spacerhalf); font-size: 0.9em;">Estimated gas: <span id="gas-estimate-sufficient">...</span> at <span id="gas-price-sufficient">...</span> gwei</p>
                             <button class="console-btn" onclick="proceedToStep2()">
                                 Continue to Deployment →
                             </button>
@@ -353,14 +358,22 @@
                 loadingDiv.style.display = 'none';
                 contentDiv.style.display = 'block';
 
+                // Display gas estimate info
+                const gasEstimate = balanceData.gasEstimate || 'unknown';
+                const gasPrice = balanceData.maxFeePerGas || 'unknown';
+
                 if (balanceData.sufficient) {
                     balanceEl.className = 'balance-display balance-sufficient';
+                    document.getElementById('gas-estimate-sufficient').textContent = gasEstimate;
+                    document.getElementById('gas-price-sufficient').textContent = gasPrice;
                     insufficientDiv.style.display = 'none';
                     sufficientDiv.style.display = 'block';
                 } else {
                     balanceEl.className = 'balance-display balance-insufficient';
                     const required = parseFloat(balanceData.required).toFixed(4);
                     document.getElementById('required-amount').textContent = `${required} ${symbol}`;
+                    document.getElementById('gas-estimate-insufficient').textContent = gasEstimate;
+                    document.getElementById('gas-price-insufficient').textContent = gasPrice;
 
                     // Generate QR code
                     const qrContainer = document.getElementById('qr-code');
@@ -421,21 +434,20 @@
 
                 const result = await response.json();
 
-                progressText.textContent = 'Contract deployed successfully!';
+                // Hide progress spinner
+                progressDiv.style.display = 'none';
 
-                // Mark step 2 complete
-                setTimeout(() => {
-                    document.getElementById('step-2').classList.remove('active');
-                    document.getElementById('step-2').classList.add('complete');
+                // Mark step 2 complete immediately
+                document.getElementById('step-2').classList.remove('active');
+                document.getElementById('step-2').classList.add('complete');
 
-                    // Activate step 3
-                    document.getElementById('step-3').classList.add('active');
-                    document.getElementById('step-3').classList.add('complete');
-                    document.getElementById('contract-address').textContent = result.address;
+                // Activate step 3
+                document.getElementById('step-3').classList.add('active');
+                document.getElementById('step-3').classList.add('complete');
+                document.getElementById('contract-address').textContent = result.address;
 
-                    // Scroll to step 3
-                    document.getElementById('step-3').scrollIntoView({ behavior: 'smooth' });
-                }, 1000);
+                // Scroll to step 3
+                document.getElementById('step-3').scrollIntoView({ behavior: 'smooth' });
 
             } catch (error) {
                 console.error('Deployment error:', error);
