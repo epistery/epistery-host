@@ -293,14 +293,13 @@
                 const status = witness.getStatus();
                 clientAddress = status.client.address;
 
-                // Check if user is admin
-                const statusResponse = await fetch('/', {
-                    headers: { 'Accept': 'application/json' }
+                // Check if user is admin using DomainACL API
+                const checkResponse = await fetch(`/api/acl/check-admin/${clientAddress}`, {
+                    headers: { 'Content-Type': 'application/json' }
                 });
-                const statusData = await statusResponse.json();
-                adminAddress = statusData.server.adminAddress;
+                const checkData = await checkResponse.json();
 
-                if (!adminAddress || clientAddress.toLowerCase() !== adminAddress.toLowerCase()) {
+                if (!checkData.isAdmin) {
                     showNotAuthorized();
                     return;
                 }
