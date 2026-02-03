@@ -99,11 +99,14 @@ export class DomainAcl {
         })
         router.get("/api/acl/check-admin{/:address}", async (req, res) => {
             try {
-                const address = req.params.address || req.episteryClient.address;
+                const address = req.params.address || req.episteryClient?.address;
+                if (!address) {
+                    return res.json({ isAdmin: false, error: 'No address provided and no authenticated session' });
+                }
                 const isAdmin = await req.domainAcl.isAdmin(address);
                 res.json({ isAdmin: isAdmin });
             } catch (error) {
-                res.json({ isAdmin: false });
+                res.json({ isAdmin: false, error: error.message });
             }
         });
 

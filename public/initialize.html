@@ -300,49 +300,33 @@
             try {
                 document.getElementById('domain-name').textContent = window.location.hostname;
 
-                // Get client address from rivet
-                let clientAddress = null;
-                try {
-                    const WitnessModule = await import('/lib/witness.js');
-                    const Witness = WitnessModule.default;
-                    const witness = await Witness.connect();
-                    const status = witness.getStatus();
-                    clientAddress = status.client.address;
-                } catch (witnessError) {
-                    console.warn('Witness connection failed:', witnessError.message);
-                    // Witness failed - try to get rivet ID directly
-                    try {
-                        const WalletModule = await import('/lib/wallet.js');
-                        const { RivetWallet } = WalletModule;
-                        const wallet = new RivetWallet();
-                        const rivetId = wallet.rivet;
-                        if (rivetId) {
-                            clientAddress = rivetId; // Rivet ID is the address
-                        }
-                    } catch (rivetError) {
-                        console.error('Could not get rivet ID:', rivetError);
-                    }
-
-                    if (!clientAddress) {
-                        showNotAuthorized();
-                        return;
-                    }
-                }
-
-                // Check if user is admin
-                const checkResponse = await fetch(`/api/acl/check-admin/${clientAddress}`, {
+                // Check if user is admin - epistery middleware handles authentication
+                const checkResponse = await fetch(`/api/acl/check-admin`, {
                     headers: { 'Content-Type': 'application/json' }
                 });
+
+                if (!checkResponse.ok) {
+                    showNotAuthorized();
+                    return;
+                }
+
                 const checkData = await checkResponse.json();
                 if (!checkData.isAdmin) {
                     showNotAuthorized();
                     return;
                 }
 
+                // Get domain status to show admin address
+                const statusResponse = await fetch('/', {
+                    headers: { 'Accept': 'application/json' }
+                });
+                const domainStatus = await statusResponse.json();
+                const adminAddress = domainStatus.server.adminAddress || 'Unknown';
+
                 // User is authorized
                 document.getElementById('init-content').style.display = 'block';
                 document.getElementById('deploy-domain').textContent = window.location.hostname;
-                document.getElementById('deploy-admin').textContent = clientAddress;
+                document.getElementById('deploy-admin').textContent = adminAddress;
 
                 // Check balance
                 await checkBalance();

@@ -338,40 +338,17 @@
                     document.getElementById('contract-address').textContent = '-';
                 }
 
-                // Get client address - try witness first
-                let clientAddress = null;
-                let rivetId = null;
-                try {
-                    const WitnessModule = await import('/lib/witness.js');
-                    const Witness = WitnessModule.default;
-                    const witness = await Witness.connect();
-                    const status = witness.getStatus();
-                    clientAddress = status.client.address;
-                } catch (witnessError) {
-                    console.warn('Witness connection failed (may be fresh rivet):', witnessError.message);
-                    // Witness failed - try to get rivet ID directly to verify ownership
-                    try {
-                        const WalletModule = await import('/lib/wallet.js');
-                        const { RivetWallet } = WalletModule;
-                        const wallet = new RivetWallet();
-                        rivetId = wallet.rivet;
-                        if (rivetId) {
-                            clientAddress = rivetId; // Rivet ID is the address
-                        }
-                    } catch (rivetError) {
-                        console.error('Could not get rivet ID:', rivetError);
-                    }
-
-                    if (!clientAddress) {
-                        showNotAuthorized('Authentication required - rivet not accessible');
-                        return;
-                    }
-                }
-
-                // Check if user is admin
-                const checkResponse = await fetch(`/api/acl/check-admin/${clientAddress}`, {
+                // Check if user is admin - epistery middleware handles authentication via req.episteryClient
+                // No need to call Witness directly, just check admin status via API
+                const checkResponse = await fetch(`/api/acl/check-admin`, {
                     headers: { 'Content-Type': 'application/json' }
                 });
+
+                if (!checkResponse.ok) {
+                    showNotAuthorized('Authentication failed');
+                    return;
+                }
+
                 const checkData = await checkResponse.json();
                 if (!checkData.isAdmin) {
                     showNotAuthorized();
