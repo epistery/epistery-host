@@ -300,20 +300,42 @@
             try {
                 document.getElementById('domain-name').textContent = window.location.hostname;
 
-                // Get domain status from server - validates admin based on session/rivet
-                const statusResponse = await fetch('/', {
-                    headers: { 'Accept': 'application/json' }
-                });
-                const domainStatus = await statusResponse.json();
+                // Get client address from rivet
+                let clientAddress = null;
+                try {
+                    const WitnessModule = await import('/lib/witness.js');
+                    const Witness = WitnessModule.default;
+                    const witness = await Witness.connect();
+                    const status = witness.getStatus();
+                    clientAddress = status.client.address;
+                } catch (witnessError) {
+                    console.warn('Witness connection failed:', witnessError.message);
+                    // On fresh domain claim, witness may fail - try to validate via server
+                    // Check if this is a pre-initialization state where we trust the claimer
+                    const statusResponse = await fetch('/', {
+                        headers: { 'Accept': 'application/json' }
+                    });
+                    const domainStatus = await statusResponse.json();
 
-                // For initialize page, user must be admin (verified via server config)
-                // Most users here have fresh rivets from claiming domain
-                if (!domainStatus.server.adminAddress) {
+                    // Only allow if domain is verified but contract NOT deployed
+                    // This handles fresh claims where rivet exists but master key isn't accessible
+                    if (domainStatus.server.adminAddress && !domainStatus.server.initialized) {
+                        clientAddress = domainStatus.server.adminAddress;
+                    } else {
+                        showNotAuthorized();
+                        return;
+                    }
+                }
+
+                // Check if user is admin
+                const checkResponse = await fetch(`/api/acl/check-admin/${clientAddress}`, {
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const checkData = await checkResponse.json();
+                if (!checkData.isAdmin) {
                     showNotAuthorized();
                     return;
                 }
-
-                clientAddress = domainStatus.server.adminAddress;
 
                 // User is authorized
                 document.getElementById('init-content').style.display = 'block';

@@ -441,16 +441,27 @@ export class DomainAcl {
         // API: Get pending access requests (admin only)
         router.get('/api/acl/pending-requests', async (req, res) => {
             try {
-                if (!req.episteryClient) {
-                    return res.status(403).json({ error: 'Not authorized - authentication required' });
-                }
                 const domainChain = req.domainAcl.chain;
-                if (!domainChain.contract) {
-                    return res.status(400).json({ error: 'Contract not deployed' });
-                }
-                const isInAdminList = await domainChain.contract.isInACL('epistery::admin', req.episteryClient.address);
 
-                if (!isInAdminList) {
+                // Check admin via domain config (handles fresh rivets) or contract
+                const adminAddress = req.domainAcl.config.data?.admin_address;
+                let isAdmin = false;
+
+                if (req.episteryClient) {
+                    // Has authenticated session - check via contract if available
+                    if (domainChain.contract) {
+                        isAdmin = await domainChain.contract.isInACL('epistery::admin', req.episteryClient.address);
+                    } else {
+                        // No contract - check against config
+                        isAdmin = adminAddress && req.episteryClient.address.toLowerCase() === adminAddress.toLowerCase();
+                    }
+                } else {
+                    // No episteryClient (fresh rivet) - allow if we're in pre-contract state
+                    // This allows admin page to work immediately after domain claim
+                    isAdmin = adminAddress && !domainChain.contract;
+                }
+
+                if (!isAdmin) {
                     return res.status(403).json({ error: 'Not authorized' });
                 }
 

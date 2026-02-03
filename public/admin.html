@@ -184,6 +184,11 @@
                     <div>Server Wallet</div>
                     <div class="balance-value" id="server-balance">...</div>
                     <div class="wallet-address" id="server-address" onclick="copyToClipboard(this.textContent)" title="Click to copy">...</div>
+                    <div style="margin-top: var(--spacer); padding-top: var(--spacer); border-top: 1px solid var(--page-border);">
+                        <div style="font-size: 0.85em; opacity: 0.7;">Contract</div>
+                        <div style="font-size: 0.9em; font-family: monospace;" id="contract-version">...</div>
+                        <div class="wallet-address" style="font-size: 0.85em; margin-top: var(--spacerhalf);" id="contract-address" onclick="copyToClipboard(this.textContent)" title="Click to copy">...</div>
+                    </div>
                 </div>
             </div>
 
@@ -325,13 +330,41 @@
                 document.getElementById('domain-name').textContent = window.location.hostname;
                 contractAddress = statusData.server.contractAddress;
 
-                // For admin page, validate via server's admin_address (handles fresh rivets)
-                if (!statusData.server.adminAddress) {
-                    showNotAuthorized();
+                // Display contract info if available
+                if (contractAddress && contractAddress !== '0x0000000000000000000000000000000000000000') {
+                    const versionText = statusData.server.contractPending ?
+                        'Pending...' :
+                        `Version ${statusData.server.initialized ? (await getContractVersion()) : 'Unknown'}`;
+                    document.getElementById('contract-version').textContent = versionText;
+                    document.getElementById('contract-address').textContent = contractAddress;
+                } else {
+                    document.getElementById('contract-version').textContent = 'Not deployed';
+                    document.getElementById('contract-address').textContent = '-';
+                }
+
+                // Get client address from rivet - admin check requires authentication
+                let clientAddress = null;
+                try {
+                    const WitnessModule = await import('/lib/witness.js');
+                    const Witness = WitnessModule.default;
+                    const witness = await Witness.connect();
+                    const status = witness.getStatus();
+                    clientAddress = status.client.address;
+                } catch (witnessError) {
+                    console.error('Witness connection failed:', witnessError);
+                    showNotAuthorized('Authentication required');
                     return;
                 }
 
-                const clientAddress = statusData.server.adminAddress;
+                // Check if user is admin
+                const checkResponse = await fetch(`/api/acl/check-admin/${clientAddress}`, {
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const checkData = await checkResponse.json();
+                if (!checkData.isAdmin) {
+                    showNotAuthorized();
+                    return;
+                }
 
                 // User is authorized, show admin content
                 document.getElementById('admin-content').style.display = 'block';
@@ -750,6 +783,17 @@
         };
 
         // Contract version checking and upgrade
+        async function getContractVersion() {
+            try {
+                const response = await fetch('/api/domain-agent/version');
+                const versionInfo = await response.json();
+                return versionInfo.deployedVersion || 'Unknown';
+            } catch (error) {
+                console.error('Failed to get contract version:', error);
+                return 'Unknown';
+            }
+        }
+
         async function checkContractVersion() {
             try {
                 const response = await fetch('/api/domain-agent/version');
