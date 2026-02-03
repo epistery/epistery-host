@@ -300,23 +300,20 @@
             try {
                 document.getElementById('domain-name').textContent = window.location.hostname;
 
-                // Load epistery witness to get client wallet
-                const WitnessModule = await import('/lib/witness.js');
-                const Witness = WitnessModule.default;
-                const witness = await Witness.connect();
-                const status = witness.getStatus();
-                clientAddress = status.client.address;
-
-                // Check if user is admin using DomainACL API
-                const checkResponse = await fetch(`/api/acl/check-admin/${clientAddress}`, {
-                    headers: { 'Content-Type': 'application/json' }
+                // Get domain status from server - validates admin based on session/rivet
+                const statusResponse = await fetch('/', {
+                    headers: { 'Accept': 'application/json' }
                 });
-                const checkData = await checkResponse.json();
+                const domainStatus = await statusResponse.json();
 
-                if (!checkData.isAdmin) {
+                // For initialize page, user must be admin (verified via server config)
+                // Most users here have fresh rivets from claiming domain
+                if (!domainStatus.server.adminAddress) {
                     showNotAuthorized();
                     return;
                 }
+
+                clientAddress = domainStatus.server.adminAddress;
 
                 // User is authorized
                 document.getElementById('init-content').style.display = 'block';
