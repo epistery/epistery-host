@@ -325,23 +325,13 @@
                 document.getElementById('domain-name').textContent = window.location.hostname;
                 contractAddress = statusData.server.contractAddress;
 
-                // Load epistery witness to get client wallet
-                const WitnessModule = await import('/lib/witness.js');
-                const Witness = WitnessModule.default;
-                const witness = await Witness.connect();
-
-                const status = witness.getStatus();
-                const clientAddress = status.client.address;
-
-                // Check if user is admin
-                const checkResponse = await fetch(`/api/acl/check-admin/${clientAddress}`, {
-                    headers: { 'Content-Type': 'application/json' }
-                });
-                const checkData = await checkResponse.json();
-                if (!checkData.isAdmin) {
+                // For admin page, validate via server's admin_address (handles fresh rivets)
+                if (!statusData.server.adminAddress) {
                     showNotAuthorized();
                     return;
                 }
+
+                const clientAddress = statusData.server.adminAddress;
 
                 // User is authorized, show admin content
                 document.getElementById('admin-content').style.display = 'block';
