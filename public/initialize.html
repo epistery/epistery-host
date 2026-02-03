@@ -310,18 +310,20 @@
                     clientAddress = status.client.address;
                 } catch (witnessError) {
                     console.warn('Witness connection failed:', witnessError.message);
-                    // On fresh domain claim, witness may fail - try to validate via server
-                    // Check if this is a pre-initialization state where we trust the claimer
-                    const statusResponse = await fetch('/', {
-                        headers: { 'Accept': 'application/json' }
-                    });
-                    const domainStatus = await statusResponse.json();
+                    // Witness failed - try to get rivet ID directly
+                    try {
+                        const WalletModule = await import('/lib/wallet.js');
+                        const { RivetWallet } = WalletModule;
+                        const wallet = new RivetWallet();
+                        const rivetId = wallet.rivet;
+                        if (rivetId) {
+                            clientAddress = rivetId; // Rivet ID is the address
+                        }
+                    } catch (rivetError) {
+                        console.error('Could not get rivet ID:', rivetError);
+                    }
 
-                    // Only allow if domain is verified but contract NOT deployed
-                    // This handles fresh claims where rivet exists but master key isn't accessible
-                    if (domainStatus.server.adminAddress && !domainStatus.server.initialized) {
-                        clientAddress = domainStatus.server.adminAddress;
-                    } else {
+                    if (!clientAddress) {
                         showNotAuthorized();
                         return;
                     }

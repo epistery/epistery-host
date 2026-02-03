@@ -181,14 +181,10 @@
                     <p class="console-tagline">Manage access policy and agents for <span id="domain-name">...</span></p>
                 </div>
                 <div class="server-balance">
-                    <div>Server Wallet</div>
                     <div class="balance-value" id="server-balance">...</div>
-                    <div class="wallet-address" id="server-address" onclick="copyToClipboard(this.textContent)" title="Click to copy">...</div>
-                    <div style="margin-top: var(--spacer); padding-top: var(--spacer); border-top: 1px solid var(--page-border);">
-                        <div style="font-size: 0.85em; opacity: 0.7;">Contract</div>
-                        <div style="font-size: 0.9em; font-family: monospace;" id="contract-version">...</div>
-                        <div class="wallet-address" style="font-size: 0.85em; margin-top: var(--spacerhalf);" id="contract-address" onclick="copyToClipboard(this.textContent)" title="Click to copy">...</div>
-                    </div>
+                    <div><span>wallet: </span><span class="wallet-address" id="server-address" onclick="copyToClipboard(this.textContent)" title="Click to copy">...</span></div>
+                    <div><span>contract: </span><span class="wallet-address" id="contract-address" onclick="copyToClipboard(this.textContent)" title="Click to copy">...</span></div>
+                    <div style="font-size: 0.9em; font-family: monospace;" id="contract-version">...</div>
                 </div>
             </div>
 
@@ -342,8 +338,9 @@
                     document.getElementById('contract-address').textContent = '-';
                 }
 
-                // Get client address from rivet - admin check requires authentication
+                // Get client address - try witness first
                 let clientAddress = null;
+                let rivetId = null;
                 try {
                     const WitnessModule = await import('/lib/witness.js');
                     const Witness = WitnessModule.default;
@@ -351,9 +348,24 @@
                     const status = witness.getStatus();
                     clientAddress = status.client.address;
                 } catch (witnessError) {
-                    console.error('Witness connection failed:', witnessError);
-                    showNotAuthorized('Authentication required');
-                    return;
+                    console.warn('Witness connection failed (may be fresh rivet):', witnessError.message);
+                    // Witness failed - try to get rivet ID directly to verify ownership
+                    try {
+                        const WalletModule = await import('/lib/wallet.js');
+                        const { RivetWallet } = WalletModule;
+                        const wallet = new RivetWallet();
+                        rivetId = wallet.rivet;
+                        if (rivetId) {
+                            clientAddress = rivetId; // Rivet ID is the address
+                        }
+                    } catch (rivetError) {
+                        console.error('Could not get rivet ID:', rivetError);
+                    }
+
+                    if (!clientAddress) {
+                        showNotAuthorized('Authentication required - rivet not accessible');
+                        return;
+                    }
                 }
 
                 // Check if user is admin
