@@ -565,8 +565,7 @@ let main = async function() {
     const epistery = await Epistery.connect();
     await epistery.attach(app,'/');
 
-    // Mount ACL routes BEFORE epistery.routes() to override specific paths
-    // (epistery.attach() has already run, so req.episteryClient will be available)
+    // Mount ACL routes AFTER epistery (req.episteryClient will be available)
     DomainAcl.attach(app)
 
     // Also mount the same routes at RFC 8615 well-known path

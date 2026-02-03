@@ -128,13 +128,14 @@ export function createAuthRouter() {
                 return res.status(400).json({ status: 'error', message: 'No pending claim for this domain' });
             }
 
-            const clientAddress = req.query.address;
+            // Use authenticated address from epistery middleware if available, fallback to query param
+            const clientAddress = req.episteryClient?.address || req.query.address;
             console.log(`[debug] Verification attempt for domain: ${domain}`);
-            console.log(`[debug] Client address: ${clientAddress}`);
+            console.log(`[debug] Client address: ${clientAddress} (from ${req.episteryClient ? 'episteryClient' : 'query'})`);
             console.log(`[debug] Stored challenge address: ${config.data.challenge_address}`);
 
             if (!clientAddress) {
-                return res.status(401).json({ status: 'error', message: 'Client address not found' });
+                return res.status(401).json({ status: 'error', message: 'Client address not found - authentication required' });
             }
 
             if (clientAddress.toLowerCase() !== config.data.challenge_address.toLowerCase()) {
