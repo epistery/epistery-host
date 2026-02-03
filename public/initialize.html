@@ -73,17 +73,6 @@
             border-radius: 4px;
             margin: var(--spacerhalf) 0;
         }
-        .qr-container {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            margin: var(--spacer) 0;
-        }
-        #qr-code {
-            padding: var(--spacerhalf);
-            background: white;
-            border-radius: 8px;
-        }
         .spinner {
             border: 3px solid var(--page-border);
             border-top-color: #4a90e2;
@@ -133,6 +122,24 @@
         ul,ol {
             margin-left: var(--spacer);
         }
+        #balance-insufficient {
+            display: none;
+            width:100%;
+            justify-content: space-between;
+        }
+        .qr-container {
+            float:right;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: var(--spacer) 0;
+        }
+        #qr-code {
+            padding: var(--spacerhalf);
+            background: white;
+            border-radius: 8px;
+        }
+
     </style>
 </head>
 <body>
@@ -189,23 +196,25 @@
                         <div class="balance-display" id="balance-amount">...</div>
 
                         <div id="balance-insufficient" class="warning-box" style="display: none;">
-                            <p><strong>⚠️ Insufficient Balance</strong></p>
-                            <p>The server wallet needs <strong id="required-amount">...</strong> to deploy the contract.</p>
-                            <p style="margin-top: var(--spacerhalf); font-size: 0.9em;">Estimated gas: <span id="gas-estimate-insufficient">...</span> at <span id="gas-price-insufficient">...</span> gwei</p>
-                            <p>Please send funds to the address above. The QR code below can be scanned with a mobile wallet.</p>
+                            <div>
+                                <p><strong>⚠️ Insufficient Balance</strong></p>
+                                <p>The server wallet needs <strong id="required-amount">...</strong> to deploy the contract.</p>
+                                <p style="margin-top: var(--spacerhalf); font-size: 0.9em;">Estimated gas: <span id="gas-estimate-insufficient">...</span> at <span id="gas-price-insufficient">...</span> gwei</p>
+                                <p>Please send funds to the address above. The QR code can be scanned with a mobile wallet.</p>
+                                <button class="console-btn" onclick="checkBalance()" style="margin-top: var(--spacer);">
+                                    Refresh Balance
+                                </button>
+                            </div>
                             <div class="qr-container">
                                 <div id="qr-code"></div>
                             </div>
-                            <button class="console-btn" onclick="checkBalance()" style="margin-top: var(--spacer);">
-                                Refresh Balance
-                            </button>
                         </div>
 
                         <div id="balance-sufficient" class="success-box" style="display: none;">
                             <p><strong>✓ Balance Sufficient</strong></p>
                             <p>The server wallet has enough funds to deploy the contract.</p>
-                            <p style="margin-top: var(--spacerhalf); font-size: 0.9em;">Estimated gas: <span id="gas-estimate-sufficient">...</span> at <span id="gas-price-sufficient">...</span> gwei</p>
-                            <button class="console-btn" onclick="proceedToStep2()">
+                            <p>Estimated cost: <span style="font-weight:bold" id="estimated-cost-sufficient">...</span></p>
+                            <button class="console-btn" onclick="proceedToStep2()" style="margin-top: var(--spacer);">
                                 Continue to Deployment →
                             </button>
                         </div>
@@ -361,11 +370,12 @@
                 // Display gas estimate info
                 const gasEstimate = balanceData.gasEstimate || 'unknown';
                 const gasPrice = balanceData.maxFeePerGas || 'unknown';
+                const estimatedCost = balanceData.estimatedCost ?
+                    `${parseFloat(balanceData.estimatedCost).toFixed(4)} ${symbol}` : 'unknown';
 
                 if (balanceData.sufficient) {
                     balanceEl.className = 'balance-display balance-sufficient';
-                    document.getElementById('gas-estimate-sufficient').textContent = gasEstimate;
-                    document.getElementById('gas-price-sufficient').textContent = gasPrice;
+                    document.getElementById('estimated-cost-sufficient').textContent = estimatedCost;
                     insufficientDiv.style.display = 'none';
                     sufficientDiv.style.display = 'block';
                 } else {
@@ -383,7 +393,7 @@
                     qr.make();
                     qrContainer.innerHTML = qr.createImgTag(4);
 
-                    insufficientDiv.style.display = 'block';
+                    insufficientDiv.style.display = 'flex';
                     sufficientDiv.style.display = 'none';
                 }
             } catch (error) {

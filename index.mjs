@@ -440,7 +440,18 @@ let main = async function() {
             const cfg = new Config();
             cfg.setPath(domain);
 
-            const DOMAIN_AGENT_VERSION = '1.0.2'; // DomainAgent.sol VERSION constant
+            // Read expected version from DomainAgent.sol source file (source of truth)
+            let DOMAIN_AGENT_VERSION = '1.0.0'; // fallback
+            try {
+                const contractSource = readFileSync(path.join(__dirname, 'contracts/DomainAgent.sol'), 'utf8');
+                const versionMatch = contractSource.match(/VERSION\s*=\s*"([^"]+)"/);
+                if (versionMatch) {
+                    DOMAIN_AGENT_VERSION = versionMatch[1];
+                }
+            } catch (e) {
+                console.error('[api/domain-agent/version] Error reading contract version:', e.message);
+            }
+
             const contractAddress = cfg.data?.contract_address;
             const deployedVersion = cfg.data?.contract_version;
 
