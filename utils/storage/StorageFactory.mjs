@@ -20,13 +20,16 @@ export default class StorageFactory {
       try {
         const config = new Config();
         const domainConfig = config.read(`/${domain}`);
+        const rootConfig = config.read('/');
 
-        // Check if Storj credentials are present
-        if (domainConfig.storj?.ACCESS_KEY &&
-            domainConfig.storj?.SECRET_KEY &&
-            domainConfig.storj?.ENDPOINT) {
+        // Check if Storj credentials are present in domain config, fallback to root config
+        const storjConfig = domainConfig.storj || rootConfig.storj;
+
+        if (storjConfig?.ACCESS_KEY &&
+            storjConfig?.SECRET_KEY &&
+            storjConfig?.ENDPOINT) {
           type = 'storj';
-          console.log(`[${agentName}:storage] Using Storj storage`);
+          console.log(`[${agentName}:storage] Using Storj storage${domainConfig.storj ? '' : ' (from root config)'}`);
         } else {
           type = 'config';
           console.log(`[${agentName}:storage] Storj not configured, falling back to Config storage`);
@@ -76,6 +79,19 @@ export default class StorageFactory {
     // Wrap Config with the same interface as other storage backends
     return {
       writeFile: (key, content) => {
+        // Ensure the base directory exists
+        config.save();
+
+        // If key contains subdirectories, ensure they exist
+        const keyParts = key.split('/');
+        if (keyParts.length > 1) {
+          const subdirPath = keyParts.slice(0, -1).join('/');
+          const fullSubdirPath = require('path').join(config.currentDir, subdirPath);
+          if (!require('fs').existsSync(fullSubdirPath)) {
+            require('fs').mkdirSync(fullSubdirPath, { recursive: true });
+          }
+        }
+
         config.writeFile(key, content);
         return Promise.resolve(true);
       },

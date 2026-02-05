@@ -520,21 +520,27 @@
                 const name = entry.name || '';
                 const role = entry.role || 0;
 
+                // Check if this is a virtual entry (auto-added sponsor/owner)
+                const isVirtual = entry.meta && entry.meta.includes('"auto":true');
+                const editDisabled = isVirtual ? 'disabled title="Virtual entries cannot be edited"' : 'title="Edit"';
+                const removeDisabled = isVirtual ? 'disabled title="Virtual entries cannot be removed"' : 'title="Remove"';
+
                 html += `
                     <div class="acl-item" data-address="${address}">
                         <div class="address-info">
                             <span class="address-text">${address}</span>
+                            ${isVirtual ? '<small style="color: var(--page-text-secondary); font-style: italic;"> (auto)</small>' : ''}
                         </div>
                         <div class="name-display">
                             <span class="name-text">${name || '—'}</span>
-                            <input type="text" class="name-input" value="${name}" style="display: none;" />
+                            <input type="text" class="name-input" value="${name}" style="display: none;" ${isVirtual ? 'disabled' : ''} />
                         </div>
                         <div class="action-buttons">
-                            <button class="console-btn small" onclick="toggleEdit('${address}')" title="Edit">
+                            <button class="console-btn small" onclick="${isVirtual ? '' : `toggleEdit('${address}')`}" ${editDisabled}>
                                 <span class="edit-icon"><svg class="icon-svg" viewBox="0 0 20 20"><path d="M17.561 2.439c-1.442-1.443-2.525-1.227-2.525-1.227L8.984 7.264 2.21 14.037 1.2 18.799l4.763-1.01 6.774-6.771 6.052-6.052c-.001 0 .216-1.083-1.228-2.527zM5.68 17.32l-1.394.261a3.475 3.475 0 0 0-.261-1.394l1.655 1.133z"/></svg></span>
                                 <span class="save-icon" style="display: none;"><svg class="icon-svg" viewBox="0 0 20 20"><path d="M15.173 2H4c-1.101 0-2 .9-2 2v12c0 1.1.899 2 2 2h12c1.101 0 2-.9 2-2V5.127L15.173 2zM14 8c0 .549-.45 1-1 1H7c-.55 0-1-.451-1-1V3h8v5zm-1-4h-2v4h2V4z"/></svg></span>
                             </button>
-                            <button class="console-btn small danger" onclick="removeAddress('${address}')" title="Remove">
+                            <button class="console-btn small danger" onclick="${isVirtual ? '' : `removeAddress('${address}')`}" ${removeDisabled}>
                                 <svg class="icon-svg" viewBox="0 0 20 20"><path d="M6 2l2-2h4l2 2h4v2H2V2h4zM3 6h14l-1 14H4L3 6zm5 2v10h1V8H8zm3 0v10h1V8h-1z"/></svg>
                             </button>
                         </div>
@@ -739,10 +745,11 @@
                         throw new Error(data.error || 'Failed to update metadata');
                     }
 
-                    // Update local data
-                    aclMetadata[address.toLowerCase()] = {
-                        name: newName
-                    };
+                    // Update local data in acl array
+                    const entry = acl.find(e => e.address.toLowerCase() === address.toLowerCase());
+                    if (entry) {
+                        entry.name = newName;
+                    }
 
                     // Switch back to view mode
                     nameText.textContent = newName || '—';

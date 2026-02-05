@@ -26,6 +26,7 @@ export default class StorjStorage {
       // Read Storj credentials from config
       const config = new Config();
       const domainConfig = config.read(this.domain);
+      const rootConfig = config.read('/');
 
       // Get server wallet address as folder identifier (persistent across contract upgrades)
       const serverAddress = domainConfig.contract_address;
@@ -33,15 +34,16 @@ export default class StorjStorage {
         throw new Error('Server wallet address not found in config');
       }
 
-      // Read Storj credentials from config
-      if (!domainConfig.storj) {
-        throw new Error('Storj configuration not found in domain config');
+      // Read Storj credentials from domain config, fallback to root config
+      const storjConfig = domainConfig.storj || rootConfig.storj;
+      if (!storjConfig) {
+        throw new Error('Storj configuration not found in domain or root config');
       }
 
-      const accessKey = domainConfig.storj.ACCESS_KEY;
-      const secretKey = domainConfig.storj.SECRET_KEY;
-      const endpoint = domainConfig.storj.ENDPOINT;
-      const bucket = domainConfig.storj.BUCKET;
+      const accessKey = storjConfig.ACCESS_KEY;
+      const secretKey = storjConfig.SECRET_KEY;
+      const endpoint = storjConfig.ENDPOINT;
+      const bucket = storjConfig.BUCKET;
 
       if (!accessKey || !secretKey || !endpoint || !bucket) {
         throw new Error('Storj credentials incomplete. Required: ACCESS_KEY, SECRET_KEY, ENDPOINT, BUCKET');
