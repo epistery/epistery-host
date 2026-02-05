@@ -204,10 +204,6 @@
     </footer>
 
     <script type="module">
-        // Force HTTPS to ensure rivet consistency across claim and initialize
-        if (location.protocol !== 'https:' && !location.hostname.includes('localhost')) {
-            location.replace(`https://${location.host}${location.pathname}${location.search}`);
-        }
 
         const PROVIDER_CONFIGS = {
             'polygon-mainnet': {
