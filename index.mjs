@@ -659,7 +659,7 @@ let main = async function() {
             }
 
             // Check if user is admin
-            const isAdmin = await req.domainAcl.isAdmin(req.hostname);
+            const isAdmin = await req.domainAcl.isAdmin(req.episteryClient?.address);
             if (!isAdmin) {
                 return res.status(403).json({ error: 'Not authorized' });
             }
@@ -714,7 +714,7 @@ let main = async function() {
             }
 
             // Check if user is admin
-            const isAdmin = await req.domainAcl.isAdmin(req.hostname);
+            const isAdmin = await req.domainAcl.isAdmin(req.episteryClient?.address);
             if (!isAdmin) {
                 return res.status(403).json({ error: 'Not authorized' });
             }
