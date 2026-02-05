@@ -317,6 +317,11 @@
 
         async function checkAdminAccess() {
             try {
+                // Establish epistery session via Witness
+                const WitnessModule = await import('/lib/witness.js');
+                const Witness = WitnessModule.default;
+                await Witness.connect();
+
                 // Get domain info
                 const statusResponse = await fetch('/', {
                     headers: { 'Accept': 'application/json' }
@@ -341,6 +346,7 @@
                 // Check if user is admin - epistery middleware handles authentication via req.episteryClient
                 // No need to call Witness directly, just check admin status via API
                 const checkResponse = await fetch(`/api/acl/check-admin`, {
+                    credentials: 'include',
                     headers: { 'Content-Type': 'application/json' }
                 });
 

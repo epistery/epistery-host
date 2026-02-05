@@ -516,30 +516,6 @@ let main = async function() {
         }
     });
 
-    // API: Check if address is admin
-    app.post('/api/check-admin', async (req, res) => {
-        try {
-            const { address } = req.body;
-            const domain = req.hostname || 'localhost';
-            const cfg = new Config();
-            cfg.setPath(domain);
-
-            const contractAddress = cfg.data?.contract_address || process.env.CONTRACT_ADDRESS;
-            if (!contractAddress) {
-                return res.json({ isAdmin: false, reason: 'Contract not deployed' });
-            }
-
-            const contract = await getContract(contractAddress, domain);
-            const listName = `epistery::admin`;
-            const isListed = await contract.isInACL(listName, address);
-
-            res.json({ isAdmin: isListed });
-        } catch (error) {
-            console.error('Error checking admin status:', error);
-            res.status(500).json({ error: error.message });
-        }
-    });
-
 
     // Static files (after specific routes)
     app.use('/style', express.static(path.join(__dirname, 'public/style')));
