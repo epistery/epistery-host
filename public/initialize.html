@@ -328,7 +328,7 @@
                 });
                 const domainStatus = await statusResponse.json();
                 const adminAddress = domainStatus.server.adminAddress || 'Unknown';
-                const networkName = domainStatus.server.provider?.name || 'Unknown Network';
+                const networkName = domainStatus.server.provider || 'Unknown Network';
 
                 // User is authorized
                 document.getElementById('init-content').style.display = 'block';
