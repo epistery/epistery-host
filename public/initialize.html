@@ -328,11 +328,13 @@
                 });
                 const domainStatus = await statusResponse.json();
                 const adminAddress = domainStatus.server.adminAddress || 'Unknown';
+                const networkName = domainStatus.server.provider?.name || 'Unknown Network';
 
                 // User is authorized
                 document.getElementById('init-content').style.display = 'block';
                 document.getElementById('deploy-domain').textContent = window.location.hostname;
                 document.getElementById('deploy-admin').textContent = adminAddress;
+                document.getElementById('deploy-network').textContent = networkName;
 
                 // Check balance
                 await checkBalance();
