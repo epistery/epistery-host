@@ -83,6 +83,45 @@
             gap: var(--spacerhalf);
             margin-top: var(--spacer);
         }
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 26px;
+        }
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 26px;
+        }
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        .toggle-switch input:checked + .toggle-slider {
+            background-color: #2196F3;
+        }
+        .toggle-switch input:checked + .toggle-slider:before {
+            transform: translateX(24px);
+        }
         .add-address-form input {
             flex: 1;
             padding: 8px 12px;
@@ -259,6 +298,23 @@
                     </div>
                 </section>
 
+                <!-- Preferences Section -->
+                <section class="admin-section">
+                    <h2>Preferences</h2>
+                    <p>Configure your admin panel preferences</p>
+
+                    <div class="admin-toggle" style="margin-top: var(--spacer);">
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="enable-notifications">
+                            <span class="toggle-slider"></span>
+                        </label>
+                        <label for="enable-notifications" style="cursor: pointer;">Enable Desktop Notifications</label>
+                    </div>
+                    <p style="font-size: 0.9em; color: var(--text-secondary); margin-top: var(--spacerhalf);">
+                        Receive notifications for new messages and access requests
+                    </p>
+                </section>
+
                 <!-- Whitelist Management Section -->
                 <section class="admin-section">
                     <h2>Whitelist Management</h2>
@@ -381,6 +437,9 @@
                         console.warn('Failed to load pending requests (may need contract upgrade):', error);
                     }
                 }
+
+                // Load preferences
+                await loadPreferences();
 
             } catch (error) {
                 console.error('Failed to check admin access:', error);
@@ -840,6 +899,25 @@
                 const data = await response.json();
 
                 if (data.requests && data.requests.length > 0) {
+                    const pendingCount = data.requests.filter(r => r.status === 'pending').length;
+
+                    // Fire notification for new pending requests
+                    if (pendingCount > 0 && window.episteryNotify) {
+                        const requestText = pendingCount === 1
+                            ? `${data.requests[0].name || 'User'} requested access`
+                            : `${pendingCount} access requests pending`;
+
+                        window.episteryNotify(
+                            'Access Request',
+                            requestText,
+                            {
+                                icon: '/image/favicon.png',
+                                tag: 'access-requests',
+                                requireInteraction: true // Keep notification visible
+                            }
+                        );
+                    }
+
                     renderPendingRequests(data.requests);
                 } else {
                     document.getElementById('pending-requests-items').innerHTML = '<div class="info-box"><p>No pending requests</p></div>';
@@ -1201,6 +1279,106 @@
                 alert('Failed to set default agent: ' + error.message);
                 // Reload to reset radio buttons
                 await loadAgents();
+            }
+        };
+
+        // Preferences functions
+        async function loadPreferences() {
+            try {
+                const response = await fetch('/api/preferences');
+                if (response.ok) {
+                    const prefs = await response.json();
+                    const notifCheckbox = document.getElementById('enable-notifications');
+                    notifCheckbox.checked = prefs.notifications === true;
+
+                    // Sync to localStorage for window.episteryNotify
+                    localStorage.setItem('epistery_preferences', JSON.stringify(prefs));
+
+                    // Set up event listener
+                    notifCheckbox.addEventListener('change', async (e) => {
+                        await toggleNotifications(e.target.checked);
+                    });
+                } else {
+                    // No preferences yet, set up listener anyway
+                    document.getElementById('enable-notifications').addEventListener('change', async (e) => {
+                        await toggleNotifications(e.target.checked);
+                    });
+                }
+            } catch (error) {
+                console.error('Failed to load preferences:', error);
+                // Set up listener anyway
+                document.getElementById('enable-notifications').addEventListener('change', async (e) => {
+                    await toggleNotifications(e.target.checked);
+                });
+            }
+        }
+
+        async function toggleNotifications(enabled) {
+            try {
+                if (enabled) {
+                    // Request notification permission
+                    if (!('Notification' in window)) {
+                        alert('This browser does not support desktop notifications');
+                        document.getElementById('enable-notifications').checked = false;
+                        return;
+                    }
+
+                    const permission = await Notification.requestPermission();
+                    if (permission !== 'granted') {
+                        alert('Notification permission denied');
+                        document.getElementById('enable-notifications').checked = false;
+                        return;
+                    }
+
+                    // Show test notification
+                    new Notification('Epistery Notifications Enabled', {
+                        body: 'You will now receive notifications for messages and access requests',
+                        icon: '/image/favicon.png'
+                    });
+                }
+
+                // Save preference
+                const response = await fetch('/api/preferences', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ notifications: enabled })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to save preferences');
+                }
+
+                // Sync to localStorage for window.episteryNotify
+                const prefs = await response.json();
+                localStorage.setItem('epistery_preferences', JSON.stringify(prefs.preferences || { notifications: enabled }));
+
+                console.log('Notifications', enabled ? 'enabled' : 'disabled');
+            } catch (error) {
+                console.error('Failed to toggle notifications:', error);
+                alert('Failed to save preference: ' + error.message);
+                document.getElementById('enable-notifications').checked = !enabled;
+            }
+        }
+
+        // Expose notification function for agents
+        window.episteryNotify = function(title, body, options = {}) {
+            const prefs = JSON.parse(localStorage.getItem('epistery_preferences') || '{}');
+            console.log('[episteryNotify]', { title, body, prefs, permission: Notification.permission });
+
+            if (prefs.notifications !== true) {
+                console.log('[episteryNotify] Notifications disabled in preferences');
+                return;
+            }
+
+            if ('Notification' in window && Notification.permission === 'granted') {
+                console.log('[episteryNotify] Firing notification:', title);
+                new Notification(title, {
+                    body,
+                    icon: options.icon || '/image/favicon.png',
+                    ...options
+                });
+            } else {
+                console.log('[episteryNotify] Cannot fire - permission:', Notification.permission);
             }
         };
 

@@ -1,5 +1,7 @@
 import { Config } from 'epistery';
 import StorjStorage from './StorjStorage.mjs';
+import path from 'path';
+import fs from 'fs';
 
 /**
  * Storage factory that creates the appropriate storage backend
@@ -86,9 +88,9 @@ export default class StorageFactory {
         const keyParts = key.split('/');
         if (keyParts.length > 1) {
           const subdirPath = keyParts.slice(0, -1).join('/');
-          const fullSubdirPath = require('path').join(config.currentDir, subdirPath);
-          if (!require('fs').existsSync(fullSubdirPath)) {
-            require('fs').mkdirSync(fullSubdirPath, { recursive: true });
+          const fullSubdirPath = path.join(config.currentDir, subdirPath);
+          if (!fs.existsSync(fullSubdirPath)) {
+            fs.mkdirSync(fullSubdirPath, { recursive: true });
           }
         }
 

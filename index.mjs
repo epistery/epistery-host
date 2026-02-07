@@ -318,6 +318,33 @@ let main = async function() {
             cfg.data.acl_initialized_at = new Date().toISOString();
             cfg.save();
 
+            // Initialize default agent ACL configurations
+            console.log('Initializing default agent ACL configurations...');
+            try {
+                // Message Board agent - allow editors to post
+                const messageBoardConfig = {
+                    aclStance: {
+                        acl: [
+                            { list: 'epistery::admin', access: 3 },
+                            { list: 'epistery::editor', access: 2 },
+                            { list: 'default', access: 0 }
+                        ],
+                        enableRequestAccess: true
+                    }
+                };
+                const feeData = await getFeeData(cfg.data.provider);
+                const tx = await contract.setPublicAttribute(
+                    '@epistery/message-board',
+                    JSON.stringify(messageBoardConfig),
+                    feeData
+                );
+                await tx.wait();
+                console.log('  ✓ Message board ACL configured');
+            } catch (aclError) {
+                console.error('Failed to initialize agent ACL configs:', aclError);
+                // Don't fail deployment if ACL config fails - can be set later
+            }
+
             // Store in environment for current session
             process.env.CONTRACT_ADDRESS = contractAddress;
 
@@ -709,6 +736,57 @@ let main = async function() {
             res.json({ success: true });
         } catch (error) {
             console.error('[toggle-agent] Error:', error);
+            res.status(500).json({ error: error.message });
+        }
+    });
+
+    // API: Get user preferences
+    app.get('/api/preferences', async (req, res) => {
+        try {
+            const userAddress = req.episteryClient?.address;
+            if (!userAddress) {
+                return res.status(401).json({ error: 'Not authenticated' });
+            }
+
+            const domain = req.headers.host?.split(':')[0] || 'localhost';
+            const cfg = new Config();
+            cfg.setPath(domain);
+
+            // Get preferences for this user
+            const prefsKey = `user_preferences.${userAddress}`;
+            const prefs = cfg.data[prefsKey] || { notifications: false };
+
+            res.json(prefs);
+        } catch (error) {
+            console.error('[preferences] Get error:', error);
+            res.status(500).json({ error: error.message });
+        }
+    });
+
+    // API: Save user preferences
+    app.post('/api/preferences', async (req, res) => {
+        try {
+            const userAddress = req.episteryClient?.address;
+            if (!userAddress) {
+                return res.status(401).json({ error: 'Not authenticated' });
+            }
+
+            const domain = req.headers.host?.split(':')[0] || 'localhost';
+            const cfg = new Config();
+            cfg.setPath(domain);
+
+            // Save preferences for this user
+            const prefsKey = `user_preferences.${userAddress}`;
+            cfg.data[prefsKey] = {
+                ...cfg.data[prefsKey],
+                ...req.body,
+                updated_at: new Date().toISOString()
+            };
+            cfg.save();
+
+            res.json({ success: true, preferences: cfg.data[prefsKey] });
+        } catch (error) {
+            console.error('[preferences] Save error:', error);
             res.status(500).json({ error: error.message });
         }
     });
