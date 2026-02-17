@@ -1,6 +1,16 @@
 (async function() {
   'use strict';
 
+  // Establish epistery session - localStorage identity is permanent, session cookie is the handshake.
+  // Always connect so the server knows who we are, regardless of cookie state.
+  try {
+    const WitnessModule = await import('/lib/witness.js');
+    window.epistery = await WitnessModule.default.connect({rootPath:"/"});
+    console.log('[Epistery] Connected:', window.epistery?.wallet?.address);
+  } catch (error) {
+    console.warn('[Epistery] Could not establish session:', error.message);
+  }
+
   // Register service worker to add X-Epistery-Internal header to all requests
   if ('serviceWorker' in navigator) {
     try {

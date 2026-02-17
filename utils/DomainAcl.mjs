@@ -101,14 +101,12 @@ export class DomainAcl {
             try {
                 const address = req.params.address || req.episteryClient?.address;
                 if (!address) {
-                    // Clear stale session cookie on authentication failure
                     res.clearCookie('_epistery', { path: '/', httpOnly: true, secure: true, sameSite: 'lax' });
                     return res.json({ isAdmin: false, error: 'No address provided and no authenticated session' });
                 }
                 const isAdmin = await req.domainAcl.isAdmin(address);
                 res.json({ isAdmin: isAdmin });
             } catch (error) {
-                // Clear session cookie on any auth-related error
                 res.clearCookie('_epistery', { path: '/', httpOnly: true, secure: true, sameSite: 'lax' });
                 res.json({ isAdmin: false, error: error.message });
             }
