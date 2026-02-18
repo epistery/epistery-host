@@ -24,8 +24,11 @@ const __dirname = path.dirname(__filename);
 const DomainAgentArtifact = JSON.parse(
     readFileSync(path.join(__dirname, 'artifacts/contracts/DomainAgent.sol/DomainAgent.json'), 'utf8')
 );
-// Keep old name for backward compatibility with existing code
-const AgentArtifact = DomainAgentArtifact;
+
+function estimateDeployGas() {
+    const bytecodeLength = DomainAgentArtifact.bytecode.length / 2;
+    return 21000 + (bytecodeLength * 200) + 50000;
+}
 
 let isShuttingDown = false;
 let app, https_server, http_server, config, agentManager;
@@ -227,8 +230,7 @@ let main = async function() {
             const minGasPrice = ethers.utils.parseUnits("30", "gwei");
 
             // Estimate based on actual bytecode size (more accurate than fixed 750k)
-            const bytecodeLength = AgentArtifact.bytecode.length / 2;
-            const estimatedDeploymentGas = ethers.BigNumber.from(21000 + (bytecodeLength * 200) + 50000);
+            const estimatedDeploymentGas = ethers.BigNumber.from(estimateDeployGas());
             // Add 20% buffer to gas estimate
             const deploymentGas = estimatedDeploymentGas.mul(120).div(100);
             const initGas = ethers.BigNumber.from(300000);
@@ -239,16 +241,7 @@ let main = async function() {
             const estimatedTotalCost = totalGas.mul(maxFeePerGas);
             const requiredBalance = estimatedTotalCost.mul(150).div(100); // 50% buffer
 
-            console.log('[deploy] Balance check:');
-            console.log('  Server wallet:', wallet.address);
-            console.log('  Current balance:', ethers.utils.formatEther(balance), provider.nativeCurrency?.symbol || 'POL');
-            console.log('  Estimated gas:', totalGas.toString());
-            console.log('  Max fee per gas:', ethers.utils.formatUnits(maxFeePerGas, 'gwei'), 'gwei');
-            console.log('  Estimated cost:', ethers.utils.formatEther(estimatedTotalCost), provider.nativeCurrency?.symbol || 'POL');
-            console.log('  Required (with buffer):', ethers.utils.formatEther(requiredBalance), provider.nativeCurrency?.symbol || 'POL');
-
             if (balance.lt(requiredBalance)) {
-                console.log('[deploy] Insufficient balance!');
                 return res.status(400).json({
                     error: 'Insufficient balance for deployment and initialization',
                     balance: ethers.utils.formatEther(balance),
@@ -258,17 +251,14 @@ let main = async function() {
                 });
             }
 
-            console.log('[deploy] Balance check passed');
-
             // Use EIP-1559 style transaction
             const networkPriority = feeData.maxPriorityFeePerGas ? feeData.maxPriorityFeePerGas.mul(120).div(100) : minGasPrice;
             const maxPriorityFeePerGas = networkPriority.gt(minGasPrice) ? networkPriority : minGasPrice;
 
-            const factory = new ethers.ContractFactory(AgentArtifact.abi, AgentArtifact.bytecode, wallet);
+            const factory = new ethers.ContractFactory(DomainAgentArtifact.abi, DomainAgentArtifact.bytecode, wallet);
             // Server wallet is owner (pays for and owns the contract)
             // Browser wallet (admin_address) is sponsor (gets automatic admin access)
             const sponsorAddress = adminAddress || wallet.address; // Sponsor defaults to server if no admin
-            console.log(`Deploying Agent contract for domain: ${domain}, sponsor: ${sponsorAddress}, owner: ${wallet.address}...`);
 
             // Deploy with domain, sponsor, and owner parameters, plus EIP-1559 gas settings
             // Try to estimate gas, fallback to calculated limit if estimation fails
@@ -277,13 +267,9 @@ let main = async function() {
                 const deployTx = factory.getDeployTransaction(domain, sponsorAddress, wallet.address);
                 gasLimit = await ethersProvider.estimateGas({ ...deployTx, from: wallet.address });
                 gasLimit = gasLimit.mul(120).div(100); // Add 20% buffer
-                console.log(`Gas estimated: ${gasLimit.toString()}`);
             } catch (estimateError) {
                 // Estimation failed - calculate based on bytecode size
-                // Rough formula: 21000 base + (bytecode_length * 200) + 50000 constructor overhead
-                const bytecodeLength = AgentArtifact.bytecode.length / 2; // Convert hex to bytes
-                gasLimit = ethers.BigNumber.from(21000 + (bytecodeLength * 200) + 50000);
-                console.log(`Gas estimation failed, using calculated limit: ${gasLimit.toString()}`);
+                gasLimit = ethers.BigNumber.from(estimateDeployGas());
             }
 
             const contract = await factory.deploy(domain, sponsorAddress, wallet.address, {
@@ -294,21 +280,14 @@ let main = async function() {
             await retryWithBackoff(() => contract.deployed());
 
             const contractAddress = contract.address;
-            console.log(`Agent contract deployed at ${contractAddress}`);
 
             // Check contract version
             let version = 'Unknown';
             try {
                 version = await retryWithBackoff(() => contract.VERSION());
-                console.log(`Contract version: ${version}`);
             } catch (e) {
                 version = '1.0.0';
             }
-
-            console.log(`DomainAgent deployed successfully.`);
-            console.log(`  Owner: ${wallet.address} (server wallet - pays for contract)`);
-            console.log(`  Sponsor: ${sponsorAddress} (admin wallet - automatic epistery::admin access)`);
-            console.log(`Contract initialization complete - no additional ACL setup needed.`);
 
             // Finalize: promote to active contract
             cfg.data.contract_address = contractAddress;
@@ -319,7 +298,6 @@ let main = async function() {
             cfg.save();
 
             // Initialize default agent ACL configurations
-            console.log('Initializing default agent ACL configurations...');
             try {
                 // Message Board agent - allow editors to post
                 const messageBoardConfig = {
@@ -332,14 +310,13 @@ let main = async function() {
                         enableRequestAccess: true
                     }
                 };
-                const feeData = await getFeeData(cfg.data.provider);
+                const feeData = await retryWithBackoff(() => ethersProvider.getFeeData());
                 const tx = await contract.setPublicAttribute(
                     '@epistery/message-board',
                     JSON.stringify(messageBoardConfig),
                     feeData
                 );
                 await tx.wait();
-                console.log('  ✓ Message board ACL configured');
             } catch (aclError) {
                 console.error('Failed to initialize agent ACL configs:', aclError);
                 // Don't fail deployment if ACL config fails - can be set later
@@ -347,10 +324,6 @@ let main = async function() {
 
             // Store in environment for current session
             process.env.CONTRACT_ADDRESS = contractAddress;
-
-            console.log(`Contract upgrade complete for domain: ${domain}`);
-            console.log(`  Contract: ${contractAddress}`);
-            console.log(`  Version: ${version}`);
 
             res.json({
                 success: true,
@@ -426,8 +399,7 @@ let main = async function() {
             const minGasPrice = ethers.utils.parseUnits("30", "gwei");
 
             // Estimate based on actual bytecode size (same as deployment)
-            const bytecodeLength = AgentArtifact.bytecode.length / 2;
-            const estimatedDeploymentGas = ethers.BigNumber.from(21000 + (bytecodeLength * 200) + 50000);
+            const estimatedDeploymentGas = ethers.BigNumber.from(estimateDeployGas());
             // Add 20% buffer to gas estimate
             const deploymentGas = estimatedDeploymentGas.mul(120).div(100);
             const initGas = ethers.BigNumber.from(300000);
@@ -576,7 +548,7 @@ let main = async function() {
     app.use('/.well-known/epistery', epistery.routes());
 
     // Attach template pages/frames
-    const pages = new Pages({ AgentArtifact });
+    const pages = new Pages({ DomainAgentArtifact });
     pages.attach(app);
 
     // API endpoint to list active agents
@@ -614,10 +586,6 @@ let main = async function() {
 
         res.json({ agents, defaultAgent });
     });
-
-    app.get('/api/permissions', async (req, res) => {
-        res.json({});
-    })
 
     // API endpoint to get navigation menu HTML
     app.get('/api/nav-menu', async (req, res) => {
