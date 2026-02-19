@@ -13,7 +13,7 @@
     "type": "git",
     "url": "git+https://github.com/epistery/epistery-host.git"
   },
-  "license": "MIT",
+  "license": "UNLICENSED",
   "author": "Rootz Corp",
   "type": "module",
   "main": "index.mjs",

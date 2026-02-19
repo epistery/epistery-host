@@ -522,6 +522,11 @@ let main = async function() {
     app.use('/script', express.static(path.join(__dirname, 'public/script')));
     app.use('/widgets', express.static(path.join(__dirname, 'public/widgets')));
 
+    // AI Discovery Standard (rootz.global spec)    app.use('/.well-known/ai', express.static(path.join(__dirname, 'public/.well-known/ai')));
+    // AI Discovery Standard (rootz.global spec)
+    app.get('/.well-known/ai', (req, res) => { res.type('json'); res.sendFile(path.join(__dirname, 'public', '.well-known', 'ai', 'ai.json'), { dotfiles: 'allow' }); });
+    app.use('/.well-known/ai', express.static(path.join(__dirname, 'public', '.well-known', 'ai'), { dotfiles: 'allow' }));
+
     // Serve service worker (must be at root for scope)
     app.get('/service-worker.js', (req, res) => {
         res.sendFile(path.join(__dirname, 'public/service-worker.js'));

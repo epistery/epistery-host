@@ -1,0 +1,120 @@
+{
+  "_meta": {
+    "standard": "AI Discovery Standard v1.1",
+    "specification": "https://rootz.global/.well-known/ai",
+    "updated": "2026-02-19"
+  },
+  "identity": {
+    "name": "Epistery Dev",
+    "domain": "dev.epistery.host",
+    "description": "Development instance of epistery-host — a multi-tenant platform for sovereign web services with blockchain-backed identity and data ownership.",
+    "operator": "Rootz Corp",
+    "contact": "support@rootz.global",
+    "website": "https://rootz.global"
+  },
+  "capabilities": {
+    "agents": true,
+    "blockchain": true,
+    "encryption": true,
+    "mcp": false,
+    "authentication": "epistery-delegation"
+  },
+  "agents": [
+    {
+      "name": "@rootz/archive-agent",
+      "version": "0.1.0",
+      "description": "AI conversation archive with semantic search and knowledge extraction. Create, search, and browse archived AI conversations with full-text and embedding-based search.",
+      "status": "operational",
+      "base_url": "/agent/rootz/archive-agent",
+      "endpoints": {
+        "status": "GET /status",
+        "list": "GET /list",
+        "create": "POST /create",
+        "search": "GET /search?q={query}",
+        "semantic_search": "POST /semantic-search",
+        "read": "GET /read/{id}",
+        "facts": "GET /facts",
+        "decisions": "GET /decisions",
+        "tags": "GET /tags",
+        "stats": "GET /stats",
+        "browser": "GET /browser",
+        "widget": "GET /widget"
+      },
+      "content_types": ["application/json", "text/html"],
+      "authentication": "none"
+    },
+    {
+      "name": "@rootz/secret-explorer",
+      "version": "0.1.0",
+      "description": "Read-only blockchain secret scanner. Discovers secrets owned by a wallet or Identity contract, views metadata and notes, and decrypts with the right keys. Supports Polygon, Amoy, JOC networks.",
+      "status": "degraded",
+      "status_detail": "Mounted but blockchain scanning disabled — @rootz/chain-reader not installed on server",
+      "base_url": "/agent/rootz/secret-explorer",
+      "endpoints": {
+        "status": "GET /status",
+        "networks": "GET /networks",
+        "scan": "GET /scan?wallet={address}&network={networkId}",
+        "identities": "GET /identities?wallet={address}&network={networkId}",
+        "secret_details": "GET /secrets/{address}?network={networkId}",
+        "secret_vaults": "GET /secrets/{address}/vaults?network={networkId}",
+        "secret_notes": "GET /secrets/{address}/notes?network={networkId}",
+        "decrypt": "POST /secrets/{address}/decrypt",
+        "balance": "GET /balance?wallet={address}&network={networkId}",
+        "browser": "GET /browser",
+        "widget": "GET /widget"
+      },
+      "supported_networks": [
+        {"id": "mainnet-v7", "chain": "Polygon", "chainId": 137},
+        {"id": "mainnet-v6", "chain": "Polygon (Legacy)", "chainId": 137},
+        {"id": "amoy", "chain": "Polygon Amoy Testnet", "chainId": 80002},
+        {"id": "joc", "chain": "Japan Open Chain", "chainId": 81}
+      ],
+      "content_types": ["application/json", "text/html"],
+      "authentication": "none"
+    },
+    {
+      "name": "@epistery/wiki",
+      "version": "0.1.0",
+      "description": "Decentralized wiki with IPFS storage and epistery authentication.",
+      "status": "operational",
+      "base_url": "/agent/epistery/wiki"
+    },
+    {
+      "name": "@epistery/message-board",
+      "version": "0.1.0",
+      "description": "Community message board with whitelist and notabot access control.",
+      "status": "operational",
+      "base_url": "/agent/epistery/message-board"
+    },
+    {
+      "name": "@epistery/files",
+      "version": "0.1.0",
+      "description": "IPFS file management with origin tracking via data wallets.",
+      "status": "operational",
+      "base_url": "/agent/epistery/files"
+    },
+    {
+      "name": "@epistery/provenance",
+      "version": "0.1.0",
+      "description": "Track physical objects with QR codes and blockchain provenance.",
+      "status": "operational",
+      "base_url": "/agent/epistery/provenance"
+    }
+  ],
+  "blockchain": {
+    "chain": "Japan Open Chain (JOC)",
+    "chainId": 81,
+    "contract": "0x6C32592113B7F28f5182Fa25Ee8B008a2143eA1A",
+    "wallet": "0xb89Ccd65e955379Da021F5720729cC408eb07d03",
+    "explorer": "https://explorer.japanopenchain.org"
+  },
+  "well_known": {
+    "epistery_status": "/.well-known/epistery/status",
+    "epistery_agents": "/.well-known/epistery/agent/",
+    "ai_discovery": "/.well-known/ai"
+  },
+  "related": {
+    "rootz_global": "https://rootz.global/.well-known/ai",
+    "ai_discovery_spec": "https://rootz.global/pages/ai-discovery.html"
+  }
+}
