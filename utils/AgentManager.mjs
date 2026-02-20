@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { pathToFileURL } from 'url';
+import { spawn } from 'child_process';
 import express from 'express';
 
 /**
@@ -107,41 +108,99 @@ export class AgentManager {
         // Derive route path from npm package name (remove @ for URL safety)
         const routeName = manifest.name.replace(/^@/, '');
 
-        // Import the agent module
-        const moduleUrl = pathToFileURL(entryPath).href;
-        const AgentClass = (await import(moduleUrl)).default;
+        // Build the agent's router
+        const agentRouter = await this.buildAgentRouter(agentInfo);
 
-        // Instantiate with config from manifest
+        // Agent data with mutable router reference for hot-reload
+        const agentData = {
+            agentInfo,
+            manifest,
+            instance: agentRouter._agentInstance,
+            activeRouter: agentRouter,
+            wellKnownPath: `/.well-known/epistery/agent/${routeName}`,
+            shortPath: `/agent/${routeName}`
+        };
+
+        // Mount a proxy that delegates to the current activeRouter.
+        // This never changes - on reload we just swap activeRouter.
+        const proxy = (req, res, next) => agentData.activeRouter(req, res, next);
+
+        // If agent has a .git directory, mount /_update before the proxy
+        const gitDir = join(agentInfo.path, '.git');
+        if (existsSync(gitDir)) {
+            const updateRouter = express.Router();
+            updateRouter.get('/_update', async (req, res) => {
+                try {
+                    if (!req.domainAcl || !await req.domainAcl.isAdmin(req.episteryClient?.address)) {
+                        return res.status(403).json({success: false, error: 'Not authorized'});
+                    }
+                    await this.updateAgent(agentInfo.path, manifest.branch || 'main');
+                    await this.reloadAgent(name);
+                    res.json({success: true, message: `${manifest.name} updated and reloaded`});
+                } catch (error) {
+                    res.status(500).json({success: false, error: error.message});
+                }
+            });
+            app.use(agentData.wellKnownPath, updateRouter);
+            app.use(agentData.shortPath, updateRouter);
+        }
+
+        app.use(agentData.wellKnownPath, proxy);
+        app.use(agentData.shortPath, proxy);
+
+        console.log(`Agent ${manifest.name} v${manifest.version} mounted at:`);
+        console.log(`  - ${agentData.wellKnownPath}/*`);
+        console.log(`  - ${agentData.shortPath}/*`);
+
+        this.agents.set(name, agentData);
+    }
+
+    /**
+     * Build a fresh router for an agent module
+     */
+    async buildAgentRouter(agentInfo) {
+        const { name, manifest, entryPath } = agentInfo;
+
+        // Cache-bust: append timestamp so Node reimports the module
+        const moduleUrl = pathToFileURL(entryPath).href + `?t=${Date.now()}`;
+        const AgentClass = (await import(moduleUrl)).default;
         const agentInstance = new AgentClass(manifest.config || {});
 
-        // Create a namespaced router for this agent
         const agentRouter = express.Router();
-
-        // Attach agent to its namespaced router
         if (typeof agentInstance.attach === 'function') {
             agentInstance.attach(agentRouter);
         } else {
             console.warn(`Agent ${name} has no attach() method`);
         }
 
-        // Mount the agent's router at both paths
-        const wellKnownPath = `/.well-known/epistery/agent/${routeName}`;
-        const shortPath = `/agent/${routeName}`;
+        // Stash instance on router so we can clean it up later
+        agentRouter._agentInstance = agentInstance;
+        return agentRouter;
+    }
 
-        app.use(wellKnownPath, agentRouter);
-        app.use(shortPath, agentRouter);
+    /**
+     * Hot-reload an agent: cleanup old instance, build new router, swap in
+     */
+    async reloadAgent(name) {
+        const agentData = this.agents.get(name);
+        if (!agentData) throw new Error(`Agent ${name} not found`);
 
-        console.log(`Agent ${manifest.name} v${manifest.version} mounted at:`);
-        console.log(`  - ${wellKnownPath}/*`);
-        console.log(`  - ${shortPath}/*`);
+        // Cleanup old instance
+        if (typeof agentData.instance.cleanup === 'function') {
+            await agentData.instance.cleanup();
+        }
 
-        // Store reference
-        this.agents.set(name, {
-            manifest,
-            instance: agentInstance,
-            wellKnownPath,
-            shortPath
-        });
+        // Re-read manifest (it may have changed)
+        const manifestPath = join(agentData.agentInfo.path, 'epistery.json');
+        agentData.agentInfo.manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+        agentData.manifest = agentData.agentInfo.manifest;
+
+        // Build new router and swap it in
+        const newRouter = await this.buildAgentRouter(agentData.agentInfo);
+        agentData.activeRouter = newRouter;
+        agentData.instance = newRouter._agentInstance;
+
+        console.log(`[AgentManager] Reloaded ${agentData.manifest.name}`);
     }
 
     initializeWebSockets(server) {
@@ -155,6 +214,33 @@ export class AgentManager {
                 }
             }
         }
+    }
+
+    /**
+     * Pull latest code for an agent and install dependencies.
+     * Remote is whatever .git/config says - no URL override.
+     */
+    async updateAgent(agentPath, branch) {
+        console.log(`[AgentManager] Updating ${agentPath} on branch ${branch}`);
+        await this.executeCommand('git', ['fetch', 'origin', branch], agentPath);
+        await this.executeCommand('git', ['reset', '--hard', `origin/${branch}`], agentPath);
+        await this.executeCommand('npm', ['install', '--no-audit', '--no-fund'], agentPath);
+        console.log(`[AgentManager] Update complete for ${agentPath}`);
+    }
+
+    executeCommand(command, args, cwd) {
+        return new Promise((resolve, reject) => {
+            console.log(`[AgentManager] ${cwd}: ${command} ${args.join(' ')}`);
+            const child = spawn(command, args, {
+                stdio: ['ignore', 'inherit', 'inherit'],
+                cwd
+            });
+            child.on('close', (code) => {
+                if (code === 0) resolve();
+                else reject(new Error(`"${command} ${args.join(' ')}" exited ${code}`));
+            });
+            child.on('error', reject);
+        });
     }
 
     /**
