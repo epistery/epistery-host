@@ -2,6 +2,17 @@ import express from 'express';
 import { Config } from 'epistery';
 import { DomainChain } from './DomainChain.mjs';
 
+// Standard default ACL stance for any agent without explicit configuration
+const DEFAULT_ACL_STANCE = {
+    acl: [
+        { list: 'epistery::admin', access: 3 },
+        { list: 'epistery::editor', access: 2 },
+        { list: 'epistery::reader', access: 1 },
+        { list: 'default', access: 0 }
+    ],
+    enableRequestAccess: true
+};
+
 export class DomainAcl {
     constructor(domain) {
         this.config = new Config();
@@ -65,17 +76,7 @@ export class DomainAcl {
             }
         }
 
-        // Default aclStance - standard epistery lists with request access enabled
-        const defaultAclStance = {
-            acl: [
-                { list: 'epistery::admin', access: 3 },
-                { list: 'epistery::editor', access: 2 },
-                { list: 'epistery::reader', access: 1 },
-                { list: 'default', access: 0 }
-            ],
-            enableRequestAccess: true
-        };
-        const aclStance = agentConfig.aclStance || defaultAclStance;
+        const aclStance = agentConfig.aclStance || DEFAULT_ACL_STANCE;
         const acl = aclStance.acl || defaultAclStance.acl;
         // get lists and access for this address. default stance included automatically
         const membershipEntries = await contract.getListsForMember(userAddress);
@@ -156,23 +157,14 @@ export class DomainAcl {
                     }
                 }
 
-                // Default ACL configuration - epistery::admin has admin access, default denies
-                const defaultAclStance = {
-                    acl: [
-                        { list: 'epistery::admin', access: 3 },
-                        { list: 'default', access: 0 }
-                    ],
-                    enableRequestAccess: false
-                };
-
-                const aclStance = agentConfig.aclStance || defaultAclStance;
+                const aclStance = agentConfig.aclStance || DEFAULT_ACL_STANCE;
 
                 return res.json({
                     domain:domainChain.domain,
                     agent,
-                    acl: aclStance.acl || defaultAclStance.acl,
+                    acl: aclStance.acl || DEFAULT_ACL_STANCE.acl,
                     authConfig: {
-                        enableRequestAccess: aclStance.enableRequestAccess || false
+                        enableRequestAccess: aclStance.enableRequestAccess !== undefined ? aclStance.enableRequestAccess : true
                     }
                 });
             } catch (error) {
@@ -281,9 +273,10 @@ export class DomainAcl {
         });
 
         // API: Save agent ACL configuration to contract
+        // Accepts { agent, acl, authConfig? } - writes everything in one transaction
         router.put('/api/acl/agent', async (req, res) => {
             try {
-                const { agent, acl } = req.body;
+                const { agent, acl, authConfig } = req.body;
                 if (!agent || !Array.isArray(acl)) {
                     return res.status(400).json({ error: 'Agent name and ACL array required' });
                 }
@@ -304,11 +297,14 @@ export class DomainAcl {
                     }
                 }
 
-                // Update aclStance.acl
+                // Update aclStance
                 if (!agentConfig.aclStance) {
                     agentConfig.aclStance = {};
                 }
                 agentConfig.aclStance.acl = acl;
+                if (authConfig) {
+                    agentConfig.aclStance.enableRequestAccess = authConfig.enableRequestAccess;
+                }
 
                 const feeData = await domainChain.getFeeData();
                 const tx = await domainChain.contract.setPublicAttribute(agent, JSON.stringify(agentConfig), feeData);

@@ -256,33 +256,19 @@
             saveBtn.innerHTML = '<span class="spinner"></span>';
 
             try {
-                // Save ACLs
+                // Save ACLs and auth config in one transaction
+                const enableRequest = document.getElementById('enableRequestAccess').checked;
+                authConfig = { enableRequestAccess: enableRequest };
+
                 const aclResponse = await fetch('/api/acl/agent', {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ agent: agentName, acl: acls })
+                    body: JSON.stringify({ agent: agentName, acl: acls, authConfig })
                 });
 
                 if (!aclResponse.ok) {
                     const error = await aclResponse.json();
-                    throw new Error(error.error || 'Failed to save ACLs');
-                }
-
-                // Save auth strategy
-                const enableRequest = document.getElementById('enableRequestAccess').checked;
-                authConfig = {
-                    enableRequestAccess: enableRequest
-                };
-
-                const authResponse = await fetch('/api/acl/auth-strategy', {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ agent: agentName, authConfig })
-                });
-
-                if (!authResponse.ok) {
-                    const error = await authResponse.json();
-                    throw new Error(error.error || 'Failed to save auth strategy');
+                    throw new Error(error.error || 'Failed to save');
                 }
 
                 isDirty = false;

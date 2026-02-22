@@ -309,11 +309,15 @@ let main = async function() {
                         enableRequestAccess: true
                     }
                 };
-                const feeData = await retryWithBackoff(() => ethersProvider.getFeeData());
+                const rawFeeData = await retryWithBackoff(() => ethersProvider.getFeeData());
+                const txOverrides = {
+                    maxPriorityFeePerGas: rawFeeData.maxPriorityFeePerGas,
+                    maxFeePerGas: rawFeeData.maxFeePerGas
+                };
                 const tx = await contract.setPublicAttribute(
                     '@epistery/message-board',
                     JSON.stringify(messageBoardConfig),
-                    feeData
+                    txOverrides
                 );
                 await tx.wait();
             } catch (aclError) {
@@ -609,7 +613,7 @@ let main = async function() {
         for (const [, agentData] of agentManager.agents) {
             if (agentData.manifest.noUserInterface) continue;
             const displayName = agentData.manifest.title || agentData.manifest.name.split('/').pop();
-            navBar += `<a href="${agentData.shortPath}"><img alt="${displayName}" src="${agentData.manifest.icon}"> <span>${displayName}</span></a>`;
+            navBar += `<a href="${agentData.shortPath}">${agentData.manifest.icon ? `<img alt="${displayName}" src="${agentData.manifest.icon}">` : ''} <span>${displayName}</span></a>`;
         }
 
         // Only show admin link if user is on epistery::admin list
