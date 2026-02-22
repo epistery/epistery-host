@@ -1,11 +1,8 @@
 (async function() {
   'use strict';
 
-  // Load all widgets (header, requestAccess, etc.) — fire and forget, widgets.mjs handles DOM ready
-  import('/script/widgets.mjs');
-
-  // Establish epistery session - localStorage identity is permanent, session cookie is the handshake.
-  // Always connect so the server knows who we are, regardless of cookie state.
+  // Establish epistery session FIRST - all requests require proven identity.
+  // localStorage identity is permanent, session cookie is the handshake.
   try {
     const WitnessModule = await import('/lib/witness.js');
     window.epistery = await WitnessModule.default.connect({rootPath:"/"});
@@ -13,6 +10,9 @@
   } catch (error) {
     console.warn('[Epistery] Could not establish session:', error.message);
   }
+
+  // Load widgets AFTER identity is established - widgets make authenticated requests
+  import('/script/widgets.mjs');
 
   // Register service worker to add X-Epistery-Internal header to all requests
   if ('serviceWorker' in navigator) {

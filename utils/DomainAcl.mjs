@@ -65,13 +65,15 @@ export class DomainAcl {
             }
         }
 
-        // Default aclStance - epistery::admin always has admin access, default denies
+        // Default aclStance - standard epistery lists with request access enabled
         const defaultAclStance = {
             acl: [
                 { list: 'epistery::admin', access: 3 },
+                { list: 'epistery::editor', access: 2 },
+                { list: 'epistery::reader', access: 1 },
                 { list: 'default', access: 0 }
             ],
-            enableRequestAccess: false
+            enableRequestAccess: true
         };
         const aclStance = agentConfig.aclStance || defaultAclStance;
         const acl = aclStance.acl || defaultAclStance.acl;
