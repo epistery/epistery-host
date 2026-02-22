@@ -61,8 +61,7 @@ let main = async function() {
             return callback(null, true);
         },
         credentials: true,
-        allowedHeaders: ['Content-Type', 'Authorization', 'X-Wallet-Address'],
-        exposedHeaders: ['X-Wallet-Address']
+        allowedHeaders: ['Content-Type', 'Authorization']
     }));
     app.use(express.urlencoded({extended: true}));
     app.use(express.json({limit: '50mb'}));

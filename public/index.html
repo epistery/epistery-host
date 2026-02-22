@@ -140,18 +140,21 @@
         // Check if user is whitelisted for admin access
         async function checkAdminAccess() {
             try {
-                // Try to load epistery witness
-                const WitnessModule = await import('/lib/witness.js');
-                const Witness = WitnessModule.default;
-                const witness = await Witness.connect();
-                const status = witness.getStatus();
+                // Wait for common.js to establish session
+                const witness = window.epistery || await new Promise((resolve) => {
+                    const check = () => window.epistery ? resolve(window.epistery) : setTimeout(check, 100);
+                    check();
+                    setTimeout(() => resolve(null), 5000);
+                });
 
-                // Display client wallet
-                const clientWallet = status.client.address;
-                document.getElementById('client-wallet').textContent = clientWallet;
+                if (witness) {
+                    const status = witness.getStatus();
+                    document.getElementById('client-wallet').textContent = status.client.address;
+                }
 
-                // Check if user address is epistery::admin
-                const response = await fetch(`/api/acl/check-admin/${clientWallet}`, {
+                // Check admin via cookie-based session (no URL param)
+                const response = await fetch('/api/acl/check-admin', {
+                    credentials: 'include',
                     headers: { 'Content-Type': 'application/json' }
                 });
                 const data = await response.json();

@@ -300,10 +300,12 @@
             try {
                 document.getElementById('domain-name').textContent = window.location.hostname;
 
-                // Establish epistery session via Witness
-                const WitnessModule = await import('/lib/witness.js');
-                const Witness = WitnessModule.default;
-                await Witness.connect();
+                // Wait for common.js to establish session
+                await new Promise((resolve) => {
+                    const check = () => window.epistery ? resolve() : setTimeout(check, 100);
+                    check();
+                    setTimeout(resolve, 5000);
+                });
 
                 // Check if user is admin - epistery middleware handles authentication
                 const checkResponse = await fetch(`/api/acl/check-admin`, {

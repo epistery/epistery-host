@@ -97,12 +97,12 @@ export class DomainAcl {
             } catch(e) {}
             next();
         })
-        router.get("/api/acl/check-admin{/:address}", async (req, res) => {
+        router.get("/api/acl/check-admin", async (req, res) => {
             try {
-                const address = req.params.address || req.episteryClient?.address;
+                const address = req.episteryClient?.address;
                 if (!address) {
                     res.clearCookie('_epistery', { path: '/', httpOnly: true, secure: true, sameSite: 'lax' });
-                    return res.json({ isAdmin: false, error: 'No address provided and no authenticated session' });
+                    return res.json({ isAdmin: false, error: 'No authenticated session' });
                 }
                 const isAdmin = await req.domainAcl.isAdmin(address);
                 res.json({ isAdmin: isAdmin });
