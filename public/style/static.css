@@ -1,3 +1,42 @@
+/* Entypo icon font */
+@font-face {
+    font-family: "toolkit-entypo";
+    src: url('/style/toolkit-entypo.eot');
+    src: url('/style/toolkit-entypo.eot?#iefix') format('eot'),
+    url('/style/toolkit-entypo.woff2') format('woff2'),
+    url('/style/toolkit-entypo.woff') format('woff'),
+    url('/style/toolkit-entypo.ttf') format('truetype');
+    font-weight: normal;
+    font-style: normal;
+}
+.icon:before {
+    display: inline-block;
+    font-family: "toolkit-entypo";
+    speak: none;
+    font-style: normal;
+    font-weight: normal;
+    font-variant: normal;
+    text-transform: none;
+    line-height: 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+.icon-trash:before { content: "\EB72" }
+.icon-check:before { content: "\EA41" }
+.icon-star:before { content: "\EB5B" }
+.icon-star-outlined:before { content: "\EB5A" }
+.icon-circle-with-cross:before { content: "\EA52" }
+.icon-circle-with-plus:before { content: "\EA54" }
+.icon-cog:before { content: "\EA5D" }
+.icon-key:before { content: "\EAD2" }
+.icon-user:before { content: "\EB85" }
+.icon-wallet:before { content: "\EB93" }
+.icon-lock:before { content: "\EAEA" }
+.icon-home:before { content: "\EAC4" }
+.icon-plus:before { content: "\EB1C" }
+.icon-cross:before { content: "\EA77" }
+.icon-link:before { content: "\EAE3" }
+
 /* Color scheme inspired by metric.im with Rootz branding */
 :root {
     /* Primary colors from metric.im */
@@ -64,17 +103,17 @@ body {
     padding: 0 var(--spacer2);
 }
 
-/* Header & Navigation */
-header {
-    background: var(--bg-color-d);
-    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-    margin: 0;
+/* Header & Navigation - floating nav (header element is a zero-height container) */
+header[data-widget="header"] {
+    height: auto;
+    overflow: visible;
+    background: none;
+    box-shadow: none;
     padding: 0;
-    height:40px;
+    margin: 0;
+    position: relative;
     flex-shrink: 0;
     z-index: 100;
-    position: relative;
-    overflow: hidden;
 }
 header>nav {
     justify-content: start;
@@ -1764,4 +1803,125 @@ html {
         font-size: 0.7rem;
         padding: var(--spacerthird) var(--spacerhalf);
     }
+}
+
+/* ======================================
+   Home Page Layout (two-column)
+   ====================================== */
+body.home {
+    display: flex;
+    flex-direction: column;
+}
+
+.home-layout {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+}
+
+.home-identity {
+    flex: 2;
+    padding: var(--spacer2);
+    overflow-y: auto;
+}
+
+.home-services {
+    flex: 1;
+    padding: var(--spacer2);
+    overflow-y: auto;
+}
+
+/* Mobile responsive for home */
+@media (max-width: 768px) {
+    .home-layout {
+        flex-direction: column;
+    }
+}
+
+/* ======================================
+   Floating Nav (agent pages)
+   ====================================== */
+.epistery-float-nav {
+    position: fixed;
+    top: 8px;
+    left: 8px;
+    z-index: 2000;
+}
+
+.epistery-float-btn {
+    background: var(--bg-color);
+    border: 2px solid var(--rust-deep);
+    border-radius: 8px;
+    padding: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+
+.epistery-float-btn img {
+    width: 28px;
+    height: 28px;
+}
+
+.epistery-float-dropdown {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    margin-top: 4px;
+    background: var(--bg-color);
+    border: 1px solid var(--page-border);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+    min-width: 180px;
+    overflow: hidden;
+}
+
+.epistery-float-dropdown.open {
+    display: block;
+}
+
+.epistery-float-item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacerhalf);
+    padding: var(--spacerhalf) var(--spacer);
+    text-decoration: none;
+    color: var(--text-color);
+    white-space: nowrap;
+}
+
+.epistery-float-item:hover {
+    background: var(--bg-color-quiet-d);
+}
+
+.epistery-float-item img {
+    width: 16px;
+    height: 16px;
+    object-fit: contain;
+}
+
+/* Scrollbars — thin solid bar, no arrows */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: var(--page-border) transparent;
+}
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+::-webkit-scrollbar-thumb {
+    background: var(--page-border);
+    border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: var(--text-color-quiet);
+}
+::-webkit-scrollbar-button {
+    display: none;
 }

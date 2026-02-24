@@ -172,6 +172,16 @@ let main = async function() {
         }
     });
 
+    // Dev tools page route (old diagnostic view)
+    app.get('/devtools', (req, res) => {
+        const domain = req.hostname || 'localhost';
+        const cfg = new Config();
+        cfg.setPath(domain);
+        const wallet = cfg.data?.wallet || {};
+        const template = readFileSync(path.join(__dirname, 'public', 'devtools.html'), 'utf8');
+        res.send(template.replace(/{DOMAIN}/g, domain).replace(/{SERVER_WALLET}/g, wallet.address || 'Not configured'));
+    });
+
     // Initialize page route
     app.get('/initialize', (req, res) => {
         res.sendFile(path.join(__dirname, 'public', 'initialize.html'));

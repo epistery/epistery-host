@@ -1,59 +1,86 @@
-<nav>
-  <a href="/?home" class="logo">
-    <img alt="logo" src="/image/epistery-logo-32.svg" class="logo-window">
-  </a>
-  <div id="header-controls">
-    <span class="nav-menu" id="header-nav-menu"></span>
-    <a title="Identity" class="identity-icon" href="/status">👤</a>
-  </div>
-  <div id="mobile-controls">
+<div class="epistery-float-nav">
+    <button class="epistery-float-btn" aria-label="Epistery">
+        <img src="/image/epistery-logo-32.svg" alt="Epistery">
+    </button>
+    <div class="epistery-float-dropdown" id="float-nav-dropdown">
+        <a href="/?home" class="epistery-float-item">Home</a>
+        <div id="float-nav-agents"></div>
+    </div>
+</div>
+
+<!-- Preserve mobile sidebar for agent content (e.g. wiki index) -->
+<div id="mobile-controls">
     <button class="hamburger" aria-label="Menu">
-      <span></span>
-      <span></span>
-      <span></span>
+        <span></span>
+        <span></span>
+        <span></span>
     </button>
     <div id="side-bar">
-      <a title="Identity" class="identity-icon" href="/status">👤</a>
-      <span class="nav-menu" id="mobile-nav-menu"></span>
-      <!-- Slot for agent-provided mobile content (e.g. wiki index, channel list) -->
-      <div id="header-sidebar-content"></div>
+        <div id="header-sidebar-content"></div>
     </div>
-  </div>
-</nav>
+</div>
 
 <script>
 (async function() {
-  try {
-    const response = await fetch('/api/nav-menu');
-    const html = await response.text();
-    const desktop = document.getElementById('header-nav-menu');
-    const mobile = document.getElementById('mobile-nav-menu');
-    if (desktop) desktop.innerHTML = html;
-    if (mobile) mobile.innerHTML = html;
-  } catch (e) {
-    console.error('[header] Failed to load nav menu:', e);
-  }
+    const floatBtn = document.querySelector('.epistery-float-btn');
+    const dropdown = document.getElementById('float-nav-dropdown');
+    const agentsContainer = document.getElementById('float-nav-agents');
 
-  const hamburger = document.querySelector('#mobile-controls .hamburger');
-  const sideBar = document.getElementById('side-bar');
+    // Toggle dropdown on click
+    if (floatBtn && dropdown) {
+        floatBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            dropdown.classList.toggle('open');
+        });
 
-  if (hamburger && sideBar) {
-    hamburger.addEventListener('click', (e) => {
-      e.stopPropagation();
-      hamburger.classList.toggle('active');
-      sideBar.classList.toggle('active');
-    });
+        // Close on outside click
+        document.addEventListener('click', (e) => {
+            if (!dropdown.contains(e.target) && !floatBtn.contains(e.target)) {
+                dropdown.classList.remove('open');
+            }
+        });
+    }
 
-    document.addEventListener('click', (e) => {
-      if (!sideBar.contains(e.target) && !hamburger.contains(e.target)) {
-        hamburger.classList.remove('active');
-        sideBar.classList.remove('active');
-      }
-    });
+    // Load agent links into dropdown
+    try {
+        const response = await fetch('/api/nav-menu');
+        const html = await response.text();
+        // The nav-menu returns <a> tags with icons and spans
+        // Wrap them with float-item class
+        if (agentsContainer) {
+            const temp = document.createElement('div');
+            temp.innerHTML = html;
+            const links = temp.querySelectorAll('a');
+            for (const link of links) {
+                link.classList.add('epistery-float-item');
+                agentsContainer.appendChild(link);
+            }
+        }
+    } catch (e) {
+        console.error('[header] Failed to load nav menu:', e);
+    }
 
-    sideBar.addEventListener('click', (e) => e.stopPropagation());
-  }
+    // Mobile sidebar (hamburger) - independent of floating nav
+    const hamburger = document.querySelector('#mobile-controls .hamburger');
+    const sideBar = document.getElementById('side-bar');
 
-  document.dispatchEvent(new CustomEvent('header-ready'));
+    if (hamburger && sideBar) {
+        hamburger.addEventListener('click', (e) => {
+            e.stopPropagation();
+            hamburger.classList.toggle('active');
+            sideBar.classList.toggle('active');
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!sideBar.contains(e.target) && !hamburger.contains(e.target)) {
+                hamburger.classList.remove('active');
+                sideBar.classList.remove('active');
+            }
+        });
+
+        sideBar.addEventListener('click', (e) => e.stopPropagation());
+    }
+
+    document.dispatchEvent(new CustomEvent('header-ready'));
 })();
 </script>

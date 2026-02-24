@@ -1,0 +1,472 @@
+<style>
+    .identity-panel { text-align: center; }
+    .home-logo-wrap {
+        width: 64px;
+        height: 64px;
+        border-radius: 50%;
+        overflow: hidden;
+        border: 2px solid var(--rust-deep);
+    }
+    .identity-section-block {
+        background-color: var(--bg-color-d);
+        padding: var(--spacer);
+        border-radius: var(--spacer);
+    }
+    .identity-section-header {
+        display: flex;
+        flex-direction: row;
+        gap: var(--spacer2);
+        align-items: center;
+        padding-bottom: var(--spacer3);
+    }
+    .home-logo-wrap img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+   .identity-help-text {
+        text-align: left;
+        color: var(--rust-deep);
+        font-style: italic;
+        font-size: 0.85em;
+        padding-bottom: var(--spacer);
+    }
+    .identity-help-text A {
+        color: var(--rust-deep);
+    }
+    .identity-domain {
+        font-size: 2.4rem;
+        font-weight: 600;
+        color: var(--primary);
+        margin-bottom: var(--spacerhalf);
+    }
+    .identity-section-btn {
+        padding: var(--spacerhalf) var(--spacer);
+        background: none;
+        color: var(--rust-mid);
+        border: 1px solid var(--page-border);
+        border-radius: 4px;
+        cursor: pointer;
+    }
+    .identity-section-btn:hover {
+        background: var(--rust-mid);
+        color: var(--text-color);
+    }
+
+    .identity-section {
+        text-align: left;
+        margin-bottom: var(--spacer2);
+    }
+    .identity-section h3 {
+        font-size: 1.5rem;
+        color: var(--primary);
+        margin-bottom: var(--spacerhalf);
+        padding-bottom: var(--spacerthird);
+        border-bottom: 1px solid var(--page-border);
+    }
+    .identity-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: var(--spacerthird) 0;
+        font-size: 0.85rem;
+    }
+    .identity-row .label {
+        color: var(--text-color-quiet);
+    }
+    .identity-row .value {
+        font-family: monospace;
+        color: var(--text-color);
+        cursor: pointer;
+    }
+    .identity-row .value:hover { color: var(--action-color); }
+
+    .wallet-list {
+        list-style: none;
+        padding: 0;
+        margin: var(--spacerhalf) 0;
+    }
+    .wallet-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: var(--spacerhalf) 0;
+        border-bottom: 1px solid var(--page-border);
+        font-size: 0.85rem;
+    }
+    .wallet-item:last-child { border-bottom: none; }
+    .wallet-item .wallet-addr {
+        font-family: monospace;
+        cursor: pointer;
+    }
+    .wallet-item .wallet-addr:hover { color: var(--action-color); }
+    .wallet-item .wallet-info {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-width: 0;
+    }
+    .wallet-item .wallet-type {
+        color: var(--text-color-quiet);
+        font-size: 0.8rem;
+    }
+    .wallet-item .wallet-btns {
+        display: flex;
+        gap: var(--spacerthird);
+        flex-shrink: 0;
+    }
+    .wallet-item .wallet-btns button {
+        background: none;
+        border: none;
+        cursor: pointer;
+        padding: 2px;
+        font-size: 1rem;
+        line-height: 1;
+        color: var(--text-color-quiet);
+    }
+    .wallet-item .wallet-btns button:hover {
+        color: var(--text-color);
+    }
+    .wallet-item .wallet-btns button.btn-delete:hover {
+        color: var(--status-error);
+    }
+    .wallet-item.active { font-weight: bold; }
+    .wallet-item.active .wallet-addr::before {
+        content: '';
+        display: inline-block;
+        width: 6px;
+        height: 6px;
+        background: var(--status-success);
+        border-radius: 50%;
+        margin-right: var(--spacerhalf);
+        vertical-align: middle;
+    }
+
+    .wallet-actions {
+        display: flex;
+        gap: var(--spacerhalf);
+        margin-top: var(--spacerhalf);
+    }
+
+    .add-wallet-btn {
+        flex: 1;
+        padding: var(--spacerhalf);
+        background: var(--bg-color);
+        border: 1px dashed var(--page-border);
+        border-radius: 4px;
+        cursor: pointer;
+        color: var(--text-color-quiet);
+        font-size: 0.85rem;
+    }
+    .add-wallet-btn:hover {
+        background: var(--bg-color-quiet-d);
+        color: var(--text-color);
+    }
+    .add-wallet-btn.web3 {
+        border-style: solid;
+        border-color: var(--rust-mid);
+        color: var(--rust-mid);
+    }
+    .add-wallet-btn.web3:hover {
+        background: var(--rust-mid);
+        color: var(--bg-color);
+    }
+
+    .connections-placeholder {
+        color: var(--text-color-quiet);
+        font-size: 0.85rem;
+        font-style: italic;
+        padding: var(--spacerhalf) 0;
+    }
+    .wallet-feedback {
+        font-size: 0.85rem;
+        padding: var(--spacerhalf);
+        border-radius: 4px;
+        margin-top: var(--spacerhalf);
+    }
+    .wallet-feedback.success {
+        background: var(--bg-color-quiet);
+        color: var(--status-success);
+    }
+    .wallet-feedback.error {
+        background: #ffe6e6;
+        color: var(--status-error);
+    }
+    .wallet-feedback.loading {
+        color: var(--text-color-quiet);
+        font-style: italic;
+    }
+</style>
+
+<div class="identity-panel">
+    <div class="identity-section-header">
+        <div class="home-logo-wrap">
+            <img src="/image/epistery-logo-64.svg" alt="Epistery">
+        </div>
+        <div class="identity-domain" id="id-domain">Loading...</div>
+    </div>
+
+    <div class="identity-help-text">
+        This domain has been configured with an epistery domain contract. The contract provides self-sovereign
+        identity, encryption, authorization and storage for configured service agents. Extend access to other
+        devices (people) or services, such as chatbots). All managed on chain with the administrator's wallet.
+        <a href="https://epistery.com">[Learn more]</a>
+    </div>
+
+
+    <div class="identity-section identity-section-block">
+        <h3>Host</h3>
+        <div class="identity-row">
+            <span class="label">Domain Wallet Address</span>
+            <span class="value" id="id-server-wallet" title="Click to copy">...</span>
+        </div>
+        <div class="identity-row">
+            <span class="label">Domain Contract</span>
+            <span class="value" id="id-contract" title="Click to copy">...</span>
+        </div>
+        <div class="identity-row">
+            <span class="label">Chain</span>
+            <span class="value" id="id-chain" style="cursor:default">...</span>
+        </div>
+        <button class="identity-section-btn" id="id-settings-btn" onclick="window.location.href='/admin'" style="display:none">Administrative Settings</button>
+    </div>
+
+    <div class="identity-section identity-section-block">
+        <h3>Client (You)</h3>
+        <div class="identity-help-text">
+            The browser client presents a wallet, a unique address either unextractable from the browser or provided
+            by the user through a Web3 plugin like metamask. This data is all local to the  device.
+        </div>
+        <ul class="wallet-list" id="id-wallet-list">
+            <li class="wallet-item"><span class="wallet-addr">Loading...</span></li>
+        </ul>
+        <div class="wallet-actions">
+            <button class="identity-section-btn" id="id-add-web3">+ Plugin Wallet (Web3)</button>
+            <button class="identity-section-btn" id="id-add-browser">+ Browser Wallet</button>
+        </div>
+        <div id="id-wallet-feedback"></div>
+    </div>
+
+    <div class="identity-section identity-section-block">
+        <h3>Connections</h3>
+        <div class="connections-placeholder">(coming soon)</div>
+    </div>
+</div>
+
+<script>
+(async function() {
+    const domainEl = document.getElementById('id-domain');
+    const settingsBtn = document.getElementById('id-settings-btn');
+    const serverWalletEl = document.getElementById('id-server-wallet');
+    const contractEl = document.getElementById('id-contract');
+    const chainEl = document.getElementById('id-chain');
+    const walletListEl = document.getElementById('id-wallet-list');
+    const addWeb3Btn = document.getElementById('id-add-web3');
+    const addBrowserBtn = document.getElementById('id-add-browser');
+
+    // Set domain from page title or location
+    domainEl.textContent = location.hostname;
+
+    // Click-to-copy helper
+    function copyOnClick(el, fullValue) {
+        el.addEventListener('click', async () => {
+            if (!fullValue) return;
+            try {
+                await navigator.clipboard.writeText(fullValue);
+                const orig = el.textContent;
+                el.textContent = 'copied!';
+                setTimeout(() => { el.textContent = orig; }, 800);
+            } catch (e) {
+                console.error('[identity] copy failed:', e);
+            }
+        });
+    }
+
+    function abbrev(addr) {
+        if (!addr || addr.length < 14) return addr || '';
+        return addr.slice(0, 8) + '...' + addr.slice(-6);
+    }
+
+    // Fetch server info
+    try {
+        const res = await fetch('/', { headers: { 'Accept': 'application/json' } });
+        const data = await res.json();
+
+        const serverAddr = data.server?.walletAddress || '';
+        serverWalletEl.textContent = abbrev(serverAddr);
+        serverWalletEl.title = serverAddr || 'Click to copy';
+        copyOnClick(serverWalletEl, serverAddr);
+
+        const contractAddr = data.server?.contractAddress || '';
+        if (data.server?.initialized) {
+            contractEl.textContent = abbrev(contractAddr);
+            contractEl.title = contractAddr;
+            copyOnClick(contractEl, contractAddr);
+        } else {
+            contractEl.textContent = 'not deployed';
+            contractEl.style.cursor = 'default';
+        }
+
+        chainEl.textContent = data.server?.provider || 'Unknown';
+    } catch (e) {
+        console.error('[identity] server status error:', e);
+        serverWalletEl.textContent = 'Error';
+        contractEl.textContent = 'Error';
+        chainEl.textContent = 'Error';
+    }
+
+    // Wait for epistery witness
+    const witness = window.epistery || await new Promise((resolve) => {
+        const check = () => window.epistery ? resolve(window.epistery) : setTimeout(check, 100);
+        check();
+        setTimeout(() => resolve(null), 5000);
+    });
+
+    // Render wallet list
+    function renderWallets() {
+        if (!witness) {
+            walletListEl.innerHTML = '<li class="wallet-item"><span class="wallet-addr">Not connected</span></li>';
+            return;
+        }
+
+        const { wallets, defaultWalletId } = witness.getWallets();
+
+        if (!wallets || wallets.length === 0) {
+            walletListEl.innerHTML = '<li class="wallet-item"><span class="wallet-addr">No wallets</span></li>';
+            return;
+        }
+
+        walletListEl.innerHTML = '';
+        for (const w of wallets) {
+            const li = document.createElement('li');
+            li.className = 'wallet-item' + (w.isDefault ? ' active' : '');
+
+            const info = document.createElement('div');
+            info.className = 'wallet-info';
+
+            const addrSpan = document.createElement('span');
+            addrSpan.className = 'wallet-addr';
+            addrSpan.textContent = abbrev(w.address);
+            addrSpan.title = w.address + ' (click to copy)';
+
+            // Click to copy
+            addrSpan.addEventListener('click', async () => {
+                try {
+                    await navigator.clipboard.writeText(w.address);
+                    const orig = addrSpan.textContent;
+                    addrSpan.textContent = 'copied!';
+                    setTimeout(() => { addrSpan.textContent = orig; }, 800);
+                } catch (e) {}
+            });
+
+            const typeSpan = document.createElement('span');
+            typeSpan.className = 'wallet-type';
+            typeSpan.textContent = w.label || w.source || '';
+
+            info.appendChild(addrSpan);
+            info.appendChild(typeSpan);
+
+            // Action buttons
+            const btns = document.createElement('div');
+            btns.className = 'wallet-btns';
+
+            if (!w.isDefault) {
+                const defaultBtn = document.createElement('button');
+                defaultBtn.className = 'icon icon-star-outlined';
+                defaultBtn.title = 'Set as default';
+                defaultBtn.addEventListener('click', async () => {
+                    try {
+                        await witness.setDefaultWallet(w.id);
+                        renderWallets();
+                    } catch (e) {
+                        console.error('[identity] set default failed:', e);
+                    }
+                });
+                btns.appendChild(defaultBtn);
+            }
+
+            if (wallets.length > 1) {
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = 'icon icon-trash btn-delete';
+                deleteBtn.title = 'Remove wallet';
+                deleteBtn.addEventListener('click', async () => {
+                    if (!confirm('Remove this wallet?')) return;
+                    try {
+                        witness.removeWallet(w.id);
+                        renderWallets();
+                    } catch (e) {
+                        console.error('[identity] remove wallet failed:', e);
+                    }
+                });
+                btns.appendChild(deleteBtn);
+            }
+
+            li.appendChild(info);
+            li.appendChild(btns);
+            walletListEl.appendChild(li);
+        }
+    }
+
+    renderWallets();
+
+    const feedbackEl = document.getElementById('id-wallet-feedback');
+
+    function showFeedback(msg, cls) {
+        feedbackEl.className = 'wallet-feedback ' + cls;
+        feedbackEl.textContent = msg;
+        if (cls === 'success') setTimeout(() => { feedbackEl.textContent = ''; feedbackEl.className = ''; }, 4000);
+    }
+
+    // Add Web3 wallet button (MetaMask etc.)
+    addWeb3Btn.addEventListener('click', async () => {
+        if (!witness) return;
+        try {
+            addWeb3Btn.textContent = 'Connecting...';
+            addWeb3Btn.disabled = true;
+            showFeedback('Requesting Web3 wallet connection...', 'loading');
+            const newWallet = await witness.addWeb3Wallet();
+            showFeedback('Web3 wallet added: ' + newWallet.address, 'success');
+            renderWallets();
+        } catch (e) {
+            console.error('[identity] add web3 wallet failed:', e);
+            let msg = 'Failed to add Web3 wallet: ' + e.message;
+            if (e.message.includes('cancelled')) msg += ' — click again to retry.';
+            showFeedback(msg, 'error');
+        } finally {
+            addWeb3Btn.textContent = '+ Web3 Wallet';
+            addWeb3Btn.disabled = false;
+        }
+    });
+
+    // Add browser wallet button
+    addBrowserBtn.addEventListener('click', async () => {
+        if (!witness) return;
+        try {
+            addBrowserBtn.textContent = 'Creating...';
+            addBrowserBtn.disabled = true;
+            showFeedback('Creating new browser wallet...', 'loading');
+            const newWallet = await witness.addBrowserWallet();
+            showFeedback('Browser wallet added: ' + newWallet.address, 'success');
+            renderWallets();
+        } catch (e) {
+            console.error('[identity] add browser wallet failed:', e);
+            showFeedback('Failed to create browser wallet: ' + e.message, 'error');
+        } finally {
+            addBrowserBtn.textContent = '+ Browser Wallet';
+            addBrowserBtn.disabled = false;
+        }
+    });
+
+    // Check admin status
+    try {
+        const res = await fetch('/api/acl/check-admin', {
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        const data = await res.json();
+        if (data.isAdmin) {
+            settingsBtn.style.display = 'block';
+        }
+    } catch (e) {}
+})();
+</script>

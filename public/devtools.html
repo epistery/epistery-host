@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Epistery Dev Tools - {DOMAIN}</title>
+    <link rel="stylesheet" href="/style/static.css">
+    <link rel="icon" type="image/png" href="/image/favicon.png">
+    <script src="/script/common.js"></script>
+    <style>
+        /* Restore old header bar styling for devtools page */
+        .devtools-header {
+            background: var(--bg-color-d);
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin: 0;
+            padding: 0;
+            height: 40px;
+            flex-shrink: 0;
+            z-index: 100;
+            position: relative;
+            overflow: hidden;
+        }
+        .devtools-header nav {
+            display: flex;
+            justify-content: start;
+            align-items: center;
+            height: 100%;
+            padding-left: 4px;
+            position: relative;
+        }
+        .devtools-header .logo {
+            display: flex;
+            align-items: center;
+            text-decoration: none;
+            gap: 10px;
+        }
+        .devtools-header .logo img {
+            height: 32px;
+            width: auto;
+            display: block;
+            background-color: var(--bg-color);
+        }
+        .devtools-header .nav-links {
+            display: flex;
+            align-items: center;
+            gap: var(--spacer);
+            margin-left: var(--spacer2);
+        }
+        .devtools-header .nav-links a {
+            display: inline-flex;
+            border: 2px solid var(--rust-deep);
+            background-color: var(--bg-color);
+            border-radius: 12px;
+            justify-content: start;
+            align-items: center;
+            padding: 0 var(--spacer);
+            gap: var(--spacerhalf);
+            font-size: 0.8em;
+            text-decoration: none;
+            color: var(--text-color);
+        }
+    </style>
+</head>
+<body>
+    <div class="devtools-header">
+        <nav>
+            <a href="/?home" class="logo">
+                <img alt="logo" src="/image/epistery-logo-32.svg" class="logo-window">
+            </a>
+            <div class="nav-links">
+                <a href="/?home">Home</a>
+            </div>
+        </nav>
+    </div>
+
+    <main class="console-layout">
+        <div class="console-main">
+            <div class="console-header">
+                <h1>{DOMAIN}</h1>
+                <p class="console-tagline">Epistery agent services — Dev Tools</p>
+            </div>
+
+            <!-- Server Status Panel -->
+            <section class="console-panel">
+                <div class="panel-header-row">
+                    <h2>Server Status</h2>
+                    <button id="admin-button" class="console-btn panel-header-btn" style="display: none;">Administrate</button>
+                </div>
+                <div class="status-row">
+                    <span class="status-label">Domain:</span>
+                    <span class="status-value">{DOMAIN}</span>
+                </div>
+                <div class="status-row">
+                    <span class="status-label">Chain:</span>
+                    <span class="status-value" id="chain-name">Loading...</span>
+                </div>
+                <div class="status-row">
+                    <span class="status-label">Server Wallet:</span>
+                    <span class="status-value mono">{SERVER_WALLET}</span>
+                </div>
+                <div class="status-row">
+                    <span class="status-label">Contract:</span>
+                    <span class="status-value mono" id="contract-address">Checking...</span>
+                </div>
+                <div id="init-notice" class="status-info" style="display: none; margin-top: var(--spacerhalf);">
+                    <p><strong>Not Initialized</strong> - This domain's Agent contract has not been deployed yet. Click Initialize to deploy.</p>
+                </div>
+            </section>
+
+            <!-- Browser Status Panel -->
+            <section class="console-panel">
+                <div class="panel-header-row">
+                    <h2>Browser Status</h2>
+                    <button id="browser-wallet-button" class="console-btn panel-header-btn">Browser Wallet</button>
+                </div>
+                <div class="status-row">
+                    <span class="status-label">Client Wallet:</span>
+                    <span class="status-value mono" id="client-wallet">Loading...</span>
+                </div>
+                <div class="status-info" id="owner-notice" style="display: none;">
+                    <p><strong>Domain Owner</strong> - This address is authorized to administrate this domain</p>
+                </div>
+            </section>
+
+            <!-- Active Agents Panel -->
+            <section class="console-panel">
+                <h2>Active Agents</h2>
+                <div id="agents-container">
+                    <div class="status-info">
+                        <p>Loading agents...</p>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <aside class="console-sidebar">
+            <nav class="sidebar-nav">
+                <section class="sidebar-section">
+                    <h3 class="sidebar-heading">About Epistery</h3>
+                    <div class="sidebar-content">
+                        <p>Every device becomes a trusted endpoint. Every interaction can be a direct transaction. No database gatekeepers.</p>
+
+                        <p>This host runs <strong>{DOMAIN}</strong> where you control access to your data. Smart contracts handle the back office - from private wikis to supply chain tracking to data transactions.</p>
+
+                        <h4>How It Works</h4>
+                        <p>Each domain deploys a contract that manages who can access what. Agents extend your host with the tools you need - secured by cryptographic proof, not corporate databases.</p>
+
+                        <h4>Your Wallet</h4>
+                        <p>Every device gets a unique address per domain. No passwords, no tracking across sites. Your keys, your browser, your control.</p>
+
+                        <h4>Learn More</h4>
+                        <a href="https://epistery.com" class="sidebar-link">epistery.com</a>
+                    </div>
+                </section>
+            </nav>
+        </aside>
+    </main>
+
+    <footer>
+        <div class="container">
+            <div class="footer-bottom">
+                <p>&copy; 2026 Rootz Corp. Open source under MIT License.</p>
+                <div class="footer-links">
+                    <a href="/?home">Home</a>
+                    <span>|</span>
+                    <a href="https://github.com/epistery/host" target="_blank">GitHub</a>
+                    <span>|</span>
+                    <a href="https://epistery.com">Epistery</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script type="module">
+        // Check initialization status and update UI
+        async function checkInitializationStatus() {
+            try {
+                const response = await fetch('/', {
+                    headers: { 'Accept': 'application/json' }
+                });
+                const data = await response.json();
+
+                // Update chain name
+                document.getElementById('chain-name').textContent = data.server.provider || 'Unknown';
+
+                if (data.server.initialized) {
+                    document.getElementById('contract-address').textContent = data.server.contractAddress;
+                    document.getElementById('admin-button').textContent = 'Administrate';
+                    document.getElementById('admin-button').onclick = () => window.location.href = '/admin';
+                } else {
+                    document.getElementById('contract-address').textContent = 'uninitialized';
+                    document.getElementById('init-notice').style.display = 'block';
+                    document.getElementById('admin-button').textContent = 'Initialize';
+                    document.getElementById('admin-button').onclick = () => window.location.href = '/initialize';
+                    document.getElementById('admin-button').style.display = 'inline-block';
+                }
+            } catch (error) {
+                console.error('Failed to check initialization status:', error);
+                document.getElementById('contract-address').textContent = 'Error';
+            }
+        }
+
+        // Check if user is whitelisted for admin access
+        async function checkAdminAccess() {
+            try {
+                // Wait for common.js to establish session
+                const witness = window.epistery || await new Promise((resolve) => {
+                    const check = () => window.epistery ? resolve(window.epistery) : setTimeout(check, 100);
+                    check();
+                    setTimeout(() => resolve(null), 5000);
+                });
+
+                if (witness) {
+                    const status = witness.getStatus();
+                    document.getElementById('client-wallet').textContent = status.client.address;
+                }
+
+                // Check admin via cookie-based session (no URL param)
+                const response = await fetch('/api/acl/check-admin', {
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await response.json();
+                if (data.isAdmin) {
+                    document.getElementById('admin-button').style.display = 'inline-block';
+                    document.getElementById('owner-notice').style.display = 'block';
+                }
+            } catch (error) {
+                console.log('Admin check not available:', error.message);
+                document.getElementById('client-wallet').textContent = 'Not connected';
+            }
+        }
+
+        // Button handlers
+        document.getElementById('browser-wallet-button')?.addEventListener('click', () => {
+            window.location.href = '/status';
+        });
+
+        // Load and display active agents
+        async function loadAgents() {
+            try {
+                const response = await fetch('/api/agents');
+                const data = await response.json();
+                const container = document.getElementById('agents-container');
+
+                if (!data.agents || data.agents.length === 0) {
+                    container.innerHTML = '<div class="status-info"><p>No agents currently active.</p></div>';
+                    return;
+                }
+
+
+                let html = '';
+                for (const agent of data.agents) {
+                    const iconHtml = agent.icon
+                        ? `<img src="${agent.icon}" alt="" style="width: 24px; height: 24px; object-fit: contain; margin-right: 8px; vertical-align: middle;">`
+                        : '';
+
+                    const widgetHtml = agent.widget
+                        ? `<iframe src="${agent.widget}" style="width: 100%; border: none; margin-top: var(--spacerhalf); border-radius: 8px; min-height: 200px;" scrolling="no" onload="this.style.height = this.contentWindow.document.body.scrollHeight + 'px'"></iframe>`
+                        : `<div class="status-info">
+                               <p>${agent.description}</p>
+                               <p><small>
+                                   <a href="${agent.shortPath}/status" target="_blank">${agent.shortPath}/*</a>
+                               </small></p>
+                           </div>`;
+
+                    html += `
+                        <div style="padding: var(--spacerhalf) 0; border-bottom: 1px solid var(--page-border);">
+                            <div style="margin-bottom: var(--spacerhalf); display: flex; align-items: center;">
+                                ${iconHtml}
+                                <span class="status-label" style="white-space: nowrap;">${agent.name}</span>
+                                <span class="status-value" style="margin-left: 8px;">v${agent.version}</span>
+                            </div>
+                            ${widgetHtml}
+                        </div>
+                    `;
+                }
+                container.innerHTML = html;
+            } catch (error) {
+                console.error('Failed to load agents:', error);
+                document.getElementById('agents-container').innerHTML =
+                    '<div class="status-info"><p>Failed to load agent information.</p></div>';
+            }
+        }
+
+        // Check initialization and admin access on load
+        checkInitializationStatus();
+        checkAdminAccess();
+        loadAgents();
+    </script>
+</body>
+</html>
