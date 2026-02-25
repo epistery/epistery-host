@@ -100,6 +100,20 @@ export default class OAuthStore {
     return this.createClient({ name, redirect_uris, grant_types, response_types, scope, token_endpoint_auth_method });
   }
 
+  async setClientWallet(client_id, wallet) {
+    const client = await this.getClient(client_id);
+    if (!client) return null;
+    client.wallet = wallet;
+    await this.encrypted.writeFile(`clients/${client_id}.json`, JSON.stringify(client));
+
+    const index = await this._readIndex('clients');
+    if (index[client_id]) {
+      index[client_id].wallet = wallet;
+      await this._writeIndex('clients', index);
+    }
+    return client;
+  }
+
   async listClients() {
     const index = await this._readIndex('clients');
     return Object.values(index);

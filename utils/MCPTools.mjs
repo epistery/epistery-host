@@ -286,6 +286,8 @@ export function createHandlers(port) {
     async whoami(args, req) {
       const info = {
         wallet: req.episteryClient?.address || null,
+        clientId: req.episteryClient?.clientId || null,
+        clientName: req.episteryClient?.clientName || null,
         authMethod: req.episteryClient?.authType || 'none',
         oauthScope: req.oauthScope || null,
         authenticated: !!req.episteryClient?.authenticated,
