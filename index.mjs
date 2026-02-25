@@ -11,6 +11,8 @@ import { Certify } from '@metric-im/administrate';
 import { Epistery, Config } from 'epistery';
 import { createAuthRouter } from './utils/authentication.mjs';
 import { DomainAcl } from './utils/DomainAcl.mjs';
+import { OAuthServer } from './utils/OAuthServer.mjs';
+import { MCPServer } from './utils/MCPServer.mjs';
 import { AgentManager } from './utils/AgentManager.mjs';
 import Pages from './pages/index.mjs'
 
@@ -557,6 +559,12 @@ let main = async function() {
 
     // Mount ACL routes AFTER epistery (req.episteryClient will be available)
     DomainAcl.attach(app)
+
+    // Mount OAuth 2.1 server (Bearer middleware + well-known + endpoints)
+    OAuthServer.attach(app);
+
+    // Mount MCP server (JSON-RPC over Streamable HTTP at /mcp)
+    MCPServer.attach(app);
 
     // Also mount the same routes at RFC 8615 well-known path
     // Note: We reuse the routes() to avoid duplicate middleware
