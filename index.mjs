@@ -556,6 +556,7 @@ let main = async function() {
     // Attach epistery at root
     const epistery = await Epistery.connect();
     await epistery.attach(app,'/');
+    app.locals.epistery = epistery;
 
     // Mount ACL routes AFTER epistery (req.episteryClient will be available)
     DomainAcl.attach(app)

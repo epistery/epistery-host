@@ -44,7 +44,20 @@ export class OAuthServer {
   static async getStore(domain, signer) {
     if (OAuthServer.stores.has(domain)) return OAuthServer.stores.get(domain);
 
-    if (!OAuthServer.keyManager.hasMasterKey(domain)) return null;
+    // Auto-initialize master key if signer available but key doesn't exist yet
+    if (!OAuthServer.keyManager.hasMasterKey(domain)) {
+      if (!signer) return null;
+      try {
+        console.log(`[oauth] Auto-initializing master key for ${domain}`);
+        await OAuthServer.keyManager.initMasterKey(domain, signer);
+      } catch (err) {
+        // Already initialized (race condition) is fine
+        if (!err.message.includes('already initialized')) {
+          console.error(`[oauth] Failed to init master key for ${domain}:`, err.message);
+          return null;
+        }
+      }
+    }
 
     try {
       const masterKey = await OAuthServer.keyManager.getMasterKey(domain, signer);
