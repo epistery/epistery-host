@@ -128,6 +128,28 @@ export const TOOLS = [
   }
 ];
 
+// Map each tool to its required scope
+export const TOOL_SCOPES = {
+  wiki_read: 'wiki:read',
+  wiki_write: 'wiki:write',
+  wiki_list: 'wiki:read',
+  archive_create: 'archive:write',
+  archive_list: 'archive:read',
+  archive_search: 'archive:read',
+  archive_read: 'archive:read',
+  archive_stats: 'archive:read',
+  message_list: 'messages:read',
+  message_post: 'messages:write',
+  secret_list: 'secrets:read',
+  whoami: null  // no scope required
+};
+
+export function hasScope(req, required) {
+  if (!required) return true;
+  const granted = req.oauthScope || '';
+  return granted.split(' ').includes(required);
+}
+
 /**
  * Create tool handlers bound to an internal port.
  * @param {number} port — Internal epistery-host port
@@ -136,12 +158,16 @@ export const TOOLS = [
 export function createHandlers(port) {
 
   async function api(path, req, opts = {}) {
-    const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
+    const headers = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'Host': req.headers?.host || 'localhost'  // forward Host for domain routing
+    };
     const authHeader = req.headers?.authorization;
     if (authHeader) headers['Authorization'] = authHeader;
 
-    const host = req.hostname || 'localhost';
-    const url = `http://${host}:${port}${path}`;
+    // Always connect to loopback — never use client-supplied hostname
+    const url = `http://127.0.0.1:${port}${path}`;
     const res = await fetch(url, { ...opts, headers: { ...headers, ...opts.headers } });
     return res.json();
   }

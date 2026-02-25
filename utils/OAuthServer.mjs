@@ -26,6 +26,16 @@ import { Config } from 'epistery';
 import KeyManager from '../../secret-agent/key-manager.mjs';
 import OAuthStore from './OAuthStore.mjs';
 
+function esc(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 const SCOPES = [
   'archive:read', 'archive:write',
   'wiki:read', 'wiki:write',
@@ -36,6 +46,39 @@ const SCOPES = [
 export class OAuthServer {
   static keyManager = new KeyManager();
   static stores = new Map();
+  static csrfTokens = new Map(); // token -> expiry timestamp
+  static registrationLimits = new Map(); // ip -> { count, resetAt }
+
+  static _generateCsrf() {
+    const token = crypto.randomBytes(32).toString('hex');
+    // Expire in 10 minutes, clean stale entries
+    const now = Date.now();
+    OAuthServer.csrfTokens.set(token, now + 10 * 60 * 1000);
+    for (const [t, exp] of OAuthServer.csrfTokens) {
+      if (exp < now) OAuthServer.csrfTokens.delete(t);
+    }
+    return token;
+  }
+
+  static _validateCsrf(token) {
+    if (!token) return false;
+    const expiry = OAuthServer.csrfTokens.get(token);
+    if (!expiry) return false;
+    OAuthServer.csrfTokens.delete(token); // single-use
+    return Date.now() < expiry;
+  }
+
+  static _checkRateLimit(ip) {
+    const now = Date.now();
+    const limit = OAuthServer.registrationLimits.get(ip);
+    if (!limit || limit.resetAt < now) {
+      OAuthServer.registrationLimits.set(ip, { count: 1, resetAt: now + 60 * 60 * 1000 });
+      return true;
+    }
+    if (limit.count >= 10) return false;
+    limit.count++;
+    return true;
+  }
 
   /**
    * Get or create OAuthStore for a domain.
@@ -177,6 +220,11 @@ export class OAuthServer {
     // ── Dynamic Client Registration (RFC 7591) ──
 
     app.post('/oauth/register', async (req, res) => {
+      const clientIp = req.ip || req.connection?.remoteAddress || 'unknown';
+      if (!self._checkRateLimit(clientIp)) {
+        return res.status(429).json({ error: 'too_many_requests', error_description: 'Registration rate limit exceeded. Try again later.' });
+      }
+
       const domain = req.hostname || 'localhost';
       const signer = self.getSigner(req);
       if (!signer) return res.status(503).json({ error: 'service_unavailable', error_description: 'Signer not ready' });
@@ -256,8 +304,9 @@ export class OAuthServer {
         : false;
 
       if (isAdmin) {
-        // Browser-based admin: serve consent page
+        // Browser-based admin: serve consent page with CSRF token
         const requestedScope = scope || client.scope || '';
+        const csrf_token = self._generateCsrf();
         return res.send(self._consentPage({
           client_name: client.name,
           client_id,
@@ -266,7 +315,8 @@ export class OAuthServer {
           state: state || '',
           code_challenge,
           code_challenge_method: code_challenge_method || 'S256',
-          domain
+          domain,
+          csrf_token
         }));
       }
 
@@ -316,7 +366,7 @@ export class OAuthServer {
 
     // POST: process consent (browser admin) or server-to-server request
     app.post('/oauth/authorize', async (req, res) => {
-      const { client_id, redirect_uri, scope, state, code_challenge, code_challenge_method, action } = req.body;
+      const { client_id, redirect_uri, scope, state, code_challenge, code_challenge_method, action, csrf_token } = req.body;
 
       // Check admin auth
       const isAdmin = req.episteryClient && req.domainAcl
@@ -372,6 +422,11 @@ export class OAuthServer {
           interval: 5,
           message: 'Authorization request submitted. An admin must approve this connection.'
         });
+      }
+
+      // Admin is present — validate CSRF token
+      if (!self._validateCsrf(csrf_token)) {
+        return res.status(403).send(self._errorPage('Invalid or expired session. Please go back and try again.'));
       }
 
       // Admin is present — process consent directly
@@ -639,13 +694,13 @@ export class OAuthServer {
 <style>body{font-family:sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;background:#1a1a1a;color:#ccc}
 .card{background:#2a2a2a;border:1px solid #444;border-radius:8px;padding:2rem;max-width:480px;text-align:center}
 h2{color:#c44;margin-top:0}</style></head>
-<body><div class="card"><h2>Authorization Error</h2><p>${message}</p></div></body></html>`;
+<body><div class="card"><h2>Authorization Error</h2><p>${esc(message)}</p></div></body></html>`;
   }
 
-  static _consentPage({ client_name, client_id, redirect_uri, scope, state, code_challenge, code_challenge_method, domain }) {
+  static _consentPage({ client_name, client_id, redirect_uri, scope, state, code_challenge, code_challenge_method, domain, csrf_token }) {
     const scopeList = scope ? scope.split(' ').filter(Boolean) : [];
     const scopeHtml = scopeList.length > 0
-      ? scopeList.map(s => `<li>${s}</li>`).join('')
+      ? scopeList.map(s => `<li>${esc(s)}</li>`).join('')
       : '<li>No specific scopes requested</li>';
 
     return `<!DOCTYPE html>
@@ -658,6 +713,7 @@ h2{margin-top:0;color:#e8d5c0}
 .scopes{list-style:none;padding:0;margin:1rem 0}
 .scopes li{padding:0.4rem 0;border-bottom:1px solid #333;font-size:0.9rem}
 .scopes li::before{content:'\\2713 ';color:#6a6}
+.redirect{font-family:monospace;font-size:0.8rem;color:#89a;word-break:break-all;background:#222;padding:0.5rem;border-radius:4px;margin:0.5rem 0}
 .actions{display:flex;gap:1rem;margin-top:1.5rem}
 .btn{flex:1;padding:0.75rem;border:none;border-radius:4px;cursor:pointer;font-size:1rem;font-weight:bold}
 .btn-approve{background:#4a7c3f;color:#fff}
@@ -669,17 +725,20 @@ h2{margin-top:0;color:#e8d5c0}
 <body>
 <div class="card">
   <h2>Authorize Connection</h2>
-  <div class="domain">${domain}</div>
-  <p><span class="client-name">${client_name}</span> wants to connect to your epistery domain.</p>
+  <div class="domain">${esc(domain)}</div>
+  <p><span class="client-name">${esc(client_name)}</span> wants to connect to your epistery domain.</p>
   <p>Requested permissions:</p>
   <ul class="scopes">${scopeHtml}</ul>
+  <p style="font-size:0.85rem;color:#999">Auth code will be sent to:</p>
+  <div class="redirect">${esc(redirect_uri)}</div>
   <form method="POST" action="/oauth/authorize">
-    <input type="hidden" name="client_id" value="${client_id}">
-    <input type="hidden" name="redirect_uri" value="${redirect_uri}">
-    <input type="hidden" name="scope" value="${scope}">
-    <input type="hidden" name="state" value="${state}">
-    <input type="hidden" name="code_challenge" value="${code_challenge}">
-    <input type="hidden" name="code_challenge_method" value="${code_challenge_method}">
+    <input type="hidden" name="client_id" value="${esc(client_id)}">
+    <input type="hidden" name="redirect_uri" value="${esc(redirect_uri)}">
+    <input type="hidden" name="scope" value="${esc(scope)}">
+    <input type="hidden" name="state" value="${esc(state)}">
+    <input type="hidden" name="code_challenge" value="${esc(code_challenge)}">
+    <input type="hidden" name="code_challenge_method" value="${esc(code_challenge_method)}">
+    <input type="hidden" name="csrf_token" value="${esc(csrf_token)}">
     <div class="actions">
       <button type="submit" name="action" value="deny" class="btn btn-deny">Deny</button>
       <button type="submit" name="action" value="approve" class="btn btn-approve">Approve</button>

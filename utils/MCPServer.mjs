@@ -16,7 +16,7 @@
  * Adapted from Steven's /opt/mcp-agent/index.mjs.
  */
 
-import { TOOLS, createHandlers } from './MCPTools.mjs';
+import { TOOLS, TOOL_SCOPES, hasScope, createHandlers } from './MCPTools.mjs';
 
 const PROTOCOL_VERSION = '2024-11-05';
 const SERVER_INFO = { name: 'epistery', version: '0.1.0' };
@@ -180,6 +180,19 @@ export class MCPServer {
         jsonrpc: '2.0',
         error: { code: -32602, message: `Unknown tool: ${name}` },
         id: msg.id
+      };
+    }
+
+    // Enforce OAuth scopes
+    const requiredScope = TOOL_SCOPES[name];
+    if (requiredScope !== undefined && !hasScope(req, requiredScope)) {
+      return {
+        jsonrpc: '2.0',
+        id: msg.id,
+        result: {
+          content: [{ type: 'text', text: `Insufficient scope. Required: ${requiredScope}` }],
+          isError: true
+        }
       };
     }
 
