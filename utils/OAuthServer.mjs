@@ -683,6 +683,69 @@ export class OAuthServer {
       }
     });
 
+    // ── Connections API (consumed by identity widget) ──
+
+    app.get('/api/connections', async (req, res) => {
+      const domain = req.hostname || 'localhost';
+      const signer = self.getSigner(req);
+      if (!signer) return res.json({ inbound: [], outbound: [] });
+
+      const store = await self.getStore(domain, signer);
+      if (!store) return res.json({ inbound: [], outbound: [] });
+
+      try {
+        const consent = await store.listConsent();
+        const clients = await store.listClients();
+        const clientMap = {};
+        for (const c of clients) clientMap[c.client_id] = c;
+
+        const inbound = consent.map(c => ({
+          id: c.id,
+          type: 'inbound',
+          name: clientMap[c.client_id]?.name || c.client_id,
+          scope: c.scope,
+          created: c.created
+        }));
+
+        const connections = await store.listConnections();
+        const outbound = connections.map(c => ({
+          id: c.id,
+          type: c.type || 'outbound',
+          name: c.name,
+          service: c.service,
+          created: c.created
+        }));
+
+        res.json({ inbound, outbound });
+      } catch (err) {
+        console.error('[oauth] List connections error:', err);
+        res.json({ inbound: [], outbound: [] });
+      }
+    });
+
+    // ── Revoke connection (admin only) ──
+
+    app.delete('/api/connections/:id', async (req, res) => {
+      const isAdmin = req.episteryClient && req.domainAcl
+        ? await req.domainAcl.isAdmin(req.episteryClient.address)
+        : false;
+      if (!isAdmin) return res.status(403).json({ error: 'Admin access required' });
+
+      const domain = req.hostname || 'localhost';
+      const signer = self.getSigner(req);
+      const store = signer ? await self.getStore(domain, signer) : null;
+      if (!store) return res.status(503).json({ error: 'service_unavailable' });
+
+      const id = req.params.id;
+      try {
+        let removed = await store.removeConnection(id);
+        if (!removed) removed = await store.revokeConsent(id);
+        res.json({ ok: removed });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
     console.log('[oauth] OAuth 2.1 server routes attached');
   }
 

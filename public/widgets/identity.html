@@ -479,7 +479,7 @@
     // Load connections
     const connListEl = document.getElementById('id-connections-list');
     try {
-        const res = await fetch('/agent/rootz/oauth-agent/connections', { credentials: 'include' });
+        const res = await fetch('/api/connections', { credentials: 'include' });
         const data = await res.json();
         const all = [...(data.inbound || []), ...(data.outbound || [])];
 
@@ -522,7 +522,7 @@
             delBtn.addEventListener('click', async () => {
                 if (!confirm('Revoke this connection?')) return;
                 try {
-                    await fetch('/agent/rootz/oauth-agent/connections/' + conn.id, {
+                    await fetch('/api/connections/' + conn.id, {
                         method: 'DELETE', credentials: 'include'
                     });
                     li.remove();
