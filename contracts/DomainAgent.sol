@@ -14,7 +14,7 @@ pragma solidity ^0.8.0;
  */
 contract DomainAgent {
   // Contract version
-  string public constant VERSION = "1.0.3";
+  string public constant VERSION = "1.1.0";
 
   // Domain this contract serves
   string public domain;
@@ -464,16 +464,26 @@ contract DomainAgent {
   // Public attributes: owner => key => value
   mapping(address => mapping(string => string)) private publicAttributes;
   mapping(address => string[]) private publicAttributeKeys;
+  address[] private publicAttributeOwners;
+  mapping(address => bool) private isPublicAttributeOwner;
 
   // Private attributes: owner => key => value
   mapping(address => mapping(string => string)) private privateAttributes;
   mapping(address => string[]) private privateAttributeKeys;
+  address[] private privateAttributeOwners;
+  mapping(address => bool) private isPrivateAttributeOwner;
 
   /**
    * @dev Set a public attribute
    */
   function setPublicAttribute(string memory key, string memory value) external {
     require(bytes(key).length > 0, "Key cannot be empty");
+
+    // Track owner if new
+    if (!isPublicAttributeOwner[msg.sender]) {
+      publicAttributeOwners.push(msg.sender);
+      isPublicAttributeOwner[msg.sender] = true;
+    }
 
     // Track key if new
     if (bytes(publicAttributes[msg.sender][key]).length == 0) {
@@ -524,6 +534,12 @@ contract DomainAgent {
   function setPrivateAttribute(string memory key, string memory value) external {
     require(bytes(key).length > 0, "Key cannot be empty");
 
+    // Track owner if new
+    if (!isPrivateAttributeOwner[msg.sender]) {
+      privateAttributeOwners.push(msg.sender);
+      isPrivateAttributeOwner[msg.sender] = true;
+    }
+
     // Track key if new
     if (bytes(privateAttributes[msg.sender][key]).length == 0) {
       privateAttributeKeys[msg.sender].push(key);
@@ -565,6 +581,73 @@ contract DomainAgent {
     }
 
     emit AttributeDeleted(msg.sender, key, true, block.timestamp);
+  }
+
+  // ============================================================================
+  // MIGRATION EXPORT
+  // ============================================================================
+
+  struct MigrationACL {
+    string listName;
+    ACLEntry[] entries;
+  }
+
+  struct MigrationAttributes {
+    address addr;
+    string[] keys;
+    string[] values;
+  }
+
+  /**
+   * @dev Export all contract data for migration to a new contract.
+   * Only the owner or a contract with the same owner can call this.
+   */
+  function exportForMigration() external view returns (
+    MigrationACL[] memory acls,
+    MigrationAttributes[] memory publicAttrs,
+    MigrationAttributes[] memory privateAttrs
+  ) {
+    // Auth: owner directly, or a contract with same owner
+    bool authorized = msg.sender == owner;
+    if (!authorized) {
+      try DomainAgent(msg.sender).owner() returns (address callerOwner) {
+        authorized = (callerOwner == owner);
+      } catch {}
+    }
+    require(authorized, "Only owner or same-owner contract can export");
+
+    // 1. Export ACLs — raw storage entries (no auto-generated sponsor/owner)
+    acls = new MigrationACL[](listNames.length);
+    for (uint i = 0; i < listNames.length; i++) {
+      acls[i].listName = listNames[i];
+      acls[i].entries = namedACLs[listNames[i]];
+    }
+
+    // 2. Export public attributes for all tracked owners
+    publicAttrs = new MigrationAttributes[](publicAttributeOwners.length);
+    for (uint i = 0; i < publicAttributeOwners.length; i++) {
+      address addr = publicAttributeOwners[i];
+      string[] storage keys = publicAttributeKeys[addr];
+      publicAttrs[i].addr = addr;
+      publicAttrs[i].keys = keys;
+      publicAttrs[i].values = new string[](keys.length);
+      for (uint j = 0; j < keys.length; j++) {
+        publicAttrs[i].values[j] = publicAttributes[addr][keys[j]];
+      }
+    }
+
+    // 3. Export private attributes for all tracked owners
+    privateAttrs = new MigrationAttributes[](privateAttributeOwners.length);
+    for (uint i = 0; i < privateAttributeOwners.length; i++) {
+      address addr = privateAttributeOwners[i];
+      string[] storage keys = privateAttributeKeys[addr];
+      privateAttrs[i].addr = addr;
+      privateAttrs[i].keys = keys;
+      privateAttrs[i].values = new string[](keys.length);
+      for (uint j = 0; j < keys.length; j++) {
+        privateAttrs[i].values[j] = privateAttributes[addr][keys[j]];
+      }
+    }
   }
 
   // ============================================================================

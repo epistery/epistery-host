@@ -37,8 +37,9 @@ export class DomainChain {
   }
   async getFeeData() {
     const feeData = await this.provider.getFeeData();
-    // Get gas prices with minimum
-    const minGasPrice = ethers.utils.parseUnits("30", "gwei");
+    // Use network gasPrice as floor — some chains (JOC) have near-zero baseFee
+    // but high minimum gas price, so EIP-1559 computed values are too low
+    const minGasPrice = feeData.gasPrice || ethers.utils.parseUnits("30", "gwei");
     const networkPriority = feeData.maxPriorityFeePerGas ? feeData.maxPriorityFeePerGas.mul(120).div(100) : minGasPrice;
     const maxPriorityFeePerGas = networkPriority.gt(minGasPrice) ? networkPriority : minGasPrice;
     const networkMax = feeData.maxFeePerGas ? feeData.maxFeePerGas.mul(120).div(100) : minGasPrice.mul(2);

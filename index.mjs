@@ -238,7 +238,9 @@ let main = async function() {
             // Check balance upfront for deployment + initialization
             const balance = await retryWithBackoff(() => ethersProvider.getBalance(wallet.address));
             const feeData = await retryWithBackoff(() => ethersProvider.getFeeData());
-            const minGasPrice = ethers.utils.parseUnits("30", "gwei");
+            // Use network gasPrice as floor — some chains (JOC) have near-zero baseFee
+            // but high minimum gas price, so EIP-1559 computed values are too low
+            const minGasPrice = feeData.gasPrice || ethers.utils.parseUnits("30", "gwei");
 
             // Estimate based on actual bytecode size (more accurate than fixed 750k)
             const estimatedDeploymentGas = ethers.BigNumber.from(estimateDeployGas());
@@ -300,41 +302,176 @@ let main = async function() {
                 version = '1.0.0';
             }
 
+            // Save old contract address before overwriting
+            const oldContractAddress = cfg.data?.contract_address;
+
             // Finalize: promote to active contract
             cfg.data.contract_address = contractAddress;
             delete cfg.data.agent_contract_pending;
             cfg.data.contract_deployed_at = new Date().toISOString();
             cfg.data.contract_version = version;
             cfg.data.acl_initialized_at = new Date().toISOString();
+            if (oldContractAddress) {
+                cfg.data.previous_contract_address = oldContractAddress;
+            }
             cfg.save();
 
-            // Initialize default agent ACL configurations
-            try {
-                // Message Board agent - allow editors to post
-                const messageBoardConfig = {
-                    aclStance: {
-                        acl: [
-                            { list: 'epistery::admin', access: 3 },
-                            { list: 'epistery::editor', access: 2 },
-                            { list: 'default', access: 0 }
-                        ],
-                        enableRequestAccess: true
+            const txOverrides = { maxPriorityFeePerGas, maxFeePerGas };
+
+            if (oldContractAddress && oldContractAddress !== contractAddress) {
+                // ── Migrate data from old contract ──
+                console.log(`[deploy] Migrating data from old contract ${oldContractAddress}...`);
+                const oldContract = new ethers.Contract(oldContractAddress, DomainAgentArtifact.abi, wallet);
+
+                let acls, publicAttrs, privateAttrs;
+
+                // Try the comprehensive export first (v1.1.0+)
+                try {
+                    [acls, publicAttrs, privateAttrs] = await retryWithBackoff(() =>
+                        oldContract.exportForMigration()
+                    );
+                    console.log(`[deploy] Export: ${acls.length} ACL lists, ${publicAttrs.length} public attr owners, ${privateAttrs.length} private attr owners`);
+                } catch {
+                    // Old contract lacks exportForMigration — fall back to individual getters
+                    console.log(`[deploy] Old contract lacks exportForMigration, using individual getters`);
+                    acls = null;
+                }
+
+                // 1. Migrate ACL lists
+                try {
+                    const lists = acls
+                        ? acls
+                        : await (async () => {
+                            const names = await retryWithBackoff(() => oldContract.getListNames());
+                            const result = [];
+                            for (const name of names) {
+                                const entries = await retryWithBackoff(() => oldContract.getACL(name));
+                                result.push({ listName: name, entries });
+                            }
+                            return result;
+                        })();
+
+                    for (const list of lists) {
+                        for (const entry of list.entries) {
+                            // Skip auto-generated sponsor/owner entries
+                            try { if (JSON.parse(entry.meta)?.auto) continue; } catch {}
+                            if (entry.addr === wallet.address || entry.addr === sponsorAddress) continue;
+                            try {
+                                const tx = await contract.addToACL(
+                                    list.listName, entry.addr, entry.name, entry.role, entry.meta, txOverrides
+                                );
+                                await tx.wait();
+                                console.log(`[deploy] Migrated ACL: ${list.listName} → ${entry.name || entry.addr}`);
+                            } catch (err) {
+                                console.warn(`[deploy] ACL entry ${entry.addr} in ${list.listName}: ${err.message}`);
+                            }
+                        }
                     }
-                };
-                const rawFeeData = await retryWithBackoff(() => ethersProvider.getFeeData());
-                const txOverrides = {
-                    maxPriorityFeePerGas: rawFeeData.maxPriorityFeePerGas,
-                    maxFeePerGas: rawFeeData.maxFeePerGas
-                };
-                const tx = await contract.setPublicAttribute(
-                    '@epistery/message-board',
-                    JSON.stringify(messageBoardConfig),
-                    txOverrides
-                );
-                await tx.wait();
-            } catch (aclError) {
-                console.error('Failed to initialize agent ACL configs:', aclError);
-                // Don't fail deployment if ACL config fails - can be set later
+                } catch (err) {
+                    console.warn(`[deploy] ACL migration failed: ${err.message}`);
+                }
+
+                // 2. Migrate public attributes
+                try {
+                    const attrSets = publicAttrs
+                        ? publicAttrs
+                        : await (async () => {
+                            // Fallback: only server wallet's attributes
+                            const keys = await retryWithBackoff(() =>
+                                oldContract.getPublicAttributeKeys(wallet.address)
+                            );
+                            const values = [];
+                            for (const key of keys) {
+                                values.push(await retryWithBackoff(() =>
+                                    oldContract.getPublicAttribute(wallet.address, key)
+                                ));
+                            }
+                            return [{ addr: wallet.address, keys, values }];
+                        })();
+
+                    for (const attrSet of attrSets) {
+                        for (let i = 0; i < attrSet.keys.length; i++) {
+                            if (!attrSet.values[i]) continue;
+                            try {
+                                // setPublicAttribute writes under msg.sender — only works for server wallet
+                                if (attrSet.addr !== wallet.address) {
+                                    console.warn(`[deploy] Skipping public attrs for ${attrSet.addr} (not server wallet)`);
+                                    continue;
+                                }
+                                const tx = await contract.setPublicAttribute(
+                                    attrSet.keys[i], attrSet.values[i], txOverrides
+                                );
+                                await tx.wait();
+                                console.log(`[deploy] Migrated public attr: ${attrSet.keys[i]}`);
+                            } catch (err) {
+                                console.warn(`[deploy] Public attr ${attrSet.keys[i]}: ${err.message}`);
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.warn(`[deploy] Public attribute migration failed: ${err.message}`);
+                }
+
+                // 3. Migrate private attributes
+                try {
+                    const attrSets = privateAttrs
+                        ? privateAttrs
+                        : await (async () => {
+                            const keys = await retryWithBackoff(() => oldContract.getPrivateAttributeKeys());
+                            const values = [];
+                            for (const key of keys) {
+                                values.push(await retryWithBackoff(() =>
+                                    oldContract.getPrivateAttribute(key)
+                                ));
+                            }
+                            return [{ addr: wallet.address, keys, values }];
+                        })();
+
+                    for (const attrSet of attrSets) {
+                        for (let i = 0; i < attrSet.keys.length; i++) {
+                            if (!attrSet.values[i]) continue;
+                            try {
+                                if (attrSet.addr !== wallet.address) {
+                                    console.warn(`[deploy] Skipping private attrs for ${attrSet.addr} (not server wallet)`);
+                                    continue;
+                                }
+                                const tx = await contract.setPrivateAttribute(
+                                    attrSet.keys[i], attrSet.values[i], txOverrides
+                                );
+                                await tx.wait();
+                                console.log(`[deploy] Migrated private attr: ${attrSet.keys[i]}`);
+                            } catch (err) {
+                                console.warn(`[deploy] Private attr ${attrSet.keys[i]}: ${err.message}`);
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.warn(`[deploy] Private attribute migration failed: ${err.message}`);
+                }
+
+                console.log(`[deploy] Migration from ${oldContractAddress} complete`);
+            } else {
+                // Fresh deploy — initialize default agent ACL configs
+                try {
+                    const messageBoardConfig = {
+                        aclStance: {
+                            acl: [
+                                { list: 'epistery::admin', access: 3 },
+                                { list: 'epistery::editor', access: 2 },
+                                { list: 'default', access: 0 }
+                            ],
+                            enableRequestAccess: true
+                        }
+                    };
+                    const tx = await contract.setPublicAttribute(
+                        '@epistery/message-board',
+                        JSON.stringify(messageBoardConfig),
+                        txOverrides
+                    );
+                    await tx.wait();
+                } catch (aclError) {
+                    console.error('Failed to initialize agent ACL configs:', aclError);
+                }
             }
 
             // Store in environment for current session
@@ -411,7 +548,7 @@ let main = async function() {
 
             // Estimate deployment cost using same logic as actual deployment
             const feeData = await ethersProvider.getFeeData();
-            const minGasPrice = ethers.utils.parseUnits("30", "gwei");
+            const minGasPrice = feeData.gasPrice || ethers.utils.parseUnits("30", "gwei");
 
             // Estimate based on actual bytecode size (same as deployment)
             const estimatedDeploymentGas = ethers.BigNumber.from(estimateDeployGas());
