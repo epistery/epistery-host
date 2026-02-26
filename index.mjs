@@ -11,6 +11,7 @@ import { Certify } from '@metric-im/administrate';
 import { Epistery, Config } from 'epistery';
 import { createAuthRouter } from './utils/authentication.mjs';
 import { DomainAcl } from './utils/DomainAcl.mjs';
+import { DomainChain } from './utils/DomainChain.mjs';
 import { OAuthServer } from './utils/OAuthServer.mjs';
 import { MCPServer } from './utils/MCPServer.mjs';
 import { AgentManager } from './utils/AgentManager.mjs';
@@ -58,6 +59,7 @@ async function retryWithBackoff(fn, maxRetries = 3, baseDelay = 10000) {
 
 let main = async function() {
     app = express();
+    app.set('trust proxy', 'loopback');  // trust X-Forwarded-Host from 127.0.0.1 (MCP internal proxy)
     app.use(cors({
         origin: function(origin, callback){
             return callback(null, true);
@@ -238,7 +240,9 @@ let main = async function() {
             // Check balance upfront for deployment + initialization
             const balance = await retryWithBackoff(() => ethersProvider.getBalance(wallet.address));
             const feeData = await retryWithBackoff(() => ethersProvider.getFeeData());
-            const minGasPrice = ethers.utils.parseUnits("30", "gwei");
+            // Use network gasPrice as floor — some chains (JOC) have near-zero baseFee
+            // but high minimum gas price, so EIP-1559 computed values are too low
+            const minGasPrice = feeData.gasPrice || ethers.utils.parseUnits("30", "gwei");
 
             // Estimate based on actual bytecode size (more accurate than fixed 750k)
             const estimatedDeploymentGas = ethers.BigNumber.from(estimateDeployGas());
@@ -300,41 +304,47 @@ let main = async function() {
                 version = '1.0.0';
             }
 
+            // Save old contract address before overwriting
+            const oldContractAddress = cfg.data?.contract_address;
+
             // Finalize: promote to active contract
             cfg.data.contract_address = contractAddress;
             delete cfg.data.agent_contract_pending;
             cfg.data.contract_deployed_at = new Date().toISOString();
             cfg.data.contract_version = version;
             cfg.data.acl_initialized_at = new Date().toISOString();
+            if (oldContractAddress) {
+                cfg.data.previous_contract_address = oldContractAddress;
+            }
             cfg.save();
 
-            // Initialize default agent ACL configurations
-            try {
-                // Message Board agent - allow editors to post
-                const messageBoardConfig = {
-                    aclStance: {
-                        acl: [
-                            { list: 'epistery::admin', access: 3 },
-                            { list: 'epistery::editor', access: 2 },
-                            { list: 'default', access: 0 }
-                        ],
-                        enableRequestAccess: true
-                    }
-                };
-                const rawFeeData = await retryWithBackoff(() => ethersProvider.getFeeData());
-                const txOverrides = {
-                    maxPriorityFeePerGas: rawFeeData.maxPriorityFeePerGas,
-                    maxFeePerGas: rawFeeData.maxFeePerGas
-                };
-                const tx = await contract.setPublicAttribute(
-                    '@epistery/message-board',
-                    JSON.stringify(messageBoardConfig),
-                    txOverrides
-                );
-                await tx.wait();
-            } catch (aclError) {
-                console.error('Failed to initialize agent ACL configs:', aclError);
-                // Don't fail deployment if ACL config fails - can be set later
+            const txOverrides = { maxPriorityFeePerGas, maxFeePerGas };
+
+            if (oldContractAddress && oldContractAddress !== contractAddress) {
+                const chain = new DomainChain(domain);
+                await chain.migrateContract(oldContractAddress, contract, sponsorAddress, txOverrides);
+            } else {
+                // Fresh deploy — initialize default agent ACL configs
+                try {
+                    const messageBoardConfig = {
+                        aclStance: {
+                            acl: [
+                                { list: 'epistery::admin', access: 3 },
+                                { list: 'epistery::editor', access: 2 },
+                                { list: 'default', access: 0 }
+                            ],
+                            enableRequestAccess: true
+                        }
+                    };
+                    const tx = await contract.setPublicAttribute(
+                        '@epistery/message-board',
+                        JSON.stringify(messageBoardConfig),
+                        txOverrides
+                    );
+                    await tx.wait();
+                } catch (aclError) {
+                    console.error('Failed to initialize agent ACL configs:', aclError);
+                }
             }
 
             // Store in environment for current session
@@ -411,7 +421,7 @@ let main = async function() {
 
             // Estimate deployment cost using same logic as actual deployment
             const feeData = await ethersProvider.getFeeData();
-            const minGasPrice = ethers.utils.parseUnits("30", "gwei");
+            const minGasPrice = feeData.gasPrice || ethers.utils.parseUnits("30", "gwei");
 
             // Estimate based on actual bytecode size (same as deployment)
             const estimatedDeploymentGas = ethers.BigNumber.from(estimateDeployGas());

@@ -22,9 +22,11 @@
  */
 
 import crypto from 'crypto';
+import ethers from 'ethers';
 import { Config } from 'epistery';
 import KeyManager from '../../secret-agent/key-manager.mjs';
 import OAuthStore from './OAuthStore.mjs';
+import { DomainChain } from './DomainChain.mjs';
 
 function esc(str) {
   if (!str) return '';
@@ -130,6 +132,17 @@ export class OAuthServer {
   }
 
   /**
+   * Derive a deterministic per-client address from domain wallet + client_id.
+   * keccak256(solidityPack(['address', 'string'], [domainWallet, clientId])) → last 20 bytes → checksummed
+   */
+  static deriveClientAddress(domainWallet, clientId) {
+    const packed = ethers.utils.solidityPack(['address', 'string'], [domainWallet, clientId]);
+    const hash = ethers.utils.keccak256(packed);
+    const raw = '0x' + hash.slice(-40);
+    return ethers.utils.getAddress(raw);
+  }
+
+  /**
    * Read/write pending-requests.json via DomainAcl pattern.
    */
   static _loadPendingRequests(domain) {
@@ -175,9 +188,18 @@ export class OAuthServer {
         req.episteryClient = {
           address: record.wallet,
           authenticated: true,
-          authType: 'oauth'
+          authType: 'oauth',
+          clientId: record.client_id || null
         };
         req.oauthScope = record.scope;
+
+        // Look up client name from store
+        if (record.client_id) {
+          try {
+            const client = await store.getClient(record.client_id);
+            if (client) req.episteryClient.clientName = client.name;
+          } catch {}
+        }
       } catch (err) {
         console.error('[oauth] Bearer validation error:', err.message);
       }
@@ -448,13 +470,15 @@ export class OAuthServer {
       const client = await store.getClient(client_id);
       if (!client) return res.status(400).json({ error: 'invalid_client' });
 
-      const walletAddress = self.getDomainWallet(domain);
-      if (!walletAddress) return res.status(500).json({ error: 'server_error', error_description: 'No domain wallet' });
+      const domainWallet = self.getDomainWallet(domain);
+      if (!domainWallet) return res.status(500).json({ error: 'server_error', error_description: 'No domain wallet' });
+
+      const clientWallet = self.deriveClientAddress(domainWallet, client_id);
 
       try {
         await store.recordConsent({
           client_id,
-          wallet: walletAddress,
+          wallet: clientWallet,
           scope: scope || '',
           authorizer: req.episteryClient.address
         });
@@ -465,9 +489,28 @@ export class OAuthServer {
           scope: scope || '',
           code_challenge,
           code_challenge_method: code_challenge_method || 'S256',
-          wallet: walletAddress,
+          wallet: clientWallet,
           authorizer: req.episteryClient.address
         });
+
+        // Persist derived wallet on client record
+        await store.setClientWallet(client_id, clientWallet);
+
+        // Best-effort: add to ACL
+        try {
+          const clientRecord = await store.getClient(client_id);
+          const clientName = clientRecord?.name || client_id;
+          const domainChain = new DomainChain(domain);
+          if (domainChain.contract) {
+            const feeData = await domainChain.getFeeData();
+            const meta = JSON.stringify({ derivedFrom: domainWallet, clientId: client_id, approvedAt: new Date().toISOString() });
+            const tx = await domainChain.contract.addToACL('ai-client', clientWallet, clientName, 2, meta, feeData);
+            await tx.wait();
+            console.log(`[oauth] Added ${clientName} (${clientWallet}) to ai-client ACL`);
+          }
+        } catch (aclErr) {
+          console.warn(`[oauth] Best-effort ACL add failed: ${aclErr.message}`);
+        }
 
         if (redir) {
           const sep = redir.includes('?') ? '&' : '?';
@@ -552,14 +595,16 @@ export class OAuthServer {
         const store = signer ? await self.getStore(domain, signer) : null;
         if (!store) return res.status(503).json({ error: 'Master key not initialized' });
 
-        const walletAddress = self.getDomainWallet(domain);
-        if (!walletAddress) return res.status(500).json({ error: 'No domain wallet configured' });
+        const domainWallet = self.getDomainWallet(domain);
+        if (!domainWallet) return res.status(500).json({ error: 'No domain wallet configured' });
+
+        const clientWallet = self.deriveClientAddress(domainWallet, request.client_id);
 
         try {
           // Record consent
           await store.recordConsent({
             client_id: request.client_id,
-            wallet: walletAddress,
+            wallet: clientWallet,
             scope: request.scope,
             authorizer: req.episteryClient.address
           });
@@ -571,9 +616,26 @@ export class OAuthServer {
             scope: request.scope,
             code_challenge: request.code_challenge,
             code_challenge_method: request.code_challenge_method,
-            wallet: walletAddress,
+            wallet: clientWallet,
             authorizer: req.episteryClient.address
           });
+
+          // Persist derived wallet on client record
+          await store.setClientWallet(request.client_id, clientWallet);
+
+          // Best-effort: add to ACL
+          try {
+            const domainChain = new DomainChain(domain);
+            if (domainChain.contract) {
+              const feeData = await domainChain.getFeeData();
+              const meta = JSON.stringify({ derivedFrom: domainWallet, clientId: request.client_id, approvedAt: new Date().toISOString() });
+              const tx = await domainChain.contract.addToACL('ai-client', clientWallet, request.client_name || request.client_id, 2, meta, feeData);
+              await tx.wait();
+              console.log(`[oauth] Added ${request.client_name} (${clientWallet}) to ai-client ACL`);
+            }
+          } catch (aclErr) {
+            console.warn(`[oauth] Best-effort ACL add failed: ${aclErr.message}`);
+          }
 
           // Store code on the pending request so poll can return it
           request.status = 'approved';

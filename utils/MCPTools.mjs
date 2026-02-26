@@ -161,7 +161,7 @@ export function createHandlers(port) {
     const headers = {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
-      'Host': req.headers?.host || 'localhost'  // forward Host for domain routing
+      'X-Forwarded-Host': req.headers?.host || 'localhost'  // Node fetch overrides Host; use forwarded header
     };
     const authHeader = req.headers?.authorization;
     if (authHeader) headers['Authorization'] = authHeader;
@@ -194,7 +194,7 @@ export function createHandlers(port) {
       try {
         const data = await api(`/agent/epistery/wiki/${encodeURIComponent(args.title)}`, req, {
           method: 'POST',
-          body: JSON.stringify({ title: args.title, content: args.content })
+          body: JSON.stringify({ title: args.title, body: args.content })
         });
         return text(data);
       } catch (e) { return error(e.message); }
@@ -286,6 +286,8 @@ export function createHandlers(port) {
     async whoami(args, req) {
       const info = {
         wallet: req.episteryClient?.address || null,
+        clientId: req.episteryClient?.clientId || null,
+        clientName: req.episteryClient?.clientName || null,
         authMethod: req.episteryClient?.authType || 'none',
         oauthScope: req.oauthScope || null,
         authenticated: !!req.episteryClient?.authenticated,
