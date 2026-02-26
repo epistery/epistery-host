@@ -64,10 +64,9 @@ export class DomainAcl {
      * @returns {Promise<{allowed: boolean, level: number, strategy: string}>}
      */
     async checkAgentAccess(agentName, userAddress, domain, customAuthFunctions = {}) {
-        const domainChain = new DomainChain(domain);
-        const contract = domainChain.contract;
+        const contract = this.chain.contract;
 
-        // No contract deployed - fall back to admin_address check
+        // No contract deployed - fall back to config-based check
         if (!contract) {
             const isAdmin = this.config.data.admin_address &&
                 userAddress?.toLowerCase() === this.config.data.admin_address.toLowerCase();
