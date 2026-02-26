@@ -59,6 +59,7 @@ async function retryWithBackoff(fn, maxRetries = 3, baseDelay = 10000) {
 
 let main = async function() {
     app = express();
+    app.set('trust proxy', 'loopback');  // trust X-Forwarded-Host from 127.0.0.1 (MCP internal proxy)
     app.use(cors({
         origin: function(origin, callback){
             return callback(null, true);

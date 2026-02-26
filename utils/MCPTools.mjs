@@ -161,7 +161,7 @@ export function createHandlers(port) {
     const headers = {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
-      'Host': req.headers?.host || 'localhost'  // forward Host for domain routing
+      'X-Forwarded-Host': req.headers?.host || 'localhost'  // Node fetch overrides Host; use forwarded header
     };
     const authHeader = req.headers?.authorization;
     if (authHeader) headers['Authorization'] = authHeader;
