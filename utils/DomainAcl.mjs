@@ -66,6 +66,18 @@ export class DomainAcl {
     async checkAgentAccess(agentName, userAddress, domain, customAuthFunctions = {}) {
         const domainChain = new DomainChain(domain);
         const contract = domainChain.contract;
+
+        // No contract deployed - fall back to admin_address check
+        if (!contract) {
+            const isAdmin = this.config.data.admin_address &&
+                userAddress?.toLowerCase() === this.config.data.admin_address.toLowerCase();
+            return {
+                allowed: isAdmin,
+                level: isAdmin ? 3 : 0,
+                enableRequestAccess: true
+            };
+        }
+
         const configJson = await contract.getPublicAttribute(contract.signer.address, agentName);
         let agentConfig = {};
         if (configJson) {
@@ -77,7 +89,7 @@ export class DomainAcl {
         }
 
         const aclStance = agentConfig.aclStance || DEFAULT_ACL_STANCE;
-        const acl = aclStance.acl || defaultAclStance.acl;
+        const acl = aclStance.acl || DEFAULT_ACL_STANCE.acl;
         // get lists and access for this address. default stance included automatically
         const membershipEntries = await contract.getListsForMember(userAddress);
         const userLists = membershipEntries.map(entry => entry.listName);
