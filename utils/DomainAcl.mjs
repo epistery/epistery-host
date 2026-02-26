@@ -93,6 +93,7 @@ export class DomainAcl {
         const membershipEntries = await contract.getListsForMember(userAddress);
         const userLists = membershipEntries.map(entry => entry.listName);
         const userTests = ['default',...userLists];
+        console.log(`[checkAgentAccess] ${agentName} user=${userAddress} lists=[${userLists}] acl=${JSON.stringify(acl)}`);
         const accessLevel = acl.reduce((level,entry)=>{
             if (userTests.includes(entry.list) && entry.access > level) level = entry.access;
             return level;
