@@ -194,7 +194,7 @@ export function createHandlers(port) {
       try {
         const data = await api(`/agent/epistery/wiki/${encodeURIComponent(args.title)}`, req, {
           method: 'POST',
-          body: JSON.stringify({ title: args.title, content: args.content })
+          body: JSON.stringify({ title: args.title, body: args.content })
         });
         return text(data);
       } catch (e) { return error(e.message); }
