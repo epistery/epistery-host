@@ -11,6 +11,7 @@ import { Certify } from '@metric-im/administrate';
 import { Epistery, Config } from 'epistery';
 import { createAuthRouter } from './utils/authentication.mjs';
 import { DomainAcl } from './utils/DomainAcl.mjs';
+import { DomainChain } from './utils/DomainChain.mjs';
 import { OAuthServer } from './utils/OAuthServer.mjs';
 import { MCPServer } from './utils/MCPServer.mjs';
 import { AgentManager } from './utils/AgentManager.mjs';
@@ -319,137 +320,8 @@ let main = async function() {
             const txOverrides = { maxPriorityFeePerGas, maxFeePerGas };
 
             if (oldContractAddress && oldContractAddress !== contractAddress) {
-                // ── Migrate data from old contract ──
-                console.log(`[deploy] Migrating data from old contract ${oldContractAddress}...`);
-                const oldContract = new ethers.Contract(oldContractAddress, DomainAgentArtifact.abi, wallet);
-
-                let acls, publicAttrs, privateAttrs;
-
-                // Try the comprehensive export first (v1.1.0+)
-                try {
-                    [acls, publicAttrs, privateAttrs] = await retryWithBackoff(() =>
-                        oldContract.exportForMigration()
-                    );
-                    console.log(`[deploy] Export: ${acls.length} ACL lists, ${publicAttrs.length} public attr owners, ${privateAttrs.length} private attr owners`);
-                } catch {
-                    // Old contract lacks exportForMigration — fall back to individual getters
-                    console.log(`[deploy] Old contract lacks exportForMigration, using individual getters`);
-                    acls = null;
-                }
-
-                // 1. Migrate ACL lists
-                try {
-                    const lists = acls
-                        ? acls
-                        : await (async () => {
-                            const names = await retryWithBackoff(() => oldContract.getListNames());
-                            const result = [];
-                            for (const name of names) {
-                                const entries = await retryWithBackoff(() => oldContract.getACL(name));
-                                result.push({ listName: name, entries });
-                            }
-                            return result;
-                        })();
-
-                    for (const list of lists) {
-                        for (const entry of list.entries) {
-                            // Skip auto-generated sponsor/owner entries
-                            try { if (JSON.parse(entry.meta)?.auto) continue; } catch {}
-                            if (entry.addr === wallet.address || entry.addr === sponsorAddress) continue;
-                            try {
-                                const tx = await contract.addToACL(
-                                    list.listName, entry.addr, entry.name, entry.role, entry.meta, txOverrides
-                                );
-                                await tx.wait();
-                                console.log(`[deploy] Migrated ACL: ${list.listName} → ${entry.name || entry.addr}`);
-                            } catch (err) {
-                                console.warn(`[deploy] ACL entry ${entry.addr} in ${list.listName}: ${err.message}`);
-                            }
-                        }
-                    }
-                } catch (err) {
-                    console.warn(`[deploy] ACL migration failed: ${err.message}`);
-                }
-
-                // 2. Migrate public attributes
-                try {
-                    const attrSets = publicAttrs
-                        ? publicAttrs
-                        : await (async () => {
-                            // Fallback: only server wallet's attributes
-                            const keys = await retryWithBackoff(() =>
-                                oldContract.getPublicAttributeKeys(wallet.address)
-                            );
-                            const values = [];
-                            for (const key of keys) {
-                                values.push(await retryWithBackoff(() =>
-                                    oldContract.getPublicAttribute(wallet.address, key)
-                                ));
-                            }
-                            return [{ addr: wallet.address, keys, values }];
-                        })();
-
-                    for (const attrSet of attrSets) {
-                        for (let i = 0; i < attrSet.keys.length; i++) {
-                            if (!attrSet.values[i]) continue;
-                            try {
-                                // setPublicAttribute writes under msg.sender — only works for server wallet
-                                if (attrSet.addr !== wallet.address) {
-                                    console.warn(`[deploy] Skipping public attrs for ${attrSet.addr} (not server wallet)`);
-                                    continue;
-                                }
-                                const tx = await contract.setPublicAttribute(
-                                    attrSet.keys[i], attrSet.values[i], txOverrides
-                                );
-                                await tx.wait();
-                                console.log(`[deploy] Migrated public attr: ${attrSet.keys[i]}`);
-                            } catch (err) {
-                                console.warn(`[deploy] Public attr ${attrSet.keys[i]}: ${err.message}`);
-                            }
-                        }
-                    }
-                } catch (err) {
-                    console.warn(`[deploy] Public attribute migration failed: ${err.message}`);
-                }
-
-                // 3. Migrate private attributes
-                try {
-                    const attrSets = privateAttrs
-                        ? privateAttrs
-                        : await (async () => {
-                            const keys = await retryWithBackoff(() => oldContract.getPrivateAttributeKeys());
-                            const values = [];
-                            for (const key of keys) {
-                                values.push(await retryWithBackoff(() =>
-                                    oldContract.getPrivateAttribute(key)
-                                ));
-                            }
-                            return [{ addr: wallet.address, keys, values }];
-                        })();
-
-                    for (const attrSet of attrSets) {
-                        for (let i = 0; i < attrSet.keys.length; i++) {
-                            if (!attrSet.values[i]) continue;
-                            try {
-                                if (attrSet.addr !== wallet.address) {
-                                    console.warn(`[deploy] Skipping private attrs for ${attrSet.addr} (not server wallet)`);
-                                    continue;
-                                }
-                                const tx = await contract.setPrivateAttribute(
-                                    attrSet.keys[i], attrSet.values[i], txOverrides
-                                );
-                                await tx.wait();
-                                console.log(`[deploy] Migrated private attr: ${attrSet.keys[i]}`);
-                            } catch (err) {
-                                console.warn(`[deploy] Private attr ${attrSet.keys[i]}: ${err.message}`);
-                            }
-                        }
-                    }
-                } catch (err) {
-                    console.warn(`[deploy] Private attribute migration failed: ${err.message}`);
-                }
-
-                console.log(`[deploy] Migration from ${oldContractAddress} complete`);
+                const chain = new DomainChain(domain);
+                await chain.migrateContract(oldContractAddress, contract, sponsorAddress, txOverrides);
             } else {
                 // Fresh deploy — initialize default agent ACL configs
                 try {
