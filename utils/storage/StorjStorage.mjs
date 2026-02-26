@@ -115,7 +115,6 @@ export default class StorjStorage {
       }
 
       const buffer = Buffer.concat(chunks);
-      console.log(`[${this.agentName}:storj] Read: ${fullKey} (${buffer.length} bytes)`);
       return buffer;
     } catch (error) {
       if (error.name === 'NoSuchKey' || error.$metadata?.httpStatusCode === 404) {
