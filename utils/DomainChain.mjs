@@ -60,8 +60,16 @@ export class DomainChain {
   get contract() {
     if (!this._contract) {
       this.contractAddress = this.config.data.contract_address;
-      if (!this.contractAddress) return null;
-      this._contract = new ethers.Contract(this.contractAddress, this.artifact.abi, this.wallet);
+      if (!this.contractAddress) {
+        console.warn(`[DomainChain] No contract_address for domain=${this.domain}, configFile=${this.config.currentFile}, keys=[${Object.keys(this.config.data || {}).join(',')}]`);
+        return null;
+      }
+      try {
+        this._contract = new ethers.Contract(this.contractAddress, this.artifact.abi, this.wallet);
+      } catch (e) {
+        console.error(`[DomainChain] Failed to create contract for domain=${this.domain}: ${e.message}`);
+        return null;
+      }
     }
     return this._contract;
   }

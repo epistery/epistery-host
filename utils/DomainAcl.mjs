@@ -64,12 +64,20 @@ export class DomainAcl {
      * @returns {Promise<{allowed: boolean, level: number, strategy: string}>}
      */
     async checkAgentAccess(agentName, userAddress, domain, customAuthFunctions = {}) {
-        const contract = this.chain.contract;
+        let contract;
+        try {
+            contract = this.chain.contract;
+        } catch (e) {
+            console.error(`[checkAgentAccess] contract getter threw for domain=${this.chain.domain} agent=${agentName}: ${e.message}`);
+            contract = null;
+        }
 
         // No contract deployed - fall back to config-based check
         if (!contract) {
-            const isAdmin = this.config.data.admin_address &&
-                userAddress?.toLowerCase() === this.config.data.admin_address.toLowerCase();
+            const adminAddr = this.config.data.admin_address;
+            console.warn(`[checkAgentAccess] NO CONTRACT for domain=${this.chain.domain} agent=${agentName} user=${userAddress} admin_address=${adminAddr || 'MISSING'} configKeys=[${Object.keys(this.config.data || {}).join(',')}]`);
+            const isAdmin = adminAddr &&
+                userAddress?.toLowerCase() === adminAddr.toLowerCase();
             return {
                 allowed: isAdmin,
                 level: isAdmin ? 3 : 0,
