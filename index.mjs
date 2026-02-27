@@ -14,6 +14,7 @@ import { DomainAcl } from './utils/DomainAcl.mjs';
 import { DomainChain } from './utils/DomainChain.mjs';
 import { OAuthServer } from './utils/OAuthServer.mjs';
 import { MCPServer } from './utils/MCPServer.mjs';
+import { AIDiscovery } from './utils/AIDiscovery.mjs';
 import { AgentManager } from './utils/AgentManager.mjs';
 import Pages from './pages/index.mjs'
 
@@ -546,8 +547,7 @@ let main = async function() {
     app.use('/image', express.static(path.join(__dirname, 'public/image')));
     app.use('/script', express.static(path.join(__dirname, 'public/script')));
     app.use('/widgets', express.static(path.join(__dirname, 'public/widgets')));
-    app.get('/.well-known/ai', (req, res) => { res.type('json'); res.sendFile(path.join(__dirname, 'public', '.well-known', 'ai', 'ai.json'), { dotfiles: 'allow' }); });
-    app.use('/.well-known/ai', express.static(path.join(__dirname, 'public', '.well-known', 'ai'), { dotfiles: 'allow' }));
+    // /.well-known/ai is now served dynamically by AIDiscovery (mounted after MCPServer)
 
     // Serve service worker (must be at root for scope)
     app.get('/service-worker.js', (req, res) => {
@@ -576,6 +576,9 @@ let main = async function() {
 
     // Mount MCP server (JSON-RPC over Streamable HTTP at /mcp)
     MCPServer.attach(app);
+
+    // Mount dynamic AI Discovery endpoint (/.well-known/ai)
+    AIDiscovery.attach(app);
 
     // Also mount the same routes at RFC 8615 well-known path
     // Note: We reuse the routes() to avoid duplicate middleware
@@ -802,6 +805,7 @@ let main = async function() {
     const agentsPath = path.join(config.configDir, '.agents');
     agentManager = new AgentManager(agentsPath);
     await agentManager.loadAll(app);
+    app.locals.agentManager = agentManager;
 
     https_server = https.createServer({...certify.SNI},app);
     https_server.listen(https_port);
