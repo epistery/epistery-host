@@ -1,4 +1,6 @@
 import express from 'express';
+import crypto from 'crypto';
+import ethers from 'ethers';
 import { Config } from 'epistery';
 import { DomainChain } from './DomainChain.mjs';
 
@@ -104,6 +106,24 @@ export class DomainAcl {
         };
     }
 
+    async redeemInvite(code, redeemerAddress) {
+        const contract = this.chain.contract;
+        if (!contract) throw new Error('Contract not deployed');
+
+        const codeHash = ethers.utils.keccak256(ethers.utils.toUtf8Bytes(code));
+
+        // Check invite exists and is unconsumed
+        const invite = await contract.getInvite(codeHash);
+        if (invite.consumed) throw new Error('Invite already used or revoked');
+
+        // Redeem on-chain (atomically adds to ACL)
+        const feeData = await this.chain.getFeeData();
+        const tx = await contract.redeemInvite(codeHash, redeemerAddress, '', feeData);
+        await tx.wait();
+
+        return { listName: invite.listName, role: invite.role };
+    }
+
     static attach(router) {
         router.use((req, res, next) => {
             try {
@@ -111,6 +131,42 @@ export class DomainAcl {
             } catch(e) {}
             next();
         })
+
+        // Invite auto-redeem: check ?invite= query param
+        router.use(async (req, res, next) => {
+            const code = req.query.invite;
+            if (!code) return next();
+            if (!req.episteryClient?.address) {
+                // No wallet yet — store in cookie for deferred redemption
+                res.cookie('_pending_invite', code, { maxAge: 3600000, httpOnly: true, sameSite: 'lax' });
+                return next();
+            }
+            try {
+                await req.domainAcl.redeemInvite(code, req.episteryClient.address);
+                // Redirect without ?invite= to avoid re-processing
+                const url = new URL(req.originalUrl, `${req.protocol}://${req.get('host')}`);
+                url.searchParams.delete('invite');
+                return res.redirect(url.pathname + url.search);
+            } catch (err) {
+                console.log('[invite] Redeem failed:', err.message);
+                req.inviteError = err.message;
+                next();
+            }
+        });
+
+        // Deferred: redeem cookie-stored invite after wallet creation
+        router.use(async (req, res, next) => {
+            const pending = req.cookies?._pending_invite;
+            if (!pending || !req.episteryClient?.address) return next();
+            try {
+                await req.domainAcl.redeemInvite(pending, req.episteryClient.address);
+            } catch (err) {
+                console.log('[invite] Deferred redeem failed:', err.message);
+            }
+            res.clearCookie('_pending_invite', { path: '/' });
+            next();
+        });
+
         router.get("/api/acl/check-admin", async (req, res) => {
             try {
                 const address = req.episteryClient?.address;
@@ -425,6 +481,110 @@ export class DomainAcl {
 
         // Register both paths for backward compatibility
         router.post('/api/acl/request-access', requestAccessHandler);
+
+        // API: Create invite code (admin only)
+        router.post('/api/acl/invite/create', async (req, res) => {
+            try {
+                const isAdmin = await req.domainAcl.isAdmin(req.episteryClient?.address);
+                if (!isAdmin) {
+                    return res.status(403).json({ error: 'Not authorized' });
+                }
+
+                const { listName, role, targetPath } = req.body;
+                const domainChain = req.domainAcl.chain;
+                if (!domainChain.contract) {
+                    return res.status(400).json({ error: 'Contract not deployed' });
+                }
+
+                const aclList = listName || 'epistery::reader';
+                const aclRole = role !== undefined ? role : 1;
+
+                // Generate random invite code
+                const code = crypto.randomBytes(16).toString('hex');
+                const codeHash = ethers.utils.keccak256(ethers.utils.toUtf8Bytes(code));
+
+                const feeData = await domainChain.getFeeData();
+                const tx = await domainChain.contract.createInvite(codeHash, aclList, aclRole, feeData);
+                await tx.wait();
+
+                // Build invite URL
+                const path = targetPath || '/';
+                const inviteUrl = `${req.protocol}://${req.get('host')}${path}${path.includes('?') ? '&' : '?'}invite=${code}`;
+
+                res.json({
+                    success: true,
+                    code,
+                    codeHash,
+                    inviteUrl,
+                    listName: aclList,
+                    role: aclRole
+                });
+            } catch (error) {
+                console.error('[invite] Create failed:', error);
+                res.status(500).json({ error: error.message });
+            }
+        });
+
+        // API: List all invites (admin only)
+        router.get('/api/acl/invites', async (req, res) => {
+            try {
+                const isAdmin = await req.domainAcl.isAdmin(req.episteryClient?.address);
+                if (!isAdmin) {
+                    return res.status(403).json({ error: 'Not authorized' });
+                }
+
+                const domainChain = req.domainAcl.chain;
+                if (!domainChain.contract) {
+                    return res.status(400).json({ error: 'Contract not deployed' });
+                }
+
+                const invites = await domainChain.contract.getInvites();
+                const formatted = invites.map(inv => ({
+                    codeHash: inv.codeHash,
+                    listName: inv.listName,
+                    role: inv.role,
+                    createdBy: inv.createdBy,
+                    createdAt: inv.createdAt.toNumber() * 1000,
+                    consumed: inv.consumed,
+                    consumedBy: inv.consumedBy,
+                    consumedAt: inv.consumedAt.toNumber() * 1000
+                }));
+
+                res.json({ invites: formatted });
+            } catch (error) {
+                console.error('[invite] List failed:', error);
+                res.status(500).json({ error: error.message });
+            }
+        });
+
+        // API: Revoke invite (admin only)
+        router.post('/api/acl/invite/revoke', async (req, res) => {
+            try {
+                const isAdmin = await req.domainAcl.isAdmin(req.episteryClient?.address);
+                if (!isAdmin) {
+                    return res.status(403).json({ error: 'Not authorized' });
+                }
+
+                const { codeHash } = req.body;
+                if (!codeHash) {
+                    return res.status(400).json({ error: 'codeHash required' });
+                }
+
+                const domainChain = req.domainAcl.chain;
+                if (!domainChain.contract) {
+                    return res.status(400).json({ error: 'Contract not deployed' });
+                }
+
+                const feeData = await domainChain.getFeeData();
+                const tx = await domainChain.contract.revokeInvite(codeHash, feeData);
+                await tx.wait();
+
+                res.json({ success: true });
+            } catch (error) {
+                console.error('[invite] Revoke failed:', error);
+                res.status(500).json({ error: error.message });
+            }
+        });
 
         // API: Check if current user has access to an agent
         router.get('/api/acl/check-access', async (req, res) => {

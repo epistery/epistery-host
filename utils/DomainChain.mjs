@@ -273,6 +273,23 @@ export class DomainChain {
       console.warn(`[deploy] Storj migration failed: ${err.message}`);
     }
 
+    // 5. Migrate active invites (v1.3.0+)
+    try {
+      const inviteData = await retryWithBackoff(() => oldContract.exportInvites());
+      for (const invite of inviteData) {
+        if (invite.consumed) continue;
+        try {
+          const tx = await newContract.createInvite(invite.codeHash, invite.listName, invite.role, txOverrides);
+          await tx.wait();
+          console.log(`[deploy] Migrated invite: ${invite.codeHash.substring(0, 10)}... → ${invite.listName}`);
+        } catch (err) {
+          console.warn(`[deploy] Invite migration: ${err.message}`);
+        }
+      }
+    } catch {
+      console.log('[deploy] No invites to migrate (old contract may lack exportInvites)');
+    }
+
     console.log(`[deploy] Migration from ${oldContractAddress} complete`);
   }
 }

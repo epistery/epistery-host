@@ -14,7 +14,7 @@ pragma solidity ^0.8.0;
  */
 contract DomainAgent {
   // Contract version
-  string public constant VERSION = "1.2.0";
+  string public constant VERSION = "1.3.0";
 
   // Domain this contract serves
   string public domain;
@@ -92,6 +92,19 @@ contract DomainAgent {
     string memory meta
   ) external {
     require(msg.sender == host || msg.sender == owner, "Only host or owner can modify ACL");
+    _addToACL(listName, addressToAdd, name, role, meta);
+  }
+
+  /**
+   * @dev Internal helper for adding to ACL — used by both addToACL and redeemInvite
+   */
+  function _addToACL(
+    string memory listName,
+    address addressToAdd,
+    string memory name,
+    uint8 role,
+    string memory meta
+  ) internal {
     require(bytes(listName).length > 0, "List name cannot be empty");
     require(addressToAdd != address(0), "Address cannot be zero");
     require(role <= 4 || role == 255, "Invalid role: must be 0-4 or 255 (unset)");
@@ -455,6 +468,142 @@ contract DomainAgent {
     }
 
     return pending;
+  }
+
+  // ============================================================================
+  // INVITE SYSTEM
+  // ============================================================================
+
+  struct Invite {
+    bytes32 codeHash;     // keccak256 of plaintext code
+    string listName;      // ACL list (e.g. "epistery::reader")
+    uint8 role;           // role to assign (1=read, 2=write, etc.)
+    address createdBy;    // admin who created
+    uint256 createdAt;    // block.timestamp
+    bool consumed;        // single-use flag
+    address consumedBy;   // redeemer address
+    uint256 consumedAt;   // redemption timestamp
+  }
+
+  Invite[] private invites;
+  mapping(bytes32 => uint256) private inviteIndex; // codeHash => index+1 (0 = not found)
+
+  event InviteCreated(bytes32 indexed codeHash, string listName, uint8 role, uint256 timestamp);
+  event InviteRedeemed(bytes32 indexed codeHash, address indexed redeemer, string listName, uint256 timestamp);
+
+  /**
+   * @dev Create an invite code (host or owner only)
+   * @param codeHash keccak256 of the plaintext invite code
+   * @param listName ACL list to add the redeemer to
+   * @param role Role level to assign
+   */
+  function createInvite(bytes32 codeHash, string memory listName, uint8 role) external {
+    require(msg.sender == host || msg.sender == owner, "Only host or owner can create invites");
+    require(inviteIndex[codeHash] == 0, "Invite hash already exists");
+    require(bytes(listName).length > 0, "List name cannot be empty");
+    require(role <= 4, "Invalid role");
+
+    invites.push(Invite({
+      codeHash: codeHash,
+      listName: listName,
+      role: role,
+      createdBy: msg.sender,
+      createdAt: block.timestamp,
+      consumed: false,
+      consumedBy: address(0),
+      consumedAt: 0
+    }));
+
+    inviteIndex[codeHash] = invites.length; // index+1
+
+    emit InviteCreated(codeHash, listName, role, block.timestamp);
+  }
+
+  /**
+   * @dev Redeem an invite code — atomically marks consumed AND adds to ACL
+   * @param codeHash keccak256 of the plaintext invite code
+   * @param redeemer Address to add to the ACL
+   * @param name Display name for the ACL entry
+   */
+  function redeemInvite(bytes32 codeHash, address redeemer, string memory name) external {
+    require(msg.sender == host || msg.sender == owner, "Only host or owner can redeem invites");
+    uint256 idx = inviteIndex[codeHash];
+    require(idx > 0, "Invite not found");
+
+    Invite storage invite = invites[idx - 1];
+    require(!invite.consumed, "Invite already consumed");
+    require(redeemer != address(0), "Redeemer cannot be zero address");
+
+    // Mark consumed
+    invite.consumed = true;
+    invite.consumedBy = redeemer;
+    invite.consumedAt = block.timestamp;
+
+    // Atomically add to ACL
+    string memory meta = '{"addedBy":"invite"}';
+    _addToACL(invite.listName, redeemer, name, invite.role, meta);
+
+    emit InviteRedeemed(codeHash, redeemer, invite.listName, block.timestamp);
+  }
+
+  /**
+   * @dev Revoke an unconsumed invite (host or owner only)
+   * @param codeHash keccak256 of the plaintext invite code
+   */
+  function revokeInvite(bytes32 codeHash) external {
+    require(msg.sender == host || msg.sender == owner, "Only host or owner can revoke invites");
+    uint256 idx = inviteIndex[codeHash];
+    require(idx > 0, "Invite not found");
+
+    Invite storage invite = invites[idx - 1];
+    require(!invite.consumed, "Invite already consumed");
+
+    invite.consumed = true;
+    invite.consumedBy = address(0); // revoked, not redeemed
+    invite.consumedAt = block.timestamp;
+  }
+
+  /**
+   * @dev Get invite details by hash (public — hash is opaque without plaintext)
+   * @param codeHash keccak256 of the invite code
+   * @return Invite struct
+   */
+  function getInvite(bytes32 codeHash) external view returns (Invite memory) {
+    uint256 idx = inviteIndex[codeHash];
+    require(idx > 0, "Invite not found");
+    return invites[idx - 1];
+  }
+
+  /**
+   * @dev Get all invites (host or owner only — admin listing)
+   * @return Invite[] array of all invites
+   */
+  function getInvites() external view returns (Invite[] memory) {
+    require(msg.sender == host || msg.sender == owner, "Only host or owner can list invites");
+    return invites;
+  }
+
+  /**
+   * @dev Export unconsumed invites for migration (host only)
+   * @return Invite[] array of active invites
+   */
+  function exportInvites() external view returns (Invite[] memory) {
+    require(msg.sender == host, "Only host can export invites");
+
+    uint256 activeCount = 0;
+    for (uint256 i = 0; i < invites.length; i++) {
+      if (!invites[i].consumed) activeCount++;
+    }
+
+    Invite[] memory result = new Invite[](activeCount);
+    uint256 idx = 0;
+    for (uint256 i = 0; i < invites.length; i++) {
+      if (!invites[i].consumed) {
+        result[idx] = invites[i];
+        idx++;
+      }
+    }
+    return result;
   }
 
   // ============================================================================
