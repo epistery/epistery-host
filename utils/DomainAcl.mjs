@@ -42,7 +42,7 @@ export class DomainAcl {
                       address.toLowerCase() === this.config.data.admin_address.toLowerCase();
                     return isAdmin && this.config.data.verified;
                 }
-                // DomainAgent automatically grants admin access to sponsor and owner
+                // DomainAgent automatically grants admin access to owner and host
                 return await this.chain.contract.isInACL('epistery::admin', address);
             } catch (error) {
                 console.error('[epistery-host] Admin check error:', error);

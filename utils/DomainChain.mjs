@@ -82,10 +82,10 @@ export class DomainChain {
    * Handles ACLs, public/private attributes, and Storj storage.
    * @param {string} oldContractAddress - address of the previous contract
    * @param {ethers.Contract} newContract - the newly deployed contract instance
-   * @param {string} sponsorAddress - sponsor/admin address (skip in ACL migration)
+   * @param {string} ownerAddress - owner/admin address (skip in ACL migration)
    * @param {object} txOverrides - gas fee overrides {maxPriorityFeePerGas, maxFeePerGas}
    */
-  async migrateContract(oldContractAddress, newContract, sponsorAddress, txOverrides) {
+  async migrateContract(oldContractAddress, newContract, ownerAddress, txOverrides) {
     const walletAddress = this.wallet.address;
     const newContractAddress = newContract.address;
 
@@ -122,7 +122,7 @@ export class DomainChain {
       for (const list of lists) {
         for (const entry of list.entries) {
           try { if (JSON.parse(entry.meta)?.auto) continue; } catch {}
-          if (entry.addr === walletAddress || entry.addr === sponsorAddress) continue;
+          if (entry.addr === walletAddress || entry.addr === ownerAddress) continue;
           try {
             const tx = await newContract.addToACL(
               list.listName, entry.addr, entry.name, entry.role, entry.meta, txOverrides

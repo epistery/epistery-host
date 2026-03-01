@@ -10,20 +10,20 @@ pragma solidity ^0.8.0;
  * - Public and private attribute storage
  * - Approval workflow system
  *
- * The sponsor (contract deployer) and owner automatically have admin access.
+ * The owner (contract deployer) and host automatically have admin access.
  */
 contract DomainAgent {
   // Contract version
-  string public constant VERSION = "1.1.0";
+  string public constant VERSION = "1.2.0";
 
   // Domain this contract serves
   string public domain;
 
-  // Contract sponsor (paid deployment fee)
-  address public sponsor;
-
-  // Contract owner (defaults to sponsor, can be transferred)
+  // Contract owner (paid deployment fee, immutable)
   address public owner;
+
+  // Contract host (defaults to owner, can be transferred)
+  address public host;
 
   // ============================================================================
   // ACCESS CONTROL (ACL)
@@ -54,7 +54,7 @@ contract DomainAgent {
   mapping(address => MembershipEntry[]) private memberMemberships;
 
   // Events
-  event ACLModified(address indexed owner, string listName, address indexed addr, string action, uint256 timestamp);
+  event ACLModified(address indexed host, string listName, address indexed addr, string action, uint256 timestamp);
   event ApprovalRequested(address indexed approver, address indexed requestor, string fileName, string fileHash, uint256 timestamp);
   event ApprovalHandled(address indexed approver, address indexed requestor, string fileName, bool approved, uint256 timestamp);
   event AttributeSet(address indexed owner, string key, bool isPrivate, uint256 timestamp);
@@ -64,12 +64,12 @@ contract DomainAgent {
   // CONSTRUCTOR
   // ============================================================================
 
-  constructor(string memory _domain, address _sponsor, address _owner) {
+  constructor(string memory _domain, address _owner, address _host) {
     require(bytes(_domain).length > 0, "Domain cannot be empty");
-    require(_sponsor != address(0), "Sponsor cannot be zero address");
+    require(_owner != address(0), "Owner cannot be zero address");
     domain = _domain;
-    sponsor = _sponsor;
-    owner = _owner != address(0) ? _owner : _sponsor;
+    owner = _owner;
+    host = _host != address(0) ? _host : _owner;
   }
 
   // ============================================================================
@@ -77,7 +77,7 @@ contract DomainAgent {
   // ============================================================================
 
   /**
-   * @dev Add an address to a named ACL (only owner or sponsor)
+   * @dev Add an address to a named ACL (only host or owner)
    * @param listName The name of the list
    * @param addressToAdd The address to add
    * @param name Display name for the address
@@ -91,7 +91,7 @@ contract DomainAgent {
     uint8 role,
     string memory meta
   ) external {
-    require(msg.sender == owner || msg.sender == sponsor, "Only owner or sponsor can modify ACL");
+    require(msg.sender == host || msg.sender == owner, "Only host or owner can modify ACL");
     require(bytes(listName).length > 0, "List name cannot be empty");
     require(addressToAdd != address(0), "Address cannot be zero");
     require(role <= 4 || role == 255, "Invalid role: must be 0-4 or 255 (unset)");
@@ -125,16 +125,16 @@ contract DomainAgent {
       addedAt: block.timestamp
     }));
 
-    emit ACLModified(owner, listName, addressToAdd, "add", block.timestamp);
+    emit ACLModified(host, listName, addressToAdd, "add", block.timestamp);
   }
 
   /**
-   * @dev Remove an address from a named ACL (only owner or sponsor)
+   * @dev Remove an address from a named ACL (only host or owner)
    * @param listName The name of the list
    * @param addressToRemove The address to remove
    */
   function removeFromACL(string memory listName, address addressToRemove) external {
-    require(msg.sender == owner || msg.sender == sponsor, "Only owner or sponsor can modify ACL");
+    require(msg.sender == host || msg.sender == owner, "Only host or owner can modify ACL");
     require(bytes(listName).length > 0, "List name cannot be empty");
     require(addressToRemove != address(0), "Address cannot be zero");
 
@@ -163,11 +163,11 @@ contract DomainAgent {
       }
     }
 
-    emit ACLModified(owner, listName, addressToRemove, "remove", block.timestamp);
+    emit ACLModified(host, listName, addressToRemove, "remove", block.timestamp);
   }
 
   /**
-   * @dev Update an ACL entry's metadata (only owner or sponsor)
+   * @dev Update an ACL entry's metadata (only host or owner)
    * @param listName The name of the list
    * @param addr The address to update
    * @param name New display name (use "\x00KEEP" to keep existing)
@@ -181,7 +181,7 @@ contract DomainAgent {
     uint8 role,
     string memory meta
   ) external {
-    require(msg.sender == owner || msg.sender == sponsor, "Only owner or sponsor can modify ACL");
+    require(msg.sender == host || msg.sender == owner, "Only host or owner can modify ACL");
     require(bytes(listName).length > 0, "List name cannot be empty");
     require(addr != address(0), "Address cannot be zero");
     require(role <= 4 || role == 255, "Invalid role");
@@ -216,7 +216,7 @@ contract DomainAgent {
     }
 
     require(found, "Address not in ACL");
-    emit ACLModified(owner, listName, addr, "update", block.timestamp);
+    emit ACLModified(host, listName, addr, "update", block.timestamp);
   }
 
   /**
@@ -226,9 +226,9 @@ contract DomainAgent {
    * @return bool True if address is in the ACL
    */
   function isInACL(string memory listName, address addr) external view returns (bool) {
-    // Special handling: sponsor and owner are always in epistery::admin
+    // Special handling: owner and host are always in epistery::admin
     if (keccak256(bytes(listName)) == keccak256(bytes("epistery::admin"))) {
-      if (addr == sponsor || addr == owner) {
+      if (addr == owner || addr == host) {
         return true;
       }
     }
@@ -250,20 +250,20 @@ contract DomainAgent {
   function getACL(string memory listName) external view returns (ACLEntry[] memory) {
     ACLEntry[] storage acl = namedACLs[listName];
 
-    // Special handling: add sponsor and owner to epistery::admin if not already present
+    // Special handling: add owner and host to epistery::admin if not already present
     if (keccak256(bytes(listName)) == keccak256(bytes("epistery::admin"))) {
       uint256 extraCount = 0;
-      bool hasSponsor = false;
       bool hasOwner = false;
+      bool hasHost = false;
 
-      // Check if sponsor/owner already in list
+      // Check if owner/host already in list
       for (uint256 i = 0; i < acl.length; i++) {
-        if (acl[i].addr == sponsor) hasSponsor = true;
         if (acl[i].addr == owner) hasOwner = true;
+        if (acl[i].addr == host) hasHost = true;
       }
 
-      if (!hasSponsor && sponsor != address(0)) extraCount++;
-      if (!hasOwner && owner != address(0) && owner != sponsor) extraCount++;
+      if (!hasOwner && owner != address(0)) extraCount++;
+      if (!hasHost && host != address(0) && host != owner) extraCount++;
 
       if (extraCount > 0) {
         ACLEntry[] memory result = new ACLEntry[](acl.length + extraCount);
@@ -273,25 +273,25 @@ contract DomainAgent {
           result[i] = acl[i];
         }
 
-        // Add sponsor if missing
+        // Add owner if missing
         uint256 idx = acl.length;
-        if (!hasSponsor && sponsor != address(0)) {
+        if (!hasOwner && owner != address(0)) {
           result[idx] = ACLEntry({
-            addr: sponsor,
-            name: "Sponsor",
+            addr: owner,
+            name: "Owner",
             role: 4, // owner role
-            meta: '{"auto":true,"reason":"sponsor"}'
+            meta: '{"auto":true,"reason":"owner"}'
           });
           idx++;
         }
 
-        // Add owner if missing and different from sponsor
-        if (!hasOwner && owner != address(0) && owner != sponsor) {
+        // Add host if missing and different from owner
+        if (!hasHost && host != address(0) && host != owner) {
           result[idx] = ACLEntry({
-            addr: owner,
-            name: "Owner",
+            addr: host,
+            name: "Host",
             role: 3, // admin role
-            meta: '{"auto":true,"reason":"owner"}'
+            meta: '{"auto":true,"reason":"host"}'
           });
         }
 
@@ -319,8 +319,8 @@ contract DomainAgent {
   function getListsForMember(address member) external view returns (MembershipEntry[] memory) {
     MembershipEntry[] memory memberships = memberMemberships[member];
 
-    // Special handling: owner and sponsor are always in epistery::admin
-    if (member == owner || member == sponsor) {
+    // Special handling: host and owner are always in epistery::admin
+    if (member == host || member == owner) {
       // Check if epistery::admin is already in their memberships
       bool hasAdmin = false;
       for (uint256 i = 0; i < memberships.length; i++) {
@@ -349,22 +349,22 @@ contract DomainAgent {
   }
 
   /**
-   * @dev Transfer ownership to a new address (only owner can call)
-   * @param newOwner The address of the new owner
+   * @dev Transfer host role to a new address (only host can call)
+   * @param newHost The address of the new host
    */
-  function transferOwnership(address newOwner) external {
-    require(msg.sender == owner, "Only owner can transfer ownership");
-    require(newOwner != address(0), "New owner cannot be zero address");
-    require(newOwner != owner, "New owner must be different from current owner");
+  function transferHost(address newHost) external {
+    require(msg.sender == host, "Only host can transfer host role");
+    require(newHost != address(0), "New host cannot be zero address");
+    require(newHost != host, "New host must be different from current host");
 
-    address oldOwner = owner;
-    owner = newOwner;
+    address oldHost = host;
+    host = newHost;
 
-    emit OwnershipTransferred(oldOwner, newOwner, block.timestamp);
+    emit HostTransferred(oldHost, newHost, block.timestamp);
   }
 
   // Events
-  event OwnershipTransferred(address indexed previousOwner, address indexed newOwner, uint256 timestamp);
+  event HostTransferred(address indexed previousHost, address indexed newHost, uint256 timestamp);
 
   // ============================================================================
   // APPROVAL SYSTEM
@@ -600,23 +600,23 @@ contract DomainAgent {
 
   /**
    * @dev Export all contract data for migration to a new contract.
-   * Only the owner or a contract with the same owner can call this.
+   * Only the host or a contract with the same host can call this.
    */
   function exportForMigration() external view returns (
     MigrationACL[] memory acls,
     MigrationAttributes[] memory publicAttrs,
     MigrationAttributes[] memory privateAttrs
   ) {
-    // Auth: owner directly, or a contract with same owner
-    bool authorized = msg.sender == owner;
+    // Auth: host directly, or a contract with same host
+    bool authorized = msg.sender == host;
     if (!authorized) {
-      try DomainAgent(msg.sender).owner() returns (address callerOwner) {
-        authorized = (callerOwner == owner);
+      try DomainAgent(msg.sender).host() returns (address callerHost) {
+        authorized = (callerHost == host);
       } catch {}
     }
-    require(authorized, "Only owner or same-owner contract can export");
+    require(authorized, "Only host or same-host contract can export");
 
-    // 1. Export ACLs — raw storage entries (no auto-generated sponsor/owner)
+    // 1. Export ACLs — raw storage entries (no auto-generated owner/host)
     acls = new MigrationACL[](listNames.length);
     for (uint i = 0; i < listNames.length; i++) {
       acls[i].listName = listNames[i];

@@ -272,15 +272,15 @@ let main = async function() {
             const maxPriorityFeePerGas = networkPriority.gt(minGasPrice) ? networkPriority : minGasPrice;
 
             const factory = new ethers.ContractFactory(DomainAgentArtifact.abi, DomainAgentArtifact.bytecode, wallet);
-            // Server wallet is owner (pays for and owns the contract)
-            // Browser wallet (admin_address) is sponsor (gets automatic admin access)
-            const sponsorAddress = adminAddress || wallet.address; // Sponsor defaults to server if no admin
+            // Server wallet is host (manages the contract)
+            // Browser wallet (admin_address) is owner (paid for and owns the contract)
+            const ownerAddress = adminAddress || wallet.address; // Owner defaults to server if no admin
 
-            // Deploy with domain, sponsor, and owner parameters, plus EIP-1559 gas settings
+            // Deploy with domain, owner, and host parameters, plus EIP-1559 gas settings
             // Try to estimate gas, fallback to calculated limit if estimation fails
             let gasLimit;
             try {
-                const deployTx = factory.getDeployTransaction(domain, sponsorAddress, wallet.address);
+                const deployTx = factory.getDeployTransaction(domain, ownerAddress, wallet.address);
                 gasLimit = await ethersProvider.estimateGas({ ...deployTx, from: wallet.address });
                 gasLimit = gasLimit.mul(120).div(100); // Add 20% buffer
             } catch (estimateError) {
@@ -288,7 +288,7 @@ let main = async function() {
                 gasLimit = ethers.BigNumber.from(estimateDeployGas());
             }
 
-            const contract = await factory.deploy(domain, sponsorAddress, wallet.address, {
+            const contract = await factory.deploy(domain, ownerAddress, wallet.address, {
                 maxPriorityFeePerGas: maxPriorityFeePerGas,
                 maxFeePerGas: maxFeePerGas,
                 gasLimit: gasLimit
@@ -323,7 +323,7 @@ let main = async function() {
 
             if (oldContractAddress && oldContractAddress !== contractAddress) {
                 const chain = new DomainChain(domain);
-                await chain.migrateContract(oldContractAddress, contract, sponsorAddress, txOverrides);
+                await chain.migrateContract(oldContractAddress, contract, ownerAddress, txOverrides);
             } else {
                 // Fresh deploy — initialize default agent ACL configs
                 try {
