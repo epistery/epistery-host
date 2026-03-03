@@ -354,6 +354,49 @@
                     <p style="font-size: 0.9em; color: var(--text-secondary); margin-top: var(--spacerhalf);">
                         Receive notifications for new messages and access requests
                     </p>
+
+                    <h3 style="font-size: 1.1rem; margin-top: var(--spacer2); margin-bottom: var(--spacerhalf); border-bottom: 1px solid var(--page-border); padding-bottom: var(--spacerhalf);">Storj Storage</h3>
+                    <p style="font-size: 0.9em; color: var(--text-secondary); margin-bottom: var(--spacer);">
+                        S3-compatible object storage for wiki files, uploads, and agent data.
+                        Domain credentials override the global config.
+                    </p>
+
+                    <div id="storj-inherited-note" style="display: none; margin-bottom: var(--spacer);">
+                        <div class="info-box" style="padding: var(--spacerhalf) var(--spacer);">
+                            <small>Inheriting credentials from global config. Set values here to override for this domain.</small>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; flex-direction: column; gap: var(--spacerhalf);">
+                        <div style="display: flex; gap: var(--spacerhalf); flex-wrap: wrap;">
+                            <div style="flex: 1; min-width: 200px;">
+                                <label for="storj-access-key" style="font-size: 0.85em; display: block; margin-bottom: 4px;">ACCESS_KEY</label>
+                                <input type="text" id="storj-access-key" placeholder="Access key"
+                                       style="width: 100%; padding: 8px; border: 1px solid var(--page-border); border-radius: 4px; background: var(--page-background); color: var(--page-text-primary); font-family: monospace; font-size: 13px;">
+                            </div>
+                            <div style="flex: 1; min-width: 200px;">
+                                <label for="storj-secret-key" style="font-size: 0.85em; display: block; margin-bottom: 4px;">SECRET_KEY</label>
+                                <input type="password" id="storj-secret-key" placeholder="Secret key"
+                                       style="width: 100%; padding: 8px; border: 1px solid var(--page-border); border-radius: 4px; background: var(--page-background); color: var(--page-text-primary); font-family: monospace; font-size: 13px;">
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: var(--spacerhalf); flex-wrap: wrap;">
+                            <div style="flex: 2; min-width: 200px;">
+                                <label for="storj-endpoint" style="font-size: 0.85em; display: block; margin-bottom: 4px;">ENDPOINT</label>
+                                <input type="text" id="storj-endpoint" placeholder="https://gateway.storjshare.io"
+                                       style="width: 100%; padding: 8px; border: 1px solid var(--page-border); border-radius: 4px; background: var(--page-background); color: var(--page-text-primary); font-family: monospace; font-size: 13px;">
+                            </div>
+                            <div style="flex: 1; min-width: 150px;">
+                                <label for="storj-bucket" style="font-size: 0.85em; display: block; margin-bottom: 4px;">BUCKET</label>
+                                <input type="text" id="storj-bucket" placeholder="epistery"
+                                       style="width: 100%; padding: 8px; border: 1px solid var(--page-border); border-radius: 4px; background: var(--page-background); color: var(--page-text-primary); font-family: monospace; font-size: 13px;">
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: var(--spacerhalf); align-items: center; margin-top: var(--spacerhalf);">
+                            <button class="console-btn" id="storj-save-btn" onclick="saveStorjConfig()">Save Storj Config</button>
+                            <span id="storj-save-status" style="font-size: 0.9em; color: var(--text-secondary);"></span>
+                        </div>
+                    </div>
                 </section>
 
                 <!-- Whitelist Management Section -->
@@ -489,6 +532,7 @@
 
                 // Load preferences
                 await loadPreferences();
+                await loadStorjConfig();
 
             } catch (error) {
                 console.error('Failed to check admin access:', error);
@@ -1514,6 +1558,78 @@
                 document.getElementById('enable-notifications').checked = !enabled;
             }
         }
+
+        // Storj configuration
+        async function loadStorjConfig() {
+            try {
+                const response = await fetch('/api/storj-config', { credentials: 'include' });
+                if (!response.ok) return;
+                const data = await response.json();
+
+                document.getElementById('storj-access-key').value = data.ACCESS_KEY || '';
+                document.getElementById('storj-secret-key').value = '';
+                document.getElementById('storj-secret-key').placeholder = data.SECRET_KEY ? '(set — enter new value to change)' : 'Secret key';
+                document.getElementById('storj-endpoint').value = data.ENDPOINT || '';
+                document.getElementById('storj-bucket').value = data.BUCKET || '';
+
+                // Show inherited note if domain has no creds but global does
+                const hasLocal = data.ACCESS_KEY || data.SECRET_KEY;
+                const hasInherited = data.inherited.ACCESS_KEY || data.inherited.SECRET_KEY;
+                if (!hasLocal && hasInherited) {
+                    document.getElementById('storj-inherited-note').style.display = 'block';
+                    if (!data.ENDPOINT && data.inherited.ENDPOINT) {
+                        document.getElementById('storj-endpoint').placeholder = data.inherited.ENDPOINT + ' (inherited)';
+                    }
+                    if (!data.BUCKET && data.inherited.BUCKET) {
+                        document.getElementById('storj-bucket').placeholder = data.inherited.BUCKET + ' (inherited)';
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to load storj config:', error);
+            }
+        }
+
+        window.saveStorjConfig = async function() {
+            const btn = document.getElementById('storj-save-btn');
+            const status = document.getElementById('storj-save-status');
+
+            const ACCESS_KEY = document.getElementById('storj-access-key').value.trim();
+            const SECRET_KEY = document.getElementById('storj-secret-key').value.trim();
+            const ENDPOINT = document.getElementById('storj-endpoint').value.trim() || 'https://gateway.storjshare.io';
+            const BUCKET = document.getElementById('storj-bucket').value.trim() || 'epistery';
+
+            try {
+                btn.disabled = true;
+                status.textContent = 'Saving...';
+
+                const body = { ACCESS_KEY, ENDPOINT, BUCKET };
+                // Only send SECRET_KEY if user typed a new value
+                if (SECRET_KEY) body.SECRET_KEY = SECRET_KEY;
+
+                const response = await fetch('/api/storj-config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+
+                if (!response.ok) {
+                    const data = await response.json();
+                    throw new Error(data.error || 'Failed to save');
+                }
+
+                status.textContent = 'Saved!';
+                status.style.color = '#28a745';
+                // Reload to reflect updated state
+                await loadStorjConfig();
+                setTimeout(() => { status.textContent = ''; status.style.color = ''; }, 3000);
+            } catch (error) {
+                console.error('Failed to save storj config:', error);
+                status.textContent = 'Error: ' + error.message;
+                status.style.color = '#dc3545';
+            } finally {
+                btn.disabled = false;
+            }
+        };
 
         // Expose notification function for agents
         window.episteryNotify = function(title, body, options = {}) {

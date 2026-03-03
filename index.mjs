@@ -745,6 +745,69 @@ let main = async function() {
         }
     });
 
+    // API: Get storj configuration (admin only)
+    app.get('/api/storj-config', async (req, res) => {
+        try {
+            const isAdmin = await req.domainAcl?.isAdmin(req.episteryClient?.address);
+            if (!isAdmin) return res.status(403).json({ error: 'Not authorized' });
+
+            const domain = req.headers.host?.split(':')[0] || 'localhost';
+            const cfg = new Config();
+            cfg.setPath(domain);
+            const domainStorj = cfg.data.storj || {};
+
+            // Check root config for inherited values
+            const rootCfg = new Config();
+            const rootData = rootCfg.read('/');
+            const rootStorj = rootData?.storj || {};
+
+            res.json({
+                ACCESS_KEY: domainStorj.ACCESS_KEY || '',
+                SECRET_KEY: domainStorj.SECRET_KEY ? '••••••••' : '',
+                ENDPOINT: domainStorj.ENDPOINT || '',
+                BUCKET: domainStorj.BUCKET || '',
+                inherited: {
+                    ACCESS_KEY: rootStorj.ACCESS_KEY ? true : false,
+                    SECRET_KEY: rootStorj.SECRET_KEY ? true : false,
+                    ENDPOINT: rootStorj.ENDPOINT || '',
+                    BUCKET: rootStorj.BUCKET || ''
+                }
+            });
+        } catch (error) {
+            console.error('[storj-config] Get error:', error);
+            res.status(500).json({ error: error.message });
+        }
+    });
+
+    // API: Save storj configuration (admin only)
+    app.post('/api/storj-config', async (req, res) => {
+        try {
+            const isAdmin = await req.domainAcl?.isAdmin(req.episteryClient?.address);
+            if (!isAdmin) return res.status(403).json({ error: 'Not authorized' });
+
+            const domain = req.headers.host?.split(':')[0] || 'localhost';
+            const cfg = new Config();
+            cfg.setPath(domain);
+
+            const { ACCESS_KEY, SECRET_KEY, ENDPOINT, BUCKET } = req.body;
+
+            if (!cfg.data.storj) cfg.data.storj = {};
+
+            if (ACCESS_KEY !== undefined) cfg.data.storj.ACCESS_KEY = ACCESS_KEY;
+            // Only update SECRET_KEY if a real value is provided (not the masked placeholder)
+            if (SECRET_KEY && SECRET_KEY !== '••••••••') cfg.data.storj.SECRET_KEY = SECRET_KEY;
+            if (ENDPOINT !== undefined) cfg.data.storj.ENDPOINT = ENDPOINT;
+            if (BUCKET !== undefined) cfg.data.storj.BUCKET = BUCKET;
+
+            cfg.save();
+
+            res.json({ success: true });
+        } catch (error) {
+            console.error('[storj-config] Save error:', error);
+            res.status(500).json({ error: error.message });
+        }
+    });
+
     // API: Get user preferences
     app.get('/api/preferences', async (req, res) => {
         try {
