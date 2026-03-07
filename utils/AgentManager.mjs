@@ -22,11 +22,15 @@ import express from 'express';
  * - command: shell command to start agent (defaults to "npm start")
  * - config: configuration passed to agent constructor
  * - permissions: array of epistery permissions required
+ * - tools: optional array of tool declarations for dynamic discovery
+ *     Each tool: { name, description, method, path, inputSchema }
+ *     path supports {param} substitution from input args
  */
 export class AgentManager {
     constructor(agentsPath) {
         this.agentsPath = agentsPath;
         this.agents = new Map();
+        this.toolRegistry = []; // collected from agent manifests
     }
 
     /**
@@ -153,6 +157,7 @@ export class AgentManager {
         console.log(`  - ${agentData.shortPath}/*`);
 
         this.agents.set(name, agentData);
+        this._rebuildToolRegistry();
     }
 
     /**
@@ -164,7 +169,10 @@ export class AgentManager {
         // Cache-bust: append timestamp so Node reimports the module
         const moduleUrl = pathToFileURL(entryPath).href + `?t=${Date.now()}`;
         const AgentClass = (await import(moduleUrl)).default;
-        const agentInstance = new AgentClass(manifest.config || {});
+        const agentInstance = new AgentClass({
+            ...manifest.config,
+            getAgentTools: () => this.getRegisteredTools()
+        });
 
         const agentRouter = express.Router();
         if (typeof agentInstance.attach === 'function') {
@@ -200,7 +208,42 @@ export class AgentManager {
         agentData.activeRouter = newRouter;
         agentData.instance = newRouter._agentInstance;
 
+        this._rebuildToolRegistry();
         console.log(`[AgentManager] Reloaded ${agentData.manifest.name}`);
+    }
+
+    /**
+     * Rebuild the tool registry from all loaded agent manifests.
+     * Each tool entry gets the agent's base path so callers can proxy generically.
+     */
+    _rebuildToolRegistry() {
+        const tools = [];
+        for (const [, agentData] of this.agents) {
+            const { manifest, shortPath } = agentData;
+            if (!Array.isArray(manifest.tools)) continue;
+            for (const tool of manifest.tools) {
+                tools.push({
+                    name: tool.name,
+                    description: tool.description,
+                    method: (tool.method || 'GET').toUpperCase(),
+                    basePath: shortPath,
+                    path: tool.path,
+                    inputSchema: tool.inputSchema || { type: 'object', properties: {} }
+                });
+            }
+        }
+        this.toolRegistry = tools;
+        if (tools.length) {
+            console.log(`[AgentManager] Tool registry: ${tools.length} tool(s) from ${new Set(tools.map(t => t.basePath)).size} agent(s)`);
+        }
+    }
+
+    /**
+     * Return all registered agent tools.
+     * Called by agents (e.g. Mimi) via the getAgentTools config function.
+     */
+    getRegisteredTools() {
+        return this.toolRegistry;
     }
 
     initializeWebSockets(server) {
