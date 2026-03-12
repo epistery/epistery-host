@@ -16,6 +16,7 @@ import { OAuthServer } from './utils/OAuthServer.mjs';
 import { MCPServer } from './utils/MCPServer.mjs';
 import { AIDiscovery } from './utils/AIDiscovery.mjs';
 import { AgentManager } from './utils/AgentManager.mjs';
+import { PeerBridge } from './utils/PeerBridge.mjs';
 import Pages from './pages/index.mjs'
 
 const require = createRequire(import.meta.url);
@@ -35,7 +36,7 @@ function estimateDeployGas() {
 }
 
 let isShuttingDown = false;
-let app, https_server, http_server, config, agentManager;
+let app, https_server, http_server, config, agentManager, peerBridge;
 
 // Helper to retry RPC calls on rate limit errors
 async function retryWithBackoff(fn, maxRetries = 3, baseDelay = 10000) {
@@ -889,6 +890,28 @@ let main = async function() {
     // Initialize WebSocket servers for agents that support it
     agentManager.initializeWebSockets(https_server);
     agentManager.initializeWebSockets(http_server);
+
+    // Initialize PeerBridge for host-to-host tool bridging
+    peerBridge = new PeerBridge(agentManager, {
+        port: http_port,
+        getStore: async (domain) => {
+            const signer = app.locals.epistery?.signer;
+            if (!signer) return null;
+            const { OAuthServer } = await import('./utils/OAuthServer.mjs');
+            return OAuthServer.getStore(domain, signer);
+        },
+        getSigner: () => app.locals.epistery?.signer
+    });
+    peerBridge.initWebSocketServer(https_server);
+    peerBridge.initWebSocketServer(http_server);
+    agentManager.peerBridge = peerBridge;
+    app.locals.peerBridge = peerBridge;
+
+    // Connect to configured bridge peers (non-blocking)
+    const defaultDomain = process.env.DOMAIN || 'localhost';
+    peerBridge.connectToConfiguredPeers(defaultDomain).catch(err => {
+        console.error('[bridge] Failed to connect to peers:', err.message);
+    });
 }();
 
 const gracefulShutdown = async (signal) => {
@@ -928,6 +951,12 @@ const gracefulShutdown = async (signal) => {
 
         await closeServer(https_server, 'HTTPS');
         await closeServer(http_server, 'HTTP');
+
+        // Cleanup peer bridge
+        if (peerBridge) {
+            peerBridge.cleanup();
+            console.log('Peer bridge cleaned up');
+        }
 
         // Cleanup agent modules
         if (agentManager) {

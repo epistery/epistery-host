@@ -31,6 +31,7 @@ export class AgentManager {
         this.agentsPath = agentsPath;
         this.agents = new Map();
         this.toolRegistry = []; // collected from agent manifests
+        this.externalTools = new Map(); // peerId -> tools[] (from bridge peers)
     }
 
     /**
@@ -171,7 +172,8 @@ export class AgentManager {
         const AgentClass = (await import(moduleUrl)).default;
         const agentInstance = new AgentClass({
             ...manifest.config,
-            getAgentTools: () => this.getRegisteredTools()
+            getAgentTools: () => this.getRegisteredTools(),
+            callBridgedTool: (peerId, toolName, args) => this.callBridgedTool(peerId, toolName, args)
         });
 
         const agentRouter = express.Router();
@@ -239,11 +241,48 @@ export class AgentManager {
     }
 
     /**
-     * Return all registered agent tools.
+     * Register tools from a bridge peer as external tools.
+     * Each tool gets bridged:true and peerId so callers route through PeerBridge.
+     */
+    registerExternalTools(tools, peerId) {
+        this.externalTools.set(peerId, tools.map(t => ({
+            ...t,
+            bridged: true,
+            peerId
+        })));
+        console.log(`[AgentManager] Registered ${tools.length} external tool(s) from peer ${peerId}`);
+    }
+
+    /**
+     * Remove external tools when a bridge peer disconnects.
+     */
+    unregisterExternalTools(peerId) {
+        if (this.externalTools.delete(peerId)) {
+            console.log(`[AgentManager] Unregistered external tools from peer ${peerId}`);
+        }
+    }
+
+    /**
+     * Return all registered agent tools (local + bridged).
      * Called by agents (e.g. Mimi) via the getAgentTools config function.
      */
     getRegisteredTools() {
-        return this.toolRegistry;
+        const all = [...this.toolRegistry];
+        for (const tools of this.externalTools.values()) {
+            all.push(...tools);
+        }
+        return all;
+    }
+
+    /**
+     * Call a tool on a bridged peer via PeerBridge.
+     * Set by index.mjs after PeerBridge is created.
+     */
+    callBridgedTool(peerId, toolName, args) {
+        if (!this.peerBridge) {
+            return Promise.reject(new Error('PeerBridge not initialized'));
+        }
+        return this.peerBridge.callRemoteTool(peerId, toolName, args);
     }
 
     initializeWebSockets(server) {
