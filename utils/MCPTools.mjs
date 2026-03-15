@@ -11,25 +11,26 @@ export const TOOLS = [
   // ── Wiki ──
   {
     name: 'wiki_read',
-    description: 'Read a wiki page by title. Returns the page content in markdown.',
+    description: 'Read a wiki page by its document ID. Returns the page content in markdown.',
     inputSchema: {
       type: 'object',
       properties: {
-        page: { type: 'string', description: 'Page title (e.g., "Home")' }
+        page: { type: 'string', description: 'Document ID - a WikiWord using only letters, numbers, and underscores (min 3 chars). Examples: "Home", "BedfordStreet", "FAQ_Page"' }
       },
       required: ['page']
     }
   },
   {
     name: 'wiki_write',
-    description: 'Create or update a wiki page. Content should be markdown.',
+    description: 'Create or update a wiki page. The id is a WikiWord document identifier (letters, numbers, underscores only, min 3 chars). The title is a human-readable display name. Content should be markdown.',
     inputSchema: {
       type: 'object',
       properties: {
-        title: { type: 'string', description: 'Page title' },
+        id: { type: 'string', description: 'Document ID - a WikiWord using only letters, numbers, and underscores (min 3 chars). Examples: "BedfordStreetHistory", "AboutUs", "FAQ_Page"' },
+        title: { type: 'string', description: 'Human-readable page title (e.g., "73 Bedford Street History")' },
         content: { type: 'string', description: 'Page content (markdown)' }
       },
-      required: ['title', 'content']
+      required: ['id', 'title', 'content']
     }
   },
   {
@@ -192,7 +193,8 @@ export function createHandlers(port) {
 
     async wiki_write(args, req) {
       try {
-        const data = await api(`/agent/epistery/wiki/${encodeURIComponent(args.title)}`, req, {
+        const docId = args.id || args.title;
+        const data = await api(`/agent/epistery/wiki/${encodeURIComponent(docId)}`, req, {
           method: 'POST',
           body: JSON.stringify({ title: args.title, body: args.content })
         });
