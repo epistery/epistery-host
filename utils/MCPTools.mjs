@@ -190,6 +190,39 @@ export function hasScope(req, required) {
   return granted.split(' ').includes(required);
 }
 
+// ACL check cache: `${address}:${agentName}` → { result, ts }
+const _aclCache = new Map();
+const ACL_CACHE_TTL = 3 * 60 * 1000;  // 3 minutes
+
+/**
+ * Extract the agent name from an internal route path.
+ * Paths look like /agent/rootz/simplifi-agent/accounts
+ * Agent manifest names use @ prefix: @rootz/simplifi-agent
+ * Returns null for paths that don't match /agent/{ns}/{name}.
+ */
+function agentNameFromPath(path) {
+  const m = path.match(/^\/agent\/([^/]+\/[^/]+)/);
+  return m ? `@${m[1]}` : null;
+}
+
+/**
+ * Check agent ACL for the authenticated client, with caching.
+ * Uses req.domainAcl.checkAgentAccess (reads aclStance from contract).
+ * @returns {Promise<{ allowed: boolean, level: number }>}
+ */
+async function checkAgentAcl(req, agentName) {
+  const address = req.episteryClient?.address;
+  if (!req.domainAcl || !address) return { allowed: false, level: 0 };
+
+  const cacheKey = `${address}:${agentName}`;
+  const cached = _aclCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < ACL_CACHE_TTL) return cached.result;
+
+  const result = await req.domainAcl.checkAgentAccess(agentName, address, req.hostname);
+  _aclCache.set(cacheKey, { result, ts: Date.now() });
+  return result;
+}
+
 /**
  * Create tool handlers bound to an internal port.
  * @param {number} port — Internal epistery-host port
@@ -198,6 +231,15 @@ export function hasScope(req, required) {
 export function createHandlers(port) {
 
   async function api(path, req, opts = {}) {
+    // Enforce agent ACL using the already-authenticated clientAddress
+    const agentName = agentNameFromPath(path);
+    if (agentName) {
+      const access = await checkAgentAcl(req, agentName);
+      if (!access.allowed) {
+        throw new Error(`Access denied: ${req.episteryClient?.address || 'unknown'} does not have access to ${agentName}`);
+      }
+    }
+
     const headers = {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
