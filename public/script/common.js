@@ -11,6 +11,10 @@
     console.warn('[Epistery] Could not establish session:', error.message);
   }
 
+  // Signal that session setup is complete (success or failure).
+  // Agents like wiki wait for this before making authenticated API calls.
+  document.dispatchEvent(new CustomEvent('epistery-ready'));
+
   // Load widgets AFTER identity is established - widgets make authenticated requests
   import('/script/widgets.mjs');
 
