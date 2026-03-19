@@ -91,11 +91,7 @@
                 <div class="form-group">
                     <label for="provider-select">Blockchain Provider</label>
                     <select id="provider-select" class="console-panel">
-                        <option value="polygon-mainnet">Polygon Mainnet (Chain ID: 137)</option>
-                        <option value="ethereum-mainnet">Ethereum Mainnet (Chain ID: 1)</option>
-                        <option value="japan-open-chain">Japan Open Chain (Chain ID: 81)</option>
-                        <option value="polygon-amoy">Polygon Amoy Testnet (Chain ID: 80002)</option>
-                        <option value="sepolia-testnet">Sepolia Testnet (Chain ID: 11155111)</option>
+                        <option value="default" id="default-provider-option">Loading...</option>
                         <option value="custom">Custom Network</option>
                     </select>
                 </div>
@@ -209,48 +205,23 @@
             location.replace(`https://${location.host}${location.pathname}${location.search}`);
         }
 
-        const PROVIDER_CONFIGS = {
-            'polygon-mainnet': {
-                name: 'Polygon Mainnet',
-                chainId: 137,
-                rpc: 'https://polygon-rpc.com',
-                nativeCurrencyName: 'POL',
-                nativeCurrencySymbol: 'POL',
-                nativeCurrencyDecimals: 18
-            },
-            'ethereum-mainnet': {
-                name: 'Ethereum Mainnet',
-                chainId: 1,
-                rpc: 'https://eth.llamarpc.com',
-                nativeCurrencySymbol: 'ETH',
-                nativeCurrencyName: 'Ether',
-                nativeCurrencyDecimals: 18
-            },
-            'japan-open-chain': {
-                name: 'Japan Open Chain',
-                chainId: 81,
-                rpc: 'https://rpc-2.japanopenchain.org:8545',
-                nativeCurrencyName: 'JOC',
-                nativeCurrencySymbol: 'JOC',
-                nativeCurrencyDecimals: 18
-            },
-            'polygon-amoy': {
-                name: 'Polygon Amoy Testnet',
-                chainId: 80002,
-                rpc: 'https://rpc-amoy.polygon.technology',
-                nativeCurrencySymbol: 'POL',
-                nativeCurrencyName: 'Polygon',
-                nativeCurrencyDecimals: 18
-            },
-            'sepolia-testnet': {
-                name: 'Sepolia',
-                chainId: 11155111,
-                rpc: 'https://eth-sepolia.g.alchemy.com/v2/NJPpVUeD8bVFjn_5fZcG3',
-                nativeCurrencySymbol: 'ETH',
-                nativeCurrencyName: 'Ether',
-                nativeCurrencyDecimals: 18
+        // Provider defaults loaded from server (root config)
+        let PROVIDER_CONFIG = null;
+
+        async function loadProviderDefaults() {
+            try {
+                const response = await fetch('/api/provider-defaults');
+                if (response.ok) {
+                    PROVIDER_CONFIG = await response.json();
+                }
+            } catch (e) {
+                console.warn('[claim] Could not load provider defaults:', e);
             }
-        };
+            if (!PROVIDER_CONFIG) {
+                PROVIDER_CONFIG = { name: 'Polygon Mainnet', chainId: '137',
+                    nativeCurrencyName: 'POL', nativeCurrencySymbol: 'POL', nativeCurrencyDecimals: '18' };
+            }
+        }
 
         let connectedWallet = null;
         let challengeToken = null;
@@ -274,7 +245,7 @@
 
             try {
                 const providerValue = document.getElementById('provider-select').value;
-                let providerConfig = PROVIDER_CONFIGS[providerValue];
+                let providerConfig;
 
                 if (providerValue === 'custom') {
                     const name = document.getElementById('custom-name').value;
@@ -290,6 +261,8 @@
                         chainId: parseInt(chainId),
                         rpc
                     };
+                } else {
+                    providerConfig = { ...PROVIDER_CONFIG };
                 }
 
                 // Initialize domain with selected provider
@@ -353,7 +326,7 @@
         document.getElementById('generate-btn').addEventListener('click', async () => {
             try {
                 const providerValue = document.getElementById('provider-select').value;
-                let providerConfig = PROVIDER_CONFIGS[providerValue];
+                let providerConfig;
 
                 if (providerValue === 'custom') {
                     providerConfig = {
@@ -361,6 +334,8 @@
                         chainId: parseInt(document.getElementById('custom-chain-id').value),
                         rpc: document.getElementById('custom-rpc').value
                     };
+                } else {
+                    providerConfig = { ...PROVIDER_CONFIG };
                 }
 
                 console.log('[claim] Generating challenge with provider:', providerConfig);
@@ -464,7 +439,11 @@
             }
         }
 
-        checkExistingChallenge();
+        loadProviderDefaults().then(() => {
+            const opt = document.getElementById('default-provider-option');
+            opt.textContent = `${PROVIDER_CONFIG.name} (Chain ID: ${PROVIDER_CONFIG.chainId})`;
+            checkExistingChallenge();
+        });
     </script>
 </body>
 </html>

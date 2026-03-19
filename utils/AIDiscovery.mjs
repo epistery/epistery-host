@@ -63,7 +63,7 @@ export class AIDiscovery {
           chainId: parseInt(provider.chainId) || 137,
           contract: contractAddress,
           wallet: wallet.address || null,
-          rpc: provider.rpc || null
+          rpc: provider.publicRpc || null
         } : null;
 
         const discovery = {

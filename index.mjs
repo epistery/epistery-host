@@ -100,7 +100,7 @@ let main = async function() {
                 adminAddress: cfg.data?.admin_address || null,
                 provider: provider.name || 'Polygon Mainnet',
                 chainId: provider.chainId?.toString() || '137',
-                rpc: provider.rpc || 'https://polygon-rpc.com',
+                rpc: provider.publicRpc || 'https://polygon-rpc.com',
                 nativeCurrency: {
                     symbol: provider.nativeCurrency?.symbol || 'POL',
                     name: provider.nativeCurrency?.name || 'POL',
@@ -542,6 +542,30 @@ let main = async function() {
         }
     });
 
+
+    // API: Provider defaults from root config (for claim page)
+    // Returns chain info with a public RPC URL (never the private/paid one)
+    const PUBLIC_RPC = {
+        '137': 'https://polygon-rpc.com',
+        '1': 'https://eth.llamarpc.com',
+        '81': 'https://rpc-2.japanopenchain.org:8545',
+        '80002': 'https://rpc-amoy.polygon.technology',
+        '11155111': 'https://eth-sepolia.public.blastapi.io'
+    };
+    app.get('/api/provider-defaults', (req, res) => {
+        const rootCfg = new Config();
+        const rootData = rootCfg.read('/');
+        const defaults = rootData?.default?.provider || {};
+        const chainId = String(defaults.chainId || '137');
+        res.json({
+            name: defaults.name || 'Polygon Mainnet',
+            chainId: chainId,
+            rpc: defaults.publicRpc || PUBLIC_RPC[chainId] || 'https://polygon-rpc.com',
+            nativeCurrencyName: defaults.nativeCurrencyName || 'POL',
+            nativeCurrencySymbol: defaults.nativeCurrencySymbol || 'POL',
+            nativeCurrencyDecimals: defaults.nativeCurrencyDecimals || '18'
+        });
+    });
 
     // Static files (after specific routes)
     app.use('/style', express.static(path.join(__dirname, 'public/style')));

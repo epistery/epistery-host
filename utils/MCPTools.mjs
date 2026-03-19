@@ -126,6 +126,42 @@ export const TOOLS = [
     name: 'whoami',
     description: 'Show your current wallet identity, auth method, and permissions.',
     inputSchema: { type: 'object', properties: {} }
+  },
+
+  // ── Simplifi ──
+  {
+    name: 'simplifi_accounts',
+    description: 'List all Quicken Simplifi financial accounts with balances.',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'simplifi_transactions',
+    description: 'Query Simplifi transactions. Filter by date range, account, category, payee, or amount.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        start_date: { type: 'string', description: 'Start date (YYYY-MM-DD)' },
+        end_date: { type: 'string', description: 'End date (YYYY-MM-DD)' },
+        account: { type: 'string', description: 'Filter by account name (substring match)' },
+        category: { type: 'string', description: 'Filter by category (substring match)' },
+        payee: { type: 'string', description: 'Filter by payee (substring match)' },
+        min_amount: { type: 'number', description: 'Minimum amount' },
+        max_amount: { type: 'number', description: 'Maximum amount' },
+        limit: { type: 'number', description: 'Max results (default 100)' }
+      }
+    }
+  },
+  {
+    name: 'simplifi_summary',
+    description: 'Spending summary grouped by category, payee, account, or month for a date range.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        start_date: { type: 'string', description: 'Start date (YYYY-MM-DD)' },
+        end_date: { type: 'string', description: 'End date (YYYY-MM-DD)' },
+        group_by: { type: 'string', description: 'Group by: category (default), payee, account, or month' }
+      }
+    }
   }
 ];
 
@@ -142,7 +178,10 @@ export const TOOL_SCOPES = {
   message_list: 'messages:read',
   message_post: 'messages:write',
   secret_list: 'secrets:read',
-  whoami: null  // no scope required
+  whoami: null,  // no scope required
+  simplifi_accounts: 'simplifi:read',
+  simplifi_transactions: 'simplifi:read',
+  simplifi_summary: 'simplifi:read'
 };
 
 export function hasScope(req, required) {
@@ -296,6 +335,41 @@ export function createHandlers(port) {
         domain: req.hostname
       };
       return text(info);
+    },
+
+    // ── Simplifi ──
+    async simplifi_accounts(args, req) {
+      try {
+        const data = await api('/agent/rootz/simplifi-agent/accounts', req);
+        if (data.error) return error(data.error);
+        return text(data);
+      } catch (e) { return error(e.message); }
+    },
+
+    async simplifi_transactions(args, req) {
+      try {
+        const params = new URLSearchParams();
+        for (const key of ['start_date', 'end_date', 'account', 'category', 'payee', 'min_amount', 'max_amount', 'limit']) {
+          if (args[key] != null) params.set(key, args[key]);
+        }
+        const qs = params.toString();
+        const data = await api(`/agent/rootz/simplifi-agent/transactions${qs ? '?' + qs : ''}`, req);
+        if (data.error) return error(data.error);
+        return text(data);
+      } catch (e) { return error(e.message); }
+    },
+
+    async simplifi_summary(args, req) {
+      try {
+        const params = new URLSearchParams();
+        for (const key of ['start_date', 'end_date', 'group_by']) {
+          if (args[key] != null) params.set(key, args[key]);
+        }
+        const qs = params.toString();
+        const data = await api(`/agent/rootz/simplifi-agent/summary${qs ? '?' + qs : ''}`, req);
+        if (data.error) return error(data.error);
+        return text(data);
+      } catch (e) { return error(e.message); }
     }
   };
 }

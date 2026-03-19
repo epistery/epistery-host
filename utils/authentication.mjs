@@ -92,13 +92,28 @@ export function createAuthRouter() {
             const challengeToken = crypto.randomBytes(32).toString('hex');
             const normalizedClientAddress = clientAddress.toLowerCase();
 
+            // Merge provider: use root config's RPC (private/paid) for server-side calls,
+            // keep what the client sent as publicRpc (safe to expose)
+            const rootCfg = new Config();
+            const rootData = rootCfg.read('/');
+            const rootProvider = rootData?.default?.provider || {};
+
+            const mergedProvider = {
+                ...providerConfig,
+                publicRpc: providerConfig.rpc,
+            };
+            // If root config has an RPC for this chain, use it as the private RPC
+            if (rootProvider.rpc && String(rootProvider.chainId) === String(providerConfig.chainId)) {
+                mergedProvider.rpc = rootProvider.rpc;
+            }
+
             // Save to domain config
             config.data.pending = true;
             config.data.challenge_token = challengeToken;
             config.data.challenge_address = normalizedClientAddress;
             config.data.challenge_created = new Date().toISOString();
             config.data.challenge_requester_ip = req.ip;
-            config.data.provider = providerConfig;
+            config.data.provider = mergedProvider;
 
             config.save();
             console.log(`Domain claim initiated: ${domain} by ${normalizedClientAddress}`);

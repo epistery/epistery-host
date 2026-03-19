@@ -63,10 +63,12 @@ export class DomainAcl {
      * @param {string} userAddress - User's wallet address
      * @param {string} domain - Domain name
      * @param {object} customAuthFunctions - Object mapping function names to async functions
+     * @param {object} [defaultAclStance] - Optional per-agent default ACL stance (overrides global default)
      * @returns {Promise<{allowed: boolean, level: number, strategy: string}>}
      */
-    async checkAgentAccess(agentName, userAddress, domain, customAuthFunctions = {}) {
+    async checkAgentAccess(agentName, userAddress, domain, customAuthFunctions = {}, defaultAclStance = null) {
         const contract = this.chain.contract;
+        const fallback = defaultAclStance || DEFAULT_ACL_STANCE;
 
         // No contract deployed - fall back to config-based check
         if (!contract) {
@@ -75,7 +77,7 @@ export class DomainAcl {
             return {
                 allowed: isAdmin,
                 level: isAdmin ? 3 : 0,
-                enableRequestAccess: true
+                enableRequestAccess: fallback.enableRequestAccess ?? true
             };
         }
 
@@ -89,8 +91,8 @@ export class DomainAcl {
             }
         }
 
-        const aclStance = agentConfig.aclStance || DEFAULT_ACL_STANCE;
-        const acl = aclStance.acl || DEFAULT_ACL_STANCE.acl;
+        const aclStance = agentConfig.aclStance || fallback;
+        const acl = aclStance.acl || fallback.acl;
         // get lists and access for this address. default stance included automatically
         const membershipEntries = await contract.getListsForMember(userAddress);
         const userLists = membershipEntries.map(entry => entry.listName);
