@@ -18,6 +18,13 @@
     .agent-card:hover {
         background: var(--bg-color-quiet-d);
     }
+    .agent-card.open-access {
+        border-color: var(--secondary);
+        background: #f0f8f0;
+    }
+    .agent-card.open-access:hover {
+        background: #e4f0e4;
+    }
     .agent-card img {
         width: 24px;
         height: 24px;
@@ -31,9 +38,44 @@
         border-radius: 4px;
         flex-shrink: 0;
     }
+    .agent-card-info {
+        flex: 1;
+        min-width: 0;
+    }
     .agent-card-title {
         font-weight: 500;
         font-size: 0.95rem;
+    }
+    .agent-card-desc {
+        font-size: 0.8rem;
+        color: var(--text-color-quiet);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .agent-card-badge {
+        font-size: 0.7rem;
+        padding: 2px 8px;
+        border-radius: 10px;
+        font-weight: 500;
+        flex-shrink: 0;
+        white-space: nowrap;
+    }
+    .badge-open {
+        background: var(--secondary);
+        color: white;
+    }
+    .badge-request {
+        background: var(--action-color);
+        color: white;
+        cursor: pointer;
+    }
+    .badge-request:hover {
+        background: var(--action-color-hilite);
+    }
+    .badge-locked {
+        background: var(--bg-color-d);
+        color: var(--text-color-quiet);
     }
     .agent-cards-heading {
         font-size: 1.2rem;
@@ -45,6 +87,7 @@
         font-style: italic;
         padding: var(--spacer2) 0;
     }
+
 </style>
 
 <h2 class="agent-cards-heading">Services</h2>
@@ -77,13 +120,49 @@
             return;
         }
 
+        // Fetch ACL info for all agents in parallel
+        const aclPromises = data.agents
+            .filter(a => !a.noUserInterface)
+            .map(async agent => {
+                try {
+                    const aclRes = await fetch(`/api/acl/agent/${encodeURIComponent(agent.name)}`);
+                    if (aclRes.ok) {
+                        agent._acl = await aclRes.json();
+                    }
+                } catch (e) {}
+
+                // Also check current user's access
+                try {
+                    const accessRes = await fetch(`/api/acl/check-access?agent=${encodeURIComponent(agent.name)}`, {
+                        credentials: 'include'
+                    });
+                    if (accessRes.ok) {
+                        agent._access = await accessRes.json();
+                    }
+                } catch (e) {}
+
+                return agent;
+            });
+
+        await Promise.all(aclPromises);
+
         grid.innerHTML = '';
 
         for (const agent of data.agents) {
             if (agent.noUserInterface) continue;
 
+            const acl = agent._acl?.acl || [];
+            const authConfig = agent._acl?.authConfig || {};
+            const userAccess = agent._access || {};
+
+            // Determine if agent has open access (default list access > 0)
+            const defaultEntry = acl.find(e => e.list === 'default');
+            const isOpen = defaultEntry && defaultEntry.access > 0;
+            const canRequest = authConfig.enableRequestAccess && !isOpen;
+            const hasAccess = userAccess.level > 0;
+
             const a = document.createElement('a');
-            a.className = 'agent-card';
+            a.className = 'agent-card' + (isOpen ? ' open-access' : '');
             a.href = agent.shortPath;
 
             if (agent.icon) {
@@ -97,10 +176,47 @@
                 a.appendChild(placeholder);
             }
 
+            const info = document.createElement('div');
+            info.className = 'agent-card-info';
+
             const title = document.createElement('span');
             title.className = 'agent-card-title';
             title.textContent = agent.title || agent.simpleName;
-            a.appendChild(title);
+            info.appendChild(title);
+
+            if (agent.description) {
+                const desc = document.createElement('div');
+                desc.className = 'agent-card-desc';
+                desc.textContent = agent.description;
+                info.appendChild(desc);
+            }
+
+            a.appendChild(info);
+
+            // Access badge
+            if (isOpen) {
+                const badge = document.createElement('span');
+                badge.className = 'agent-card-badge badge-open';
+                badge.textContent = 'Open';
+                a.appendChild(badge);
+            } else if (hasAccess || isAdmin) {
+                // User already has access, no badge needed
+            } else if (canRequest) {
+                const badge = document.createElement('span');
+                badge.className = 'agent-card-badge badge-request';
+                badge.textContent = 'Request Access';
+                badge.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    requestAgentAccess(agent.name, agent.title || agent.simpleName);
+                });
+                a.appendChild(badge);
+            } else {
+                const badge = document.createElement('span');
+                badge.className = 'agent-card-badge badge-locked';
+                badge.textContent = 'Restricted';
+                a.appendChild(badge);
+            }
 
             grid.appendChild(a);
         }
@@ -116,10 +232,13 @@
             img.alt = 'Administrate';
             a.appendChild(img);
 
+            const info = document.createElement('div');
+            info.className = 'agent-card-info';
             const title = document.createElement('span');
             title.className = 'agent-card-title';
             title.textContent = 'Administrate';
-            a.appendChild(title);
+            info.appendChild(title);
+            a.appendChild(info);
 
             grid.appendChild(a);
         }
@@ -127,6 +246,51 @@
     } catch (e) {
         console.error('[agent-cards] Failed to load agents:', e);
         grid.innerHTML = '<div class="agent-cards-empty">Failed to load agents.</div>';
+    }
+
+    // Request access flow - inline on the home page
+    async function requestAgentAccess(agentName, displayName) {
+        const message = prompt(`Request access to ${displayName}?\nOptionally add a message for the administrator:`);
+        if (message === null) return; // cancelled
+
+        try {
+            const data = localStorage.getItem('epistery');
+            if (!data) {
+                alert('Please wait for your wallet to initialize, then try again.');
+                return;
+            }
+            const parsed = JSON.parse(data);
+            let wallet = parsed.wallets?.[0];
+            if (wallet && wallet.wallet) wallet = wallet.wallet;
+            if (!wallet || !wallet.address) {
+                alert('No wallet address found');
+                return;
+            }
+
+            const address = wallet.rivetAddress || wallet.address;
+            const response = await fetch('/api/acl/request-access', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    address,
+                    listName: 'epistery::reader',
+                    agentName,
+                    message: message || '',
+                    name: ''
+                })
+            });
+
+            const result = await response.json();
+            if (result.success) {
+                alert(result.alreadyRequested
+                    ? 'You already have a pending request for this service.'
+                    : 'Access request submitted. An administrator will review it.');
+            } else {
+                alert('Failed to request access: ' + (result.error || 'Unknown error'));
+            }
+        } catch (err) {
+            alert('Failed to request access: ' + err.message);
+        }
     }
 })();
 </script>

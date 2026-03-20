@@ -377,7 +377,13 @@
             const btns = document.createElement('div');
             btns.className = 'wallet-btns';
 
-            if (!w.isDefault) {
+            if (w.isDefault) {
+                const defaultBtn = document.createElement('button');
+                defaultBtn.className = 'icon icon-star';
+                defaultBtn.title = 'Default wallet';
+                defaultBtn.style.cursor = 'default';
+                btns.appendChild(defaultBtn);
+            } else {
                 const defaultBtn = document.createElement('button');
                 defaultBtn.className = 'icon icon-star-outlined';
                 defaultBtn.title = 'Set as default';
