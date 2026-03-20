@@ -186,6 +186,8 @@ export const TOOL_SCOPES = {
 
 export function hasScope(req, required) {
   if (!required) return true;
+  // Bot-auth access is governed by ACL lists, not OAuth scopes
+  if (req.episteryClient?.authType === 'bot') return true;
   const granted = req.oauthScope || '';
   return granted.split(' ').includes(required);
 }

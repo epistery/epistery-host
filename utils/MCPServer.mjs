@@ -9,9 +9,9 @@
  *   GET  /mcp   — SSE stream (keep-alive for clients that open GET first)
  *   DELETE /mcp  — Session cleanup
  *
- * Auth: requires req.episteryClient (set by OAuthServer's Bearer middleware).
- * Returns 401 with WWW-Authenticate pointing to /.well-known/oauth-protected-resource
- * to trigger the OAuth discovery flow.
+ * Auth: requires req.episteryClient (set by epistery middleware or OAuthServer).
+ * Accepts both OAuth Bearer tokens and epistery bot-auth (ECDSA signatures).
+ * Returns 401 with WWW-Authenticate for unauthenticated requests.
  *
  * Adapted from Steven's /opt/mcp-agent/index.mjs.
  */
@@ -30,13 +30,13 @@ export class MCPServer {
 
     // ── POST /mcp — JSON-RPC requests ──
     app.post('/mcp', async (req, res) => {
-      // Auth check: 401 triggers OAuth discovery
-      if (!req.episteryClient?.authenticated || req.episteryClient.authType !== 'oauth') {
+      // Auth check: accept OAuth Bearer or epistery bot-auth
+      if (!req.episteryClient?.authenticated) {
         return res.status(401)
           .set('WWW-Authenticate', `Bearer resource_metadata="https://${req.hostname}/.well-known/oauth-protected-resource"`)
           .json({
             jsonrpc: '2.0',
-            error: { code: -32000, message: 'Authentication required. Use OAuth 2.1 to obtain a Bearer token.' },
+            error: { code: -32000, message: 'Authentication required.' },
             id: null
           });
       }
@@ -66,7 +66,7 @@ export class MCPServer {
     // ── GET /mcp — SSE stream ──
     // Some MCP clients (Claude Code) open a GET SSE connection first.
     app.get('/mcp', (req, res) => {
-      if (!req.episteryClient?.authenticated || req.episteryClient.authType !== 'oauth') {
+      if (!req.episteryClient?.authenticated) {
         return res.status(401)
           .set('WWW-Authenticate', `Bearer resource_metadata="https://${req.hostname}/.well-known/oauth-protected-resource"`)
           .json({ error: 'Authentication required' });
