@@ -1,4 +1,5 @@
 import express from 'express';
+import compression from 'compression';
 import http from 'http';
 import https from 'https';
 import cookieParser from 'cookie-parser';
@@ -17,6 +18,7 @@ import { MCPServer } from './utils/MCPServer.mjs';
 import { AIDiscovery } from './utils/AIDiscovery.mjs';
 import { AgentManager } from './utils/AgentManager.mjs';
 import { PeerBridge } from './utils/PeerBridge.mjs';
+import { retryWithBackoff } from './utils/retryWithBackoff.mjs';
 import Pages from './pages/index.mjs'
 
 const require = createRequire(import.meta.url);
@@ -38,30 +40,26 @@ function estimateDeployGas() {
 let isShuttingDown = false;
 let app, https_server, http_server, config, agentManager, peerBridge;
 
-// Helper to retry RPC calls on rate limit errors
-async function retryWithBackoff(fn, maxRetries = 3, baseDelay = 10000) {
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-        try {
-            return await fn();
-        } catch (error) {
-            const isRateLimit = error.code === 'SERVER_ERROR' &&
-                               error.body &&
-                               error.body.includes('rate limit');
-
-            if (!isRateLimit || attempt === maxRetries) {
-                throw error;
-            }
-
-            const delay = baseDelay * Math.pow(1.5, attempt);
-            console.log(`Rate limit hit, retrying in ${delay/1000}s (attempt ${attempt + 1}/${maxRetries + 1})...`);
-            await new Promise(resolve => setTimeout(resolve, delay));
-        }
-    }
-}
+// Cache HTML templates at startup (avoid readFileSync per request)
+const TEMPLATES = {
+    claim: readFileSync(path.join(__dirname, 'public', 'claim.html'), 'utf8'),
+    initialize: readFileSync(path.join(__dirname, 'public', 'initialize.html'), 'utf8'),
+    index: readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8'),
+    devtools: readFileSync(path.join(__dirname, 'public', 'devtools.html'), 'utf8'),
+};
 
 let main = async function() {
     app = express();
     app.set('trust proxy', 'loopback');  // trust X-Forwarded-Host from 127.0.0.1 (MCP internal proxy)
+    app.use(compression());
+    app.use((req, res, next) => {
+        res.set('X-Content-Type-Options', 'nosniff');
+        res.set('X-Frame-Options', 'SAMEORIGIN');
+        if (req.secure) {
+            res.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+        }
+        next();
+    });
     app.use(cors({
         origin: function(origin, callback){
             return callback(null, true);
@@ -70,7 +68,7 @@ let main = async function() {
         allowedHeaders: ['Content-Type', 'Authorization']
     }));
     app.use(express.urlencoded({extended: true}));
-    app.use(express.json({limit: '50mb'}));
+    app.use(express.json({limit: '2mb'}));
     app.use(cookieParser());
 
     // Mount authentication routes
@@ -136,8 +134,7 @@ let main = async function() {
             // Check if domain is claimed/verified
             if (!cfg.data || !cfg.data.verified) {
                 // Domain not claimed - show claim page
-                const claimTemplate = readFileSync(path.join(__dirname, 'public', 'claim.html'), 'utf8');
-                const html = claimTemplate.replace(/{DOMAIN}/g, domain);
+                const html = TEMPLATES.claim.replace(/{DOMAIN}/g, domain);
                 return res.send(html);
             }
 
@@ -147,8 +144,7 @@ let main = async function() {
 
             if (!isInitialized && !('home' in req.query)) {
                 // Domain verified but no contract - show initialize page
-                const initTemplate = readFileSync(path.join(__dirname, 'public', 'initialize.html'), 'utf8');
-                return res.send(initTemplate);
+                return res.send(TEMPLATES.initialize);
             }
 
             // Check if there's a default agent set (and not bypassed with ?home query param)
@@ -166,8 +162,7 @@ let main = async function() {
             const wallet = cfg.data.wallet || {};
             const walletAddress = wallet.address || 'Not configured';
 
-            const template = readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
-            const html = template
+            const html = TEMPLATES.index
                 .replace(/{DOMAIN}/g, domain)
                 .replace(/{SERVER_WALLET}/g, walletAddress);
 
@@ -184,8 +179,7 @@ let main = async function() {
         const cfg = new Config();
         cfg.setPath(domain);
         const wallet = cfg.data?.wallet || {};
-        const template = readFileSync(path.join(__dirname, 'public', 'devtools.html'), 'utf8');
-        res.send(template.replace(/{DOMAIN}/g, domain).replace(/{SERVER_WALLET}/g, wallet.address || 'Not configured'));
+        res.send(TEMPLATES.devtools.replace(/{DOMAIN}/g, domain).replace(/{SERVER_WALLET}/g, wallet.address || 'Not configured'));
     });
 
     // Initialize page route
@@ -456,7 +450,6 @@ let main = async function() {
         }
     });
 
-    app.post('/api/deploy-agent', deployAgentContract);
     app.post('/api/contract/deploy', deployAgentContract);
 
     // API: Check DomainAgent contract version
@@ -512,37 +505,6 @@ let main = async function() {
         }
     });
 
-    // API: Request deployment help from epistery.host admins. This is for requesting the host to sponsor a new domain and provide some POL
-    app.post('/api/request-deployment-help', async (req, res) => {
-        try {
-            const { domain, walletAddress, requesterRivet } = req.body;
-
-            if (!domain || !walletAddress || !requesterRivet) {
-                return res.status(400).json({ error: 'Missing required fields' });
-            }
-
-            // This would be stored and shown to epistery.host admins
-            console.log('[deployment-help] Request received:', {
-                domain,
-                walletAddress,
-                requesterRivet,
-                timestamp: new Date().toISOString()
-            });
-
-            // TODO: Store in database or file system for admin review
-            // For now, just log it
-
-            res.json({
-                success: true,
-                message: 'Help request submitted. An administrator will review your request.'
-            });
-        } catch (error) {
-            console.error('Deployment help request error:', error);
-            res.status(500).json({ error: error.message });
-        }
-    });
-
-
     // API: Provider defaults from root config (for claim page)
     // Returns chain info with a public RPC URL (never the private/paid one)
     const PUBLIC_RPC = {
@@ -568,10 +530,11 @@ let main = async function() {
     });
 
     // Static files (after specific routes)
-    app.use('/style', express.static(path.join(__dirname, 'public/style')));
-    app.use('/image', express.static(path.join(__dirname, 'public/image')));
-    app.use('/script', express.static(path.join(__dirname, 'public/script')));
-    app.use('/widgets', express.static(path.join(__dirname, 'public/widgets')));
+    const staticOpts = { maxAge: '1d', etag: true };
+    app.use('/style', express.static(path.join(__dirname, 'public/style'), staticOpts));
+    app.use('/image', express.static(path.join(__dirname, 'public/image'), staticOpts));
+    app.use('/script', express.static(path.join(__dirname, 'public/script'), staticOpts));
+    app.use('/widgets', express.static(path.join(__dirname, 'public/widgets'), staticOpts));
     // /.well-known/ai is now served dynamically by AIDiscovery (mounted after MCPServer)
 
     // Serve service worker (must be at root for scope)

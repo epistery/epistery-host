@@ -145,16 +145,12 @@ export function createAuthRouter() {
 
             // Use authenticated address from epistery middleware if available, fallback to query param
             const clientAddress = req.episteryClient?.address || req.query.address;
-            console.log(`[debug] Verification attempt for domain: ${domain}`);
-            console.log(`[debug] Client address: ${clientAddress} (from ${req.episteryClient ? 'episteryClient' : 'query'})`);
-            console.log(`[debug] Stored challenge address: ${config.data.challenge_address}`);
 
             if (!clientAddress) {
                 return res.status(401).json({ status: 'error', message: 'Client address not found - authentication required' });
             }
 
             if (clientAddress.toLowerCase() !== config.data.challenge_address.toLowerCase()) {
-                console.log(`[debug] Address mismatch: stored=${config.data.challenge_address}, current=${clientAddress}`);
                 return res.status(403).json({ status: 'error', message: 'Only the original requester can complete the claim' });
             }
 
@@ -165,7 +161,7 @@ export function createAuthRouter() {
                 return res.status(400).json({ status: 'error', message: 'DNS TXT record not found or incorrect' });
             }
 
-            console.log(`[debug] Domain claim completed: ${domain} by ${clientAddress} from ${req.ip}`);
+            console.log(`Domain claim completed: ${domain} by ${clientAddress}`);
 
             config.data.verified = true;
             config.data.admin_address = clientAddress.toLowerCase();

@@ -5,30 +5,14 @@ import { readFileSync } from 'fs';
 import {createRequire} from "module";
 import {fileURLToPath} from "url";
 import { S3Client, ListObjectsV2Command, CopyObjectCommand } from '@aws-sdk/client-s3';
+import { retryWithBackoff } from './retryWithBackoff.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Retry RPC calls on rate limit errors
-async function retryWithBackoff(fn, maxRetries = 3, baseDelay = 10000) {
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      return await fn();
-    } catch (error) {
-      const isRateLimit = error.code === 'SERVER_ERROR' &&
-                          error.body &&
-                          error.body.includes('rate limit');
-      if (!isRateLimit || attempt === maxRetries) {
-        throw error;
-      }
-      const delay = baseDelay * Math.pow(1.5, attempt);
-      console.log(`Rate limit hit, retrying in ${delay/1000}s (attempt ${attempt + 1}/${maxRetries + 1})...`);
-      await new Promise(resolve => setTimeout(resolve, delay));
-    }
-  }
-}
-
 export class DomainChain {
+  // Cache RPC providers by endpoint URL to avoid recreating per request
+  static _providers = new Map();
   constructor(domain) {
     this.domain = domain;
     this.config = new Config();
@@ -44,10 +28,16 @@ export class DomainChain {
   }
   get provider() {
     if (!this._provider) {
-      this._provider = new ethers.providers.JsonRpcProvider(this.config.data.provider.rpc, {
-        chainId: parseInt(this.config.data.provider.chainId),
-        name: this.config.data.provider.name
-      });
+      const rpc = this.config.data.provider.rpc;
+      const chainId = parseInt(this.config.data.provider.chainId);
+      const key = `${rpc}:${chainId}`;
+      if (!DomainChain._providers.has(key)) {
+        DomainChain._providers.set(key, new ethers.providers.JsonRpcProvider(rpc, {
+          chainId,
+          name: this.config.data.provider.name
+        }));
+      }
+      this._provider = DomainChain._providers.get(key);
     }
     return this._provider;
   }
