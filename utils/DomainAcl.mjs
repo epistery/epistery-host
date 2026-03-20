@@ -33,6 +33,17 @@ export class DomainAcl {
     savePendingRequests(domain, requests) {
         this.config.writeFile('pending-requests.json', JSON.stringify(requests, null, 2));
     }
+    loadInviteMetadata() {
+        try {
+            const data = this.config.readFile('invite-metadata.json');
+            return JSON.parse(data.toString('utf8'));
+        } catch (e) {
+            return {};
+        }
+    }
+    saveInviteMetadata(metadata) {
+        this.config.writeFile('invite-metadata.json', JSON.stringify(metadata, null, 2));
+    }
     async isAdmin(address) {
         try {
             // Check if address is on the epistery::admin list using DomainAgent contract
@@ -492,7 +503,7 @@ export class DomainAcl {
                     return res.status(403).json({ error: 'Not authorized' });
                 }
 
-                const { listName, role, targetPath } = req.body;
+                const { listName, role, targetPath, name, comment } = req.body;
                 const domainChain = req.domainAcl.chain;
                 if (!domainChain.contract) {
                     return res.status(400).json({ error: 'Contract not deployed' });
@@ -508,6 +519,13 @@ export class DomainAcl {
                 const feeData = await domainChain.getFeeData();
                 const tx = await domainChain.contract.createInvite(codeHash, aclList, aclRole, feeData);
                 await tx.wait();
+
+                // Store optional name/comment metadata locally (not on-chain)
+                if (name || comment) {
+                    const metadata = req.domainAcl.loadInviteMetadata();
+                    metadata[codeHash] = { name: name || '', comment: comment || '' };
+                    req.domainAcl.saveInviteMetadata(metadata);
+                }
 
                 // Build invite URL
                 const path = targetPath || '/';
@@ -541,6 +559,7 @@ export class DomainAcl {
                 }
 
                 const invites = await domainChain.contract.getInvites();
+                const metadata = req.domainAcl.loadInviteMetadata();
                 const formatted = invites.map(inv => ({
                     codeHash: inv.codeHash,
                     listName: inv.listName,
@@ -549,7 +568,9 @@ export class DomainAcl {
                     createdAt: inv.createdAt.toNumber() * 1000,
                     consumed: inv.consumed,
                     consumedBy: inv.consumedBy,
-                    consumedAt: inv.consumedAt.toNumber() * 1000
+                    consumedAt: inv.consumedAt.toNumber() * 1000,
+                    name: metadata[inv.codeHash]?.name || '',
+                    comment: metadata[inv.codeHash]?.comment || ''
                 }));
 
                 res.json({ invites: formatted });

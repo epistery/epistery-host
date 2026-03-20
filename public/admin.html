@@ -310,6 +310,18 @@
                                 <option value="epistery::editor">epistery::editor (Write)</option>
                             </select>
                         </div>
+                    </div>
+                    <div style="margin-top: var(--spacerhalf); display: flex; gap: var(--spacerhalf); flex-wrap: wrap; align-items: flex-end;">
+                        <div style="flex: 1; min-width: 150px;">
+                            <label for="invite-name" style="font-size: 0.9em; display: block; margin-bottom: 4px;">Name (optional)</label>
+                            <input type="text" id="invite-name" placeholder="Who is this invite for?"
+                                   style="width: 100%; padding: 8px; border: 1px solid var(--page-border); border-radius: 4px; background: var(--page-background); color: var(--page-text-primary); font-size: 14px;">
+                        </div>
+                        <div style="flex: 2; min-width: 200px;">
+                            <label for="invite-comment" style="font-size: 0.9em; display: block; margin-bottom: 4px;">Comment (optional)</label>
+                            <input type="text" id="invite-comment" placeholder="Note about this invite"
+                                   style="width: 100%; padding: 8px; border: 1px solid var(--page-border); border-radius: 4px; background: var(--page-background); color: var(--page-text-primary); font-size: 14px;">
+                        </div>
                         <button class="console-btn" id="create-invite-btn" onclick="createInvite()">Create Invite</button>
                     </div>
 
@@ -1658,6 +1670,8 @@
             const targetPath = document.getElementById('invite-target-path').value.trim() || '/';
             const listName = document.getElementById('invite-list-select').value;
             const role = listName.includes('::editor') ? 2 : 1;
+            const name = document.getElementById('invite-name').value.trim();
+            const comment = document.getElementById('invite-comment').value.trim();
             const btn = document.getElementById('create-invite-btn');
             const progress = document.getElementById('invite-progress');
             const progressText = document.getElementById('invite-progress-text');
@@ -1672,7 +1686,7 @@
                 const response = await fetch('/api/acl/invite/create', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ listName, role, targetPath })
+                    body: JSON.stringify({ listName, role, targetPath, name, comment })
                 });
 
                 if (!response.ok) {
@@ -1682,6 +1696,8 @@
 
                 const data = await response.json();
                 document.getElementById('invite-url-display').value = data.inviteUrl;
+                document.getElementById('invite-name').value = '';
+                document.getElementById('invite-comment').value = '';
                 progress.style.display = 'none';
                 result.style.display = 'block';
 
@@ -1727,7 +1743,7 @@
 
                 let html = '<table style="width: 100%; border-collapse: collapse; font-size: 14px;">';
                 html += '<thead><tr style="border-bottom: 2px solid var(--page-border);">';
-                html += '<th style="text-align: left; padding: var(--spacerhalf);">Hash</th>';
+                html += '<th style="text-align: left; padding: var(--spacerhalf);">Name</th>';
                 html += '<th style="text-align: left; padding: var(--spacerhalf);">List</th>';
                 html += '<th style="text-align: left; padding: var(--spacerhalf);">Created</th>';
                 html += '<th style="text-align: left; padding: var(--spacerhalf);">Status</th>';
@@ -1736,6 +1752,8 @@
 
                 for (const inv of data.invites) {
                     const shortHash = inv.codeHash.substring(0, 10) + '...';
+                    const label = inv.name || shortHash;
+                    const tooltip = inv.comment ? `${inv.comment}\n${inv.codeHash}` : inv.codeHash;
                     const created = new Date(inv.createdAt).toLocaleDateString();
                     let status, action;
 
@@ -1752,7 +1770,7 @@
                     }
 
                     html += `<tr style="border-bottom: 1px solid var(--page-border);">`;
-                    html += `<td style="padding: var(--spacerhalf); font-family: monospace;" title="${inv.codeHash}">${shortHash}</td>`;
+                    html += `<td style="padding: var(--spacerhalf);" title="${tooltip.replace(/"/g,'&quot;')}">${label}</td>`;
                     html += `<td style="padding: var(--spacerhalf);">${inv.listName}</td>`;
                     html += `<td style="padding: var(--spacerhalf);">${created}</td>`;
                     html += `<td style="padding: var(--spacerhalf);">${status}</td>`;
