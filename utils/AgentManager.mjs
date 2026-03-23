@@ -173,7 +173,8 @@ export class AgentManager {
         const agentInstance = new AgentClass({
             ...manifest.config,
             getAgentTools: () => this.getRegisteredTools(),
-            callBridgedTool: (peerId, toolName, args) => this.callBridgedTool(peerId, toolName, args)
+            callBridgedTool: (peerId, toolName, args) => this.callBridgedTool(peerId, toolName, args),
+            _agentManager: this
         });
 
         const agentRouter = express.Router();
