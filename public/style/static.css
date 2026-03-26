@@ -36,6 +36,10 @@
 .icon-plus:before { content: "\EB1C" }
 .icon-cross:before { content: "\EA77" }
 .icon-link:before { content: "\EAE3" }
+.icon-print:before { content: "\EB21" }
+.icon-save:before { content: "\EB3B" }
+.icon-edit:before { content: "\EA8D" }
+.icon-download:before { content: "\EA86" }
 
 /* Color scheme inspired by metric.im with Rootz branding */
 :root {

@@ -163,7 +163,7 @@
 
             const a = document.createElement('a');
             a.className = 'agent-card' + (isOpen ? ' open-access' : '');
-            a.href = agent.shortPath;
+            a.href = agent.homepage || agent.shortPath;
 
             if (agent.icon) {
                 const img = document.createElement('img');

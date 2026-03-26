@@ -46,6 +46,10 @@ export class AIDiscovery {
               try {
                 const contribution = await agentData.instance.aiDiscovery(domain);
                 if (contribution && typeof contribution === 'object') {
+                  if (contribution._toplevel) {
+                    Object.assign(discovery, contribution._toplevel);
+                    delete contribution._toplevel;
+                  }
                   Object.assign(entry, contribution);
                 }
               } catch (err) {

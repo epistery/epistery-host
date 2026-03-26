@@ -601,6 +601,7 @@ let main = async function() {
                 version: agentData.manifest.version,
                 description: agentData.manifest.description,
                 icon: agentData.manifest.icon || null,
+                homepage: agentData.manifest.homepage || null,
                 widget: agentData.manifest.widget || null,
                 noUserInterface: agentData.manifest.noUserInterface || false,
                 wellKnownPath: agentData.wellKnownPath,

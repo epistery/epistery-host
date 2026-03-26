@@ -3,6 +3,7 @@ import { join } from 'path';
 import { pathToFileURL } from 'url';
 import { spawn } from 'child_process';
 import express from 'express';
+import StorageFactory from './storage/StorageFactory.mjs';
 
 /**
  * AgentManager - Discovers and loads epistery agent modules
@@ -172,6 +173,7 @@ export class AgentManager {
         const AgentClass = (await import(moduleUrl)).default;
         const agentInstance = new AgentClass({
             ...manifest.config,
+            getStorage: (domain, agentName) => StorageFactory.create(null, domain, agentName),
             getAgentTools: () => this.getRegisteredTools(),
             callBridgedTool: (peerId, toolName, args) => this.callBridgedTool(peerId, toolName, args),
             _agentManager: this
