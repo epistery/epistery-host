@@ -87,6 +87,7 @@ export class AgentManager {
      * Load and initialize all discovered agents
      */
     async loadAll(app) {
+        this.app = app; // Store for signer access in getStorage
         const discovered = this.discover();
 
         for (const agentInfo of discovered) {
@@ -173,7 +174,7 @@ export class AgentManager {
         const AgentClass = (await import(moduleUrl)).default;
         const agentInstance = new AgentClass({
             ...manifest.config,
-            getStorage: (domain, agentName) => StorageFactory.create(null, domain, agentName),
+            getStorage: (domain, agentName) => StorageFactory.create(null, domain, agentName, this.app?.locals?.epistery?.signer),
             getAgentTools: () => this.getRegisteredTools(),
             callBridgedTool: (peerId, toolName, args) => this.callBridgedTool(peerId, toolName, args),
             _agentManager: this

@@ -32,13 +32,24 @@ export default class EncryptedStorage {
 
   /**
    * Read from storage and decrypt.
+   * Handles legacy plaintext data gracefully — if the stored content
+   * isn't an encrypted envelope, returns it as-is.
    * @param {string} key - storage key/path
    * @returns {Promise<string>} decrypted content
    */
   async readFile(key) {
     const raw = await this.storage.readFile(key);
-    const encrypted = JSON.parse(raw);
-    return AES.decrypt(encrypted, this.masterKey);
+    try {
+      const parsed = JSON.parse(raw);
+      // Check if this is an encrypted envelope (has our markers)
+      if (parsed.encrypted && parsed.iv && parsed.algorithm === 'AES-256-GCM') {
+        return AES.decrypt(parsed, this.masterKey);
+      }
+    } catch {
+      // Not valid JSON or not an encrypted envelope
+    }
+    // Legacy plaintext — return as-is
+    return raw;
   }
 
   /**

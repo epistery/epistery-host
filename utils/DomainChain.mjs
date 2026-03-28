@@ -204,60 +204,66 @@ export class DomainChain {
       console.warn(`[deploy] Private attribute migration failed: ${err.message}`);
     }
 
-    // 4. Migrate Storj storage (copy objects from old contract prefix to new)
+    // 4. Migrate Storj storage
+    // Privatized domains have their own Storj project — data is unaffected by contract changes.
+    // Only shared-project domains need object copying from old to new contract prefix.
     try {
-      const rootCfg = new Config();
-      const storjConfig = this.config.data.storj || rootCfg.data?.storj;
-      if (storjConfig?.ACCESS_KEY && storjConfig?.SECRET_KEY && storjConfig?.ENDPOINT && storjConfig?.BUCKET) {
-        const s3 = new S3Client({
-          endpoint: storjConfig.ENDPOINT,
-          region: 'us-east-1',
-          credentials: {
-            accessKeyId: storjConfig.ACCESS_KEY,
-            secretAccessKey: storjConfig.SECRET_KEY
-          },
-          forcePathStyle: true
-        });
-        const bucket = storjConfig.BUCKET;
-        const oldPrefix = `${oldContractAddress}/`;
-        const newPrefix = `${newContractAddress}/`;
-
-        let continuationToken;
-        let totalCopied = 0;
-        do {
-          const listCmd = new ListObjectsV2Command({
-            Bucket: bucket,
-            Prefix: oldPrefix,
-            ContinuationToken: continuationToken
-          });
-          const listResponse = await s3.send(listCmd);
-          const objects = listResponse.Contents || [];
-
-          for (const obj of objects) {
-            const relativePath = obj.Key.substring(oldPrefix.length);
-            const newKey = newPrefix + relativePath;
-            try {
-              await s3.send(new CopyObjectCommand({
-                Bucket: bucket,
-                CopySource: `${bucket}/${obj.Key}`,
-                Key: newKey
-              }));
-              totalCopied++;
-            } catch (copyErr) {
-              console.warn(`[deploy] Storj copy failed: ${obj.Key} → ${newKey}: ${copyErr.message}`);
-            }
-          }
-
-          continuationToken = listResponse.IsTruncated ? listResponse.NextContinuationToken : undefined;
-        } while (continuationToken);
-
-        if (totalCopied > 0) {
-          console.log(`[deploy] Storj: copied ${totalCopied} objects from ${oldPrefix} to ${newPrefix}`);
-        } else {
-          console.log(`[deploy] Storj: no objects found under ${oldPrefix}`);
-        }
+      if (this.config.data.storj_private?.ACCESS_KEY) {
+        console.log(`[deploy] Storj: privatized storage, no object migration needed`);
       } else {
-        console.log(`[deploy] Storj not configured, skipping storage migration`);
+        const rootCfg = new Config();
+        const storjConfig = this.config.data.storj || rootCfg.data?.storj;
+        if (storjConfig?.ACCESS_KEY && storjConfig?.SECRET_KEY && storjConfig?.ENDPOINT && storjConfig?.BUCKET) {
+          const s3 = new S3Client({
+            endpoint: storjConfig.ENDPOINT,
+            region: 'us-east-1',
+            credentials: {
+              accessKeyId: storjConfig.ACCESS_KEY,
+              secretAccessKey: storjConfig.SECRET_KEY
+            },
+            forcePathStyle: true
+          });
+          const bucket = storjConfig.BUCKET;
+          const oldPrefix = `${oldContractAddress}/`;
+          const newPrefix = `${newContractAddress}/`;
+
+          let continuationToken;
+          let totalCopied = 0;
+          do {
+            const listCmd = new ListObjectsV2Command({
+              Bucket: bucket,
+              Prefix: oldPrefix,
+              ContinuationToken: continuationToken
+            });
+            const listResponse = await s3.send(listCmd);
+            const objects = listResponse.Contents || [];
+
+            for (const obj of objects) {
+              const relativePath = obj.Key.substring(oldPrefix.length);
+              const newKey = newPrefix + relativePath;
+              try {
+                await s3.send(new CopyObjectCommand({
+                  Bucket: bucket,
+                  CopySource: `${bucket}/${obj.Key}`,
+                  Key: newKey
+                }));
+                totalCopied++;
+              } catch (copyErr) {
+                console.warn(`[deploy] Storj copy failed: ${obj.Key} → ${newKey}: ${copyErr.message}`);
+              }
+            }
+
+            continuationToken = listResponse.IsTruncated ? listResponse.NextContinuationToken : undefined;
+          } while (continuationToken);
+
+          if (totalCopied > 0) {
+            console.log(`[deploy] Storj: copied ${totalCopied} objects from ${oldPrefix} to ${newPrefix}`);
+          } else {
+            console.log(`[deploy] Storj: no objects found under ${oldPrefix}`);
+          }
+        } else {
+          console.log(`[deploy] Storj not configured, skipping storage migration`);
+        }
       }
     } catch (err) {
       console.warn(`[deploy] Storj migration failed: ${err.message}`);

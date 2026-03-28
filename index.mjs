@@ -341,6 +341,7 @@ let main = async function() {
                 } catch (aclError) {
                     console.error('Failed to initialize agent ACL configs:', aclError);
                 }
+
             }
 
             // Store in environment for current session
@@ -734,8 +735,8 @@ let main = async function() {
         }
     });
 
-    // API: Get storj configuration (admin only)
-    app.get('/api/storj-config', async (req, res) => {
+    // API: Get storage status (admin only)
+    app.get('/api/storj-status', async (req, res) => {
         try {
             const isAdmin = await req.domainAcl?.isAdmin(req.episteryClient?.address);
             if (!isAdmin) return res.status(403).json({ error: 'Not authorized' });
@@ -743,33 +744,44 @@ let main = async function() {
             const domain = req.headers.host?.split(':')[0] || 'localhost';
             const cfg = new Config();
             cfg.setPath(domain);
-            const domainStorj = cfg.data.storj || {};
 
-            // Check root config for inherited values
             const rootCfg = new Config();
             const rootData = rootCfg.read('/');
-            const rootStorj = rootData?.storj || {};
+
+            // Check for S3 credentials (domain-level or root-level)
+            const domainStorj = cfg.data.storj;
+            const rootStorj = rootData?.storj;
+            const storjConfig = domainStorj || rootStorj;
+            const hasStorage = !!(storjConfig?.ACCESS_KEY);
+
+            // Encryption: on by default, off only if explicitly disabled
+            const encryptionEnabled = cfg.data.storage_encrypted !== 'false';
+
+            // Check if domain has a master key initialized
+            let hasMasterKey = false;
+            try {
+                const raw = cfg.readFile('master-key.json');
+                hasMasterKey = !!JSON.parse(raw);
+            } catch {}
 
             res.json({
-                ACCESS_KEY: domainStorj.ACCESS_KEY || '',
-                SECRET_KEY: domainStorj.SECRET_KEY ? '••••••••' : '',
-                ENDPOINT: domainStorj.ENDPOINT || '',
-                BUCKET: domainStorj.BUCKET || '',
-                inherited: {
-                    ACCESS_KEY: rootStorj.ACCESS_KEY ? true : false,
-                    SECRET_KEY: rootStorj.SECRET_KEY ? true : false,
-                    ENDPOINT: rootStorj.ENDPOINT || '',
-                    BUCKET: rootStorj.BUCKET || ''
-                }
+                hasStorage,
+                backend: hasStorage ? 'S3' : 'Config',
+                endpoint: storjConfig?.ENDPOINT || null,
+                bucket: storjConfig?.BUCKET || null,
+                region: storjConfig?.REGION || null,
+                encrypted: encryptionEnabled && hasMasterKey,
+                encryptionEnabled,
+                customCredentials: !!domainStorj
             });
         } catch (error) {
-            console.error('[storj-config] Get error:', error);
+            console.error('[storage-status] Error:', error);
             res.status(500).json({ error: error.message });
         }
     });
 
-    // API: Save storj configuration (admin only)
-    app.post('/api/storj-config', async (req, res) => {
+    // API: Update storage configuration (admin only)
+    app.post('/api/storage-config', async (req, res) => {
         try {
             const isAdmin = await req.domainAcl?.isAdmin(req.episteryClient?.address);
             if (!isAdmin) return res.status(403).json({ error: 'Not authorized' });
@@ -778,21 +790,41 @@ let main = async function() {
             const cfg = new Config();
             cfg.setPath(domain);
 
-            const { ACCESS_KEY, SECRET_KEY, ENDPOINT, BUCKET } = req.body;
+            const { action, storj, encrypted } = req.body;
 
-            if (!cfg.data.storj) cfg.data.storj = {};
+            if (action === 'set-credentials') {
+                if (!storj?.ACCESS_KEY || !storj?.SECRET_KEY || !storj?.BUCKET) {
+                    return res.status(400).json({ error: 'ACCESS_KEY, SECRET_KEY, and BUCKET are required' });
+                }
+                cfg.data.storj = {
+                    ACCESS_KEY: storj.ACCESS_KEY,
+                    SECRET_KEY: storj.SECRET_KEY,
+                    ENDPOINT: storj.ENDPOINT || '',
+                    BUCKET: storj.BUCKET,
+                    REGION: storj.REGION || ''
+                };
+                cfg.save();
+                console.log(`[storage-config] Updated S3 credentials for ${domain}`);
+                return res.json({ success: true, message: 'Storage credentials updated. Restart agents to apply.' });
+            }
 
-            if (ACCESS_KEY !== undefined) cfg.data.storj.ACCESS_KEY = ACCESS_KEY;
-            // Only update SECRET_KEY if a real value is provided (not the masked placeholder)
-            if (SECRET_KEY && SECRET_KEY !== '••••••••') cfg.data.storj.SECRET_KEY = SECRET_KEY;
-            if (ENDPOINT !== undefined) cfg.data.storj.ENDPOINT = ENDPOINT;
-            if (BUCKET !== undefined) cfg.data.storj.BUCKET = BUCKET;
+            if (action === 'clear-credentials') {
+                delete cfg.data.storj;
+                cfg.save();
+                console.log(`[storage-config] Cleared custom S3 credentials for ${domain}`);
+                return res.json({ success: true, message: 'Custom credentials removed. Using host defaults.' });
+            }
 
-            cfg.save();
+            if (action === 'set-encryption') {
+                cfg.data.storage_encrypted = encrypted ? 'true' : 'false';
+                cfg.save();
+                console.log(`[storage-config] Encryption ${encrypted ? 'enabled' : 'disabled'} for ${domain}`);
+                return res.json({ success: true, message: `Encryption ${encrypted ? 'enabled' : 'disabled'}. New writes will use this setting.` });
+            }
 
-            res.json({ success: true });
+            res.status(400).json({ error: 'Unknown action' });
         } catch (error) {
-            console.error('[storj-config] Save error:', error);
+            console.error('[storage-config] Error:', error);
             res.status(500).json({ error: error.message });
         }
     });

@@ -1,20 +1,66 @@
 import { Config } from 'epistery';
 import StorjStorage from './StorjStorage.mjs';
+import EncryptedStorage from './EncryptedStorage.mjs';
+import { MasterKey } from '../crypto/master-key.mjs';
 import path from 'path';
 import fs from 'fs';
 
+// Per-domain master key cache (survives across getStorage calls)
+const masterKeyCache = new Map();
+
+/**
+ * Get or initialize the domain master key for encrypted storage.
+ * Uses the same pattern as secret-agent's KeyManager.
+ * @param {string} domain
+ * @param {object} signer - ethers.js Signer (domain wallet)
+ * @returns {Promise<string>} hex master key
+ */
+async function getDomainMasterKey(domain, signer) {
+  if (masterKeyCache.has(domain)) return masterKeyCache.get(domain);
+
+  const config = new Config();
+  config.setPath(`/${domain}`);
+
+  let pkg;
+  try {
+    const raw = config.readFile('master-key.json');
+    pkg = JSON.parse(raw);
+  } catch {
+    pkg = null;
+  }
+
+  if (pkg && MasterKey.isValidPackage(pkg)) {
+    const key = await MasterKey.decryptFromPackage(pkg, signer);
+    masterKeyCache.set(domain, key);
+    console.log(`[storage] Decrypted domain master key for ${domain}`);
+    return key;
+  }
+
+  // No master key yet — generate and store
+  const masterKey = MasterKey.generate();
+  const ownerAddress = await signer.getAddress();
+  const newPkg = await MasterKey.encryptForOwner(masterKey, ownerAddress, signer);
+  config.writeFile('master-key.json', JSON.stringify(newPkg, null, 2));
+  masterKeyCache.set(domain, masterKey);
+  console.log(`[storage] Initialized domain master key for ${domain}`);
+  return masterKey;
+}
+
 /**
  * Storage factory that creates the appropriate storage backend
- * based on configuration
+ * based on configuration. When a signer is provided, storage is
+ * wrapped with EncryptedStorage for transparent AES-256-GCM encryption.
  */
 export default class StorageFactory {
   /**
    * Create storage instance based on config
-   * @param {string} type - Storage type: 'config', 'storj', 'ipfs'
+   * @param {string} type - Storage type: 'config', 'storj', 'ipfs' (null for auto-detect)
    * @param {string} domain - Domain name for config-based storage
    * @param {string} agentName - Agent name for storage path prefix (e.g., 'wiki', 'files')
+   * @param {object} [signer] - ethers.js Signer for encrypted storage. If provided, all
+   *   data is encrypted at rest with AES-256-GCM using the domain's master key.
    */
-  static async create(type, domain = 'localhost', agentName = 'wiki') {
+  static async create(type, domain = 'localhost', agentName = 'wiki', signer = null) {
     if (!type) {
       // Auto-detect based on what's configured - prefer Storj
       type = 'storj'; // Default to storj
@@ -43,12 +89,15 @@ export default class StorageFactory {
       }
     }
 
+    let storage;
     switch (type.toLowerCase()) {
       case 'storj':
-        return await StorageFactory.createStorj(domain, agentName);
+        storage = await StorageFactory.createStorj(domain, agentName);
+        break;
 
       case 'config':
-        return StorageFactory.createConfig(domain, agentName);
+        storage = StorageFactory.createConfig(domain, agentName);
+        break;
 
       case 'ipfs':
         throw new Error('IPFS storage not yet implemented');
@@ -56,6 +105,27 @@ export default class StorageFactory {
       default:
         throw new Error(`Unknown storage type: ${type}`);
     }
+
+    // Wrap with encryption if signer is available and encryption not disabled
+    if (signer) {
+      const config = new Config();
+      const domainConfig = config.read(`/${domain}`);
+      const encryptionDisabled = domainConfig.storage_encrypted === 'false';
+
+      if (!encryptionDisabled) {
+        try {
+          const masterKey = await getDomainMasterKey(domain, signer);
+          storage = new EncryptedStorage(storage, masterKey);
+          console.log(`[${agentName}:storage] Encrypted storage enabled`);
+        } catch (err) {
+          console.error(`[${agentName}:storage] Failed to initialize encryption, using plaintext:`, err.message);
+        }
+      } else {
+        console.log(`[${agentName}:storage] Encryption disabled by domain config`);
+      }
+    }
+
+    return storage;
   }
 
   /**

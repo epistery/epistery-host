@@ -133,6 +133,30 @@ By default, all agents have:
 
 The special `default` entry in the acl array replaces the previous separate defaultStrategy field, simplifying the configuration structure.
 
+## Storage
+
+All agent data is encrypted at rest using AES-256-GCM with a per-domain master key derived from the domain
+wallet's signature. The encryption is transparent to agents — they read and write plaintext, and the storage
+layer handles encryption/decryption automatically.
+
+Storage defaults to the host's configured Storj (or any S3-compatible) backend. Domain admins can set their
+own `[storj]` credentials in the domain config to use their own storage account. The storage provider is
+interchangeable — the trust is in the domain key, not the provider.
+
+### Configuration
+
+Set S3-compatible credentials in the domain config (`~/.epistery/{domain}/config.ini`) or the root config:
+
+```ini
+[storj]
+ACCESS_KEY=...
+SECRET_KEY=...
+ENDPOINT=https://gateway.storjshare.io
+BUCKET=epistery
+```
+
+Domain-level credentials take precedence over root-level.
+
 ## Future Todo Notes
 
 Config stores domain private keys in the home folder. We will soon want a verion of the config module that uses

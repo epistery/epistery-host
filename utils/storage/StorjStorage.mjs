@@ -2,9 +2,11 @@ import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, Del
 import { Config } from 'epistery';
 
 /**
- * Storj storage adapter using S3-compatible API
- * Reads credentials from epistery config
- * Stores documents under bucket/domain/agent/ prefix
+ * S3-compatible storage adapter.
+ * Works with any S3-compatible provider: Storj, AWS S3, Backblaze B2, MinIO, etc.
+ *
+ * Credential resolution: domain config `[storj]` → root config `[storj]`
+ * Prefix: {contract_address}/{agentName}/ for namespace isolation
  */
 export default class StorjStorage {
   constructor(domain = 'localhost', agentName = 'wiki') {
@@ -17,27 +19,19 @@ export default class StorjStorage {
   }
 
   /**
-   * Initialize Storj S3 client from config
+   * Initialize S3 client from config
    */
   async initialize() {
     if (this.initialized) return;
 
     try {
-      // Read Storj credentials from config
       const config = new Config();
       const domainConfig = config.read(this.domain);
       const rootConfig = config.read('/');
 
-      // Get server wallet address as folder identifier (persistent across contract upgrades)
-      const serverAddress = domainConfig.contract_address;
-      if (!serverAddress) {
-        throw new Error('Server wallet address not found in config');
-      }
-
-      // Read Storj credentials from domain config, fallback to root config
       const storjConfig = domainConfig.storj || rootConfig.storj;
       if (!storjConfig) {
-        throw new Error('Storj configuration not found in domain or root config');
+        throw new Error('S3 storage configuration not found in domain or root config');
       }
 
       const accessKey = storjConfig.ACCESS_KEY;
@@ -45,23 +39,32 @@ export default class StorjStorage {
       const endpoint = storjConfig.ENDPOINT;
       const bucket = storjConfig.BUCKET;
 
-      if (!accessKey || !secretKey || !endpoint || !bucket) {
-        throw new Error('Storj credentials incomplete. Required: ACCESS_KEY, SECRET_KEY, ENDPOINT, BUCKET');
+      if (!accessKey || !secretKey || !bucket) {
+        throw new Error('S3 credentials incomplete. Required: ACCESS_KEY, SECRET_KEY, BUCKET');
       }
 
+      // Namespace by contract address within shared bucket
+      const contractAddress = domainConfig.contract_address;
+      if (!contractAddress) {
+        throw new Error('Contract address not found in domain config');
+      }
+      this.prefix = `${contractAddress}/${this.agentName}/`;
       this.bucket = bucket;
-      this.prefix = `${serverAddress}/${this.agentName}/`;
 
-      this.client = new S3Client({
-        endpoint: endpoint,
-        region: 'us-east-1', // Storj doesn't use regions, but S3 client requires it
+      const clientConfig = {
+        region: storjConfig.REGION || 'us-east-1',
         credentials: {
           accessKeyId: accessKey,
           secretAccessKey: secretKey
         },
-        forcePathStyle: true // Required for Storj
-      });
+        forcePathStyle: true
+      };
+      // Custom endpoint for non-AWS providers (Storj, MinIO, B2, etc.)
+      if (endpoint) {
+        clientConfig.endpoint = endpoint;
+      }
 
+      this.client = new S3Client(clientConfig);
       this.initialized = true;
       console.log(`[${this.agentName}:storj] Initialized: ${this.bucket}/${this.prefix}`);
     } catch (error) {
@@ -71,7 +74,7 @@ export default class StorjStorage {
   }
 
   /**
-   * Save a file to Storj
+   * Save a file
    */
   async writeFile(key, content) {
     await this.initialize();
@@ -95,7 +98,7 @@ export default class StorjStorage {
   }
 
   /**
-   * Read a file from Storj
+   * Read a file
    */
   async readFile(key) {
     await this.initialize();
@@ -126,7 +129,7 @@ export default class StorjStorage {
   }
 
   /**
-   * Check if a file exists in Storj
+   * Check if a file exists
    */
   async exists(key) {
     await this.initialize();
@@ -173,7 +176,7 @@ export default class StorjStorage {
   }
 
   /**
-   * Delete a file from Storj
+   * Delete a file
    */
   async deleteFile(key) {
     await this.initialize();
@@ -195,7 +198,7 @@ export default class StorjStorage {
   }
 
   /**
-   * Delete multiple files from Storj
+   * Delete multiple files
    */
   async deleteFiles(keys) {
     await this.initialize();
