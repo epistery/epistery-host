@@ -473,10 +473,9 @@ let main = async function() {
             }
 
             const contractAddress = cfg.data?.contract_address;
-            const deployedVersion = cfg.data?.contract_version;
 
             // If no contract deployed, indicate upgrade needed
-            if (!contractAddress || !deployedVersion) {
+            if (!contractAddress) {
                 return res.json({
                     needsUpgrade: true,
                     reason: 'no_contract',
@@ -486,8 +485,19 @@ let main = async function() {
                 });
             }
 
+            // Query the on-chain VERSION() constant — the config can be stale
+            let deployedVersion = null;
+            try {
+                const chain = new DomainChain(domain);
+                if (chain.contract) {
+                    deployedVersion = await chain.contract.VERSION();
+                }
+            } catch (e) {
+                console.warn('[api/domain-agent/version] Could not read on-chain VERSION:', e.message);
+            }
+
             // Check if version matches DomainAgent.sol
-            const needsUpgrade = deployedVersion !== DOMAIN_AGENT_VERSION;
+            const needsUpgrade = !deployedVersion || deployedVersion !== DOMAIN_AGENT_VERSION;
 
             res.json({
                 needsUpgrade,
