@@ -24,7 +24,7 @@
 import crypto from 'crypto';
 import ethers from 'ethers';
 import { Config } from 'epistery';
-import KeyManager from '../../secret-agent/key-manager.mjs';
+import keyManager from './KeyManager.mjs';
 import OAuthStore from './OAuthStore.mjs';
 import { DomainChain } from './DomainChain.mjs';
 
@@ -46,7 +46,7 @@ const SCOPES = [
 ];
 
 export class OAuthServer {
-  static keyManager = new KeyManager();
+  static keyManager = keyManager;
   static stores = new Map();
   static csrfTokens = new Map(); // token -> expiry timestamp
   static registrationLimits = new Map(); // ip -> { count, resetAt }
@@ -88,24 +88,10 @@ export class OAuthServer {
    */
   static async getStore(domain, signer) {
     if (OAuthServer.stores.has(domain)) return OAuthServer.stores.get(domain);
-
-    // Auto-initialize master key if signer available but key doesn't exist yet
-    if (!OAuthServer.keyManager.hasMasterKey(domain)) {
-      if (!signer) return null;
-      try {
-        console.log(`[oauth] Auto-initializing master key for ${domain}`);
-        await OAuthServer.keyManager.initMasterKey(domain, signer);
-      } catch (err) {
-        // Already initialized (race condition) is fine
-        if (!err.message.includes('already initialized')) {
-          console.error(`[oauth] Failed to init master key for ${domain}:`, err.message);
-          return null;
-        }
-      }
-    }
+    if (!signer) return null;
 
     try {
-      const masterKey = await OAuthServer.keyManager.getMasterKey(domain, signer);
+      const masterKey = await OAuthServer.keyManager.getMasterKey(domain, signer, true);
       const store = await OAuthStore.create(domain, masterKey);
       OAuthServer.stores.set(domain, store);
       return store;

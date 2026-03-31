@@ -1,50 +1,9 @@
 import { Config } from 'epistery';
 import StorjStorage from './StorjStorage.mjs';
 import EncryptedStorage from './EncryptedStorage.mjs';
-import { MasterKey } from '../crypto/master-key.mjs';
+import keyManager from '../KeyManager.mjs';
 import path from 'path';
 import fs from 'fs';
-
-// Per-domain master key cache (survives across getStorage calls)
-const masterKeyCache = new Map();
-
-/**
- * Get or initialize the domain master key for encrypted storage.
- * Uses the same pattern as secret-agent's KeyManager.
- * @param {string} domain
- * @param {object} signer - ethers.js Signer (domain wallet)
- * @returns {Promise<string>} hex master key
- */
-async function getDomainMasterKey(domain, signer) {
-  if (masterKeyCache.has(domain)) return masterKeyCache.get(domain);
-
-  const config = new Config();
-  config.setPath(`/${domain}`);
-
-  let pkg;
-  try {
-    const raw = config.readFile('master-key.json');
-    pkg = JSON.parse(raw);
-  } catch {
-    pkg = null;
-  }
-
-  if (pkg && MasterKey.isValidPackage(pkg)) {
-    const key = await MasterKey.decryptFromPackage(pkg, signer);
-    masterKeyCache.set(domain, key);
-    console.log(`[storage] Decrypted domain master key for ${domain}`);
-    return key;
-  }
-
-  // No master key yet — generate and store
-  const masterKey = MasterKey.generate();
-  const ownerAddress = await signer.getAddress();
-  const newPkg = await MasterKey.encryptForOwner(masterKey, ownerAddress, signer);
-  config.writeFile('master-key.json', JSON.stringify(newPkg, null, 2));
-  masterKeyCache.set(domain, masterKey);
-  console.log(`[storage] Initialized domain master key for ${domain}`);
-  return masterKey;
-}
 
 /**
  * Storage factory that creates the appropriate storage backend
@@ -114,7 +73,7 @@ export default class StorageFactory {
 
       if (!encryptionDisabled) {
         try {
-          const masterKey = await getDomainMasterKey(domain, signer);
+          const masterKey = await keyManager.getMasterKey(domain, signer, true);
           storage = new EncryptedStorage(storage, masterKey);
           console.log(`[${agentName}:storage] Encrypted storage enabled`);
         } catch (err) {
