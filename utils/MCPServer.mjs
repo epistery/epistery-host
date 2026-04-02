@@ -343,21 +343,37 @@ export class MCPServer {
     const method = routing.method || 'GET';
     let url;
 
+    // Substitute path parameters ({name}, {id}, etc.) from args
+    let resolvedPath = routing.path;
+    const usedParams = new Set();
+    resolvedPath = resolvedPath.replace(/\{(\w+)\}/g, (match, param) => {
+      if (args[param] != null) {
+        usedParams.add(param);
+        return encodeURIComponent(args[param]);
+      }
+      return match;
+    });
+
     if (method === 'GET') {
       const qs = new URLSearchParams();
       for (const [k, v] of Object.entries(args)) {
-        if (v != null) qs.set(k, v);
+        if (v != null && !usedParams.has(k)) qs.set(k, v);
       }
       const qsStr = qs.toString();
-      url = `http://127.0.0.1:${port}${routing.basePath}${routing.path}${qsStr ? '?' + qsStr : ''}`;
+      url = `http://127.0.0.1:${port}${routing.basePath}${resolvedPath}${qsStr ? '?' + qsStr : ''}`;
     } else {
-      url = `http://127.0.0.1:${port}${routing.basePath}${routing.path}`;
+      url = `http://127.0.0.1:${port}${routing.basePath}${resolvedPath}`;
     }
 
     try {
       const fetchOpts = { method, headers };
       if (method !== 'GET') {
-        fetchOpts.body = JSON.stringify(args);
+        // Exclude params already substituted into the path
+        const bodyArgs = {};
+        for (const [k, v] of Object.entries(args)) {
+          if (!usedParams.has(k)) bodyArgs[k] = v;
+        }
+        fetchOpts.body = JSON.stringify(bodyArgs);
       }
 
       const res = await fetch(url, fetchOpts);

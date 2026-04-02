@@ -1,0 +1,7 @@
+msprague@Poppy:~/workspace/rootz$ claude mcp remove geist-socialwhen limits are hit                                                 
+Removed MCP server "geist-social" from user configt usage as a colored grid                                                         
+File modified: /home/msprague/.claude.jsonry files                                                                                  
+msprague@Poppy:~/workspace/rootz$ claude mcp add --transport stdio --scope user geist-social -- epistery mcp https://geist.social   
+Added stdio MCP server geist-social with command: epistery mcp https://geist.social to user config                                  
+File modified: /home/msprague/.claude.json
+msprague@Poppy:~/workspace/rootz$ 
