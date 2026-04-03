@@ -52,6 +52,7 @@ class KeyManager {
 
   /**
    * Get (decrypt) master key for a domain. Auto-initializes if signer provided and no key exists.
+   * Migrates legacy keys from /{domain}/master-key.json to /{domain}/secret-agent/master-key.json.
    * @param {string} domain
    * @param {object} signer - ethers.js Signer
    * @param {boolean} [autoInit=false] - initialize if missing
@@ -63,7 +64,7 @@ class KeyManager {
       return this.cache.get(domain);
     }
 
-    const pkg = this._readPackage(domain);
+    const { pkg, legacy } = this._readPackage(domain);
     if (!pkg) {
       if (autoInit && signer) {
         await this.initMasterKey(domain, signer);
@@ -74,6 +75,20 @@ class KeyManager {
 
     const masterKey = await MasterKey.decryptFromPackage(pkg, signer);
     this.cache.set(domain, masterKey);
+
+    // Migrate legacy key to canonical path
+    if (legacy) {
+      try {
+        const config = new Config();
+        config.setPath(`/${domain}/secret-agent`);
+        config.save();
+        config.writeFile('master-key.json', JSON.stringify(pkg, null, 2));
+        console.log(`[key-manager] Migrated legacy master key for ${domain} to secret-agent/`);
+      } catch (err) {
+        console.warn(`[key-manager] Failed to migrate legacy key for ${domain}:`, err.message);
+      }
+    }
+
     return masterKey;
   }
 
@@ -83,7 +98,7 @@ class KeyManager {
    * @returns {boolean}
    */
   hasMasterKey(domain) {
-    return !!this._readPackage(domain);
+    return !!this._readPackage(domain).pkg;
   }
 
   /**
@@ -92,7 +107,7 @@ class KeyManager {
    * @returns {object|null}
    */
   getKeyInfo(domain) {
-    const pkg = this._readPackage(domain);
+    const { pkg } = this._readPackage(domain);
     if (!pkg) return null;
     return {
       encryptedFor: pkg.encryptedFor,
@@ -104,18 +119,38 @@ class KeyManager {
   }
 
   /**
-   * Read package from disk. Returns null if not found.
+   * Read package from disk. Returns {pkg, legacy} where legacy is true if
+   * the key was found at the pre-refactor path (/{domain}/master-key.json).
+   * When keys exist at both paths (conflict from auto-init), the legacy key
+   * takes priority since it was created first and has more data encrypted with it.
    * @private
    */
   _readPackage(domain) {
-    try {
-      const config = new Config();
-      config.setPath(`/${domain}/secret-agent`);
-      const raw = config.readFile('master-key.json');
-      return JSON.parse(raw);
-    } catch {
-      return null;
+    const result = { pkg: null, legacy: false };
+    const locations = [
+      { path: `/${domain}/secret-agent`, legacy: false },
+      { path: `/${domain}`,              legacy: true  }
+    ];
+    for (const loc of locations) {
+      try {
+        const config = new Config();
+        config.setPath(loc.path);
+        const raw = config.readFile('master-key.json');
+        const pkg = JSON.parse(raw);
+        if (pkg && MasterKey.isValidPackage(pkg)) {
+          if (loc.legacy && result.pkg) {
+            // Legacy key exists AND canonical key exists — legacy wins (has more encrypted data)
+            console.warn(`[key-manager] Conflict: master keys at both paths for ${domain}, using legacy key`);
+          }
+          result.pkg = pkg;
+          result.legacy = loc.legacy;
+          if (loc.legacy) return result; // Legacy found — use it, stop looking
+        }
+      } catch {
+        // try next path
+      }
     }
+    return result;
   }
 }
 
