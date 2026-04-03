@@ -306,8 +306,7 @@
                         <div style="flex: 1; min-width: 150px;">
                             <label for="invite-list-select" style="font-size: 0.9em; display: block; margin-bottom: 4px;">ACL List</label>
                             <select id="invite-list-select" style="width: 100%; padding: 8px; border: 1px solid var(--page-border); border-radius: 4px; background: var(--page-background); color: var(--page-text-primary);">
-                                <option value="epistery::reader" selected>epistery::reader (Read)</option>
-                                <option value="epistery::editor">epistery::editor (Write)</option>
+                                <option value="">Loading...</option>
                             </select>
                         </div>
                     </div>
@@ -616,6 +615,15 @@
                         await loadWhitelist();
                     });
                     selector.dataset.listenerAttached = 'true';
+                }
+
+                // Also populate invite code ACL dropdown (exclude admin)
+                const inviteSelect = document.getElementById('invite-list-select');
+                if (inviteSelect) {
+                    const inviteLists = lists.filter(l => l !== 'epistery::admin');
+                    inviteSelect.innerHTML = inviteLists.map(listName =>
+                        `<option value="${listName}" ${listName.includes('::reader') ? 'selected' : ''}>${listName}</option>`
+                    ).join('');
                 }
 
                 await loadWhitelist();
@@ -1718,7 +1726,7 @@
         window.createInvite = async function() {
             const targetPath = document.getElementById('invite-target-path').value.trim() || '/';
             const listName = document.getElementById('invite-list-select').value;
-            const role = listName.includes('::editor') ? 2 : 1;
+            const role = listName.includes('::admin') ? 3 : listName.includes('::editor') ? 2 : 1;
             const name = document.getElementById('invite-name').value.trim();
             const comment = document.getElementById('invite-comment').value.trim();
             const btn = document.getElementById('create-invite-btn');
