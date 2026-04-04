@@ -18,6 +18,7 @@ import { MCPServer } from './utils/MCPServer.mjs';
 import { AIDiscovery } from './utils/AIDiscovery.mjs';
 import { AgentManager } from './utils/AgentManager.mjs';
 import { PeerBridge } from './utils/PeerBridge.mjs';
+import { UserVault } from './utils/UserVault.mjs';
 import { retryWithBackoff } from './utils/retryWithBackoff.mjs';
 import Pages from './pages/index.mjs'
 
@@ -569,6 +570,9 @@ let main = async function() {
 
     // Mount ACL routes AFTER epistery (req.episteryClient will be available)
     DomainAcl.attach(app)
+
+    // Mount UserVault (encrypted per-user storage, like server-side cookies)
+    UserVault.attach(app);
 
     // Mount OAuth 2.1 server (Bearer middleware + well-known + endpoints)
     OAuthServer.attach(app);
