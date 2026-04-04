@@ -198,6 +198,7 @@
 
     <script>
         let acls = [];
+        let availableLists = [];
         let authConfig = {
             enableRequestAccess: false
         };
@@ -219,12 +220,20 @@
 
         async function loadACLs() {
             try {
-                const response = await fetch('/api/acl/agent/' + encodeURIComponent(agentName));
-                if (!response.ok) throw new Error('Failed to load ACLs');
+                const [aclResponse, listResponse] = await Promise.all([
+                    fetch('/api/acl/agent/' + encodeURIComponent(agentName)),
+                    fetch('/api/acl/list')
+                ]);
+                if (!aclResponse.ok) throw new Error('Failed to load ACLs');
 
-                const data = await response.json();
+                const data = await aclResponse.json();
                 acls = data.acl || [];
                 authConfig = data.authConfig || authConfig;
+
+                if (listResponse.ok) {
+                    const listData = await listResponse.json();
+                    availableLists = listData.lists || [];
+                }
 
                 isDirty = false;
                 renderACLs();
@@ -286,6 +295,17 @@
             }
         }
 
+        function buildListOptions(selectedValue) {
+            // Combine available lists with 'default', deduplicate
+            const usedLists = acls.map(a => a.list);
+            const allLists = [...new Set(['default', ...availableLists])];
+            // Filter out lists already in use (unless it's the selected value for edit)
+            const options = allLists.filter(l => l === selectedValue || !usedLists.includes(l));
+            return options.map(l =>
+                `<option value="${escapeHtml(l)}" ${l === selectedValue ? 'selected' : ''}>${escapeHtml(l)}</option>`
+            ).join('');
+        }
+
         function renderACLs() {
             const tbody = document.getElementById('aclBody');
             tbody.innerHTML = '';
@@ -315,7 +335,12 @@
             // Add "Add" row at the end
             const addRow = document.createElement('tr');
             addRow.innerHTML = `
-                <td><input type="text" id="newList" placeholder="List name" style="width: 100%;" /></td>
+                <td>
+                    <select id="newList" style="width: 100%;">
+                        <option value="">-- Select list --</option>
+                        ${buildListOptions(null)}
+                    </select>
+                </td>
                 <td>
                     <select id="newAccess" style="width: 100%;">
                         <option value="0">None</option>
@@ -338,7 +363,11 @@
 
             tr.classList.add('editing');
             tr.innerHTML = `
-                <td><input type="text" id="edit-list-${index}" value="${escapeHtml(acl.list)}" /></td>
+                <td>
+                    <select id="edit-list-${index}" style="width: 100%;">
+                        ${buildListOptions(acl.list)}
+                    </select>
+                </td>
                 <td>
                     <select id="edit-access-${index}">
                         <option value="0" ${accessLevel === 0 ? 'selected' : ''}>None</option>
@@ -373,11 +402,11 @@
         }
 
         async function addACL() {
-            const list = document.getElementById('newList').value.trim();
+            const list = document.getElementById('newList').value;
             const access = parseInt(document.getElementById('newAccess').value);
 
             if (!list) {
-                showError('List name cannot be empty');
+                showError('Please select a list');
                 return;
             }
 
