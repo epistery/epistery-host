@@ -551,12 +551,19 @@ let main = async function() {
     app.get('/api/provider-defaults', (req, res) => {
         const rootCfg = new Config();
         const rootData = rootCfg.read('/');
-        let providers = rootData?.default?.providers;
-        if (!Array.isArray(providers) || providers.length === 0) {
-            // Back-compat: single `default.provider` entry, else built-ins.
-            const single = rootData?.default?.provider;
-            providers = single ? [single] : BUILTIN_PROVIDERS;
+        // Always start from built-ins, then overlay root config: root entries
+        // matching a built-in chainId override (carrying privateRpc, custom name,
+        // etc.); new chainIds get appended.
+        const rootList = Array.isArray(rootData?.default?.providers)
+            ? rootData.default.providers
+            : (rootData?.default?.provider ? [rootData.default.provider] : []);
+        const byChain = new Map();
+        for (const p of BUILTIN_PROVIDERS) byChain.set(String(p.chainId), { ...p });
+        for (const p of rootList) {
+            const key = String(p.chainId);
+            byChain.set(key, { ...byChain.get(key), ...p });
         }
+        const providers = Array.from(byChain.values());
         const defaultChainId = String(
             rootData?.default?.defaultChainId ||
             rootData?.default?.provider?.chainId ||
