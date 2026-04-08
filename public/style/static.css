@@ -40,6 +40,7 @@
 .icon-save:before { content: "\EB3B" }
 .icon-edit:before { content: "\EA8D" }
 .icon-download:before { content: "\EA86" }
+.icon-reply:before { content: "\EB33" }
 
 /* Color scheme inspired by metric.im with Rootz branding */
 :root {

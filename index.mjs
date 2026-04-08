@@ -526,18 +526,45 @@ let main = async function() {
         '80002': 'https://rpc-amoy.polygon.technology',
         '11155111': 'https://eth-sepolia.public.blastapi.io'
     };
+    // Built-in fallback list, used when root config has no `providers` array.
+    const BUILTIN_PROVIDERS = [
+        { name: 'Polygon Mainnet',     chainId: '137',      nativeCurrencyName: 'POL',  nativeCurrencySymbol: 'POL', nativeCurrencyDecimals: '18' },
+        { name: 'Ethereum Mainnet',    chainId: '1',        nativeCurrencyName: 'Ether',nativeCurrencySymbol: 'ETH', nativeCurrencyDecimals: '18' },
+        { name: 'Japan Open Chain',    chainId: '81',       nativeCurrencyName: 'JOC',  nativeCurrencySymbol: 'JOC', nativeCurrencyDecimals: '18' },
+        { name: 'Polygon Amoy Testnet',chainId: '80002',    nativeCurrencyName: 'POL',  nativeCurrencySymbol: 'POL', nativeCurrencyDecimals: '18' },
+        { name: 'Sepolia Testnet',     chainId: '11155111', nativeCurrencyName: 'Ether',nativeCurrencySymbol: 'ETH', nativeCurrencyDecimals: '18' },
+    ];
+
+    // Strip private RPC fields before sending to the browser.
+    function publicProvider(p) {
+        const chainId = String(p.chainId);
+        return {
+            name: p.name,
+            chainId,
+            rpc: p.publicRpc || PUBLIC_RPC[chainId] || null,
+            nativeCurrencyName: p.nativeCurrencyName,
+            nativeCurrencySymbol: p.nativeCurrencySymbol,
+            nativeCurrencyDecimals: p.nativeCurrencyDecimals
+        };
+    }
+
     app.get('/api/provider-defaults', (req, res) => {
         const rootCfg = new Config();
         const rootData = rootCfg.read('/');
-        const defaults = rootData?.default?.provider || {};
-        const chainId = String(defaults.chainId || '137');
+        let providers = rootData?.default?.providers;
+        if (!Array.isArray(providers) || providers.length === 0) {
+            // Back-compat: single `default.provider` entry, else built-ins.
+            const single = rootData?.default?.provider;
+            providers = single ? [single] : BUILTIN_PROVIDERS;
+        }
+        const defaultChainId = String(
+            rootData?.default?.defaultChainId ||
+            rootData?.default?.provider?.chainId ||
+            providers[0].chainId
+        );
         res.json({
-            name: defaults.name || 'Polygon Mainnet',
-            chainId: chainId,
-            rpc: defaults.publicRpc || PUBLIC_RPC[chainId] || 'https://polygon-rpc.com',
-            nativeCurrencyName: defaults.nativeCurrencyName || 'POL',
-            nativeCurrencySymbol: defaults.nativeCurrencySymbol || 'POL',
-            nativeCurrencyDecimals: defaults.nativeCurrencyDecimals || '18'
+            providers: providers.map(publicProvider),
+            defaultChainId
         });
     });
 

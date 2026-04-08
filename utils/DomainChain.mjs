@@ -51,9 +51,59 @@ export class DomainChain {
     if (!this._contract) {
       this.contractAddress = this.config.data.contract_address;
       if (!this.contractAddress) return null;
-      this._contract = new ethers.Contract(this.contractAddress, this.artifact.abi, this.wallet);
+      const raw = new ethers.Contract(this.contractAddress, this.artifact.abi, this.wallet);
+      this._contract = this._wrapContractWithFeeData(raw);
     }
     return this._contract;
+  }
+
+  /**
+   * Wrap an ethers.Contract so every state-mutating method automatically
+   * appends our computed feeData (from getFeeData()) as the transaction
+   * overrides argument. Without this, raw `contract.someWrite(args)` calls
+   * use ethers' defaults — which on Polygon mainnet are 1.5 gwei priority
+   * fee, below the network's 25 gwei minimum, and every tx is rejected.
+   *
+   * Callers that already pass a transaction overrides object as the last
+   * argument keep working: explicit fields win, and our feeData is merged
+   * underneath as defaults. View/pure functions are passed through.
+   */
+  _wrapContractWithFeeData(rawContract) {
+    const isOverridesObj = (x) =>
+      x && typeof x === 'object' && !Array.isArray(x) && !ethers.BigNumber.isBigNumber(x) && (
+        'gasPrice' in x || 'maxFeePerGas' in x || 'maxPriorityFeePerGas' in x ||
+        'gasLimit' in x || 'nonce' in x || 'value' in x || 'from' in x || 'type' in x
+      );
+
+    // Identify state-mutating functions from the ABI.
+    const writeFns = new Set();
+    for (const item of this.artifact.abi) {
+      if (item.type !== 'function') continue;
+      if (item.stateMutability === 'view' || item.stateMutability === 'pure') continue;
+      writeFns.add(item.name);
+    }
+
+    // Replace each write function on the contract with a wrapper.
+    for (const name of writeFns) {
+      const original = rawContract[name];
+      if (typeof original !== 'function') continue;
+      const getFee = () => this.getFeeData();
+      rawContract[name] = async function(...args) {
+        let overrides;
+        if (args.length > 0 && isOverridesObj(args[args.length - 1])) {
+          // Caller-supplied overrides win; our feeData fills in any blanks.
+          const fee = await getFee();
+          overrides = { ...fee, ...args[args.length - 1] };
+          args[args.length - 1] = overrides;
+        } else {
+          overrides = await getFee();
+          args.push(overrides);
+        }
+        return original.apply(rawContract, args);
+      };
+    }
+
+    return rawContract;
   }
   async getFeeData() {
     const feeData = await this.provider.getFeeData();

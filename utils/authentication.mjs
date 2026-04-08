@@ -93,18 +93,26 @@ export function createAuthRouter() {
             const normalizedClientAddress = clientAddress.toLowerCase();
 
             // Merge provider: use root config's RPC (private/paid) for server-side calls,
-            // keep what the client sent as publicRpc (safe to expose)
+            // keep what the client sent as publicRpc (safe to expose).
+            // Look for a matching entry in root config's `providers` array (preferred),
+            // or the legacy single `provider` object.
             const rootCfg = new Config();
             const rootData = rootCfg.read('/');
-            const rootProvider = rootData?.default?.provider || {};
+            const rootProviders = Array.isArray(rootData?.default?.providers)
+                ? rootData.default.providers
+                : (rootData?.default?.provider ? [rootData.default.provider] : []);
+            const rootMatch = rootProviders.find(
+                (p) => String(p.chainId) === String(providerConfig.chainId)
+            );
 
             const mergedProvider = {
                 ...providerConfig,
                 publicRpc: providerConfig.rpc,
             };
-            // If root config has an RPC for this chain, use it as the private RPC
-            if (rootProvider.rpc && String(rootProvider.chainId) === String(providerConfig.chainId)) {
-                mergedProvider.rpc = rootProvider.rpc;
+            // Prefer the root config's private/paid RPC for server-side calls.
+            const privateRpc = rootMatch?.privateRpc || rootMatch?.rpc;
+            if (privateRpc) {
+                mergedProvider.rpc = privateRpc;
             }
 
             // Save to domain config

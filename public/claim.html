@@ -91,8 +91,7 @@
                 <div class="form-group">
                     <label for="provider-select">Blockchain Provider</label>
                     <select id="provider-select" class="console-panel">
-                        <option value="default" id="default-provider-option">Loading...</option>
-                        <option value="custom">Custom Network</option>
+                        <option value="">Loading…</option>
                     </select>
                 </div>
 
@@ -205,22 +204,47 @@
             location.replace(`https://${location.host}${location.pathname}${location.search}`);
         }
 
-        // Provider defaults loaded from server (root config)
-        let PROVIDER_CONFIG = null;
+        // Provider list loaded from server (root config). Each entry only carries
+        // the public RPC; private/paid RPCs stay on the server.
+        let PROVIDERS = [];
+        let DEFAULT_CHAIN_ID = null;
 
         async function loadProviderDefaults() {
             try {
                 const response = await fetch('/api/provider-defaults');
                 if (response.ok) {
-                    PROVIDER_CONFIG = await response.json();
+                    const data = await response.json();
+                    PROVIDERS = Array.isArray(data.providers) ? data.providers : [];
+                    DEFAULT_CHAIN_ID = data.defaultChainId || (PROVIDERS[0] && PROVIDERS[0].chainId);
                 }
             } catch (e) {
                 console.warn('[claim] Could not load provider defaults:', e);
             }
-            if (!PROVIDER_CONFIG) {
-                PROVIDER_CONFIG = { name: 'Polygon Mainnet', chainId: '137',
-                    nativeCurrencyName: 'POL', nativeCurrencySymbol: 'POL', nativeCurrencyDecimals: '18' };
+            if (PROVIDERS.length === 0) {
+                PROVIDERS = [{ name: 'Polygon Mainnet', chainId: '137', rpc: 'https://polygon-rpc.com',
+                    nativeCurrencyName: 'POL', nativeCurrencySymbol: 'POL', nativeCurrencyDecimals: '18' }];
+                DEFAULT_CHAIN_ID = '137';
             }
+        }
+
+        function providerByChainId(chainId) {
+            return PROVIDERS.find((p) => String(p.chainId) === String(chainId));
+        }
+
+        function selectedProvider() {
+            const value = document.getElementById('provider-select').value;
+            if (value === 'custom') {
+                const name = document.getElementById('custom-name').value;
+                const chainId = document.getElementById('custom-chain-id').value;
+                const rpc = document.getElementById('custom-rpc').value;
+                if (!name || !chainId || !rpc) {
+                    throw new Error('Please fill in all custom network fields');
+                }
+                return { name, chainId: parseInt(chainId), rpc };
+            }
+            const p = providerByChainId(value);
+            if (!p) throw new Error('No network selected');
+            return { ...p };
         }
 
         let connectedWallet = null;
@@ -244,26 +268,7 @@
             btn.textContent = 'Connecting...';
 
             try {
-                const providerValue = document.getElementById('provider-select').value;
-                let providerConfig;
-
-                if (providerValue === 'custom') {
-                    const name = document.getElementById('custom-name').value;
-                    const chainId = document.getElementById('custom-chain-id').value;
-                    const rpc = document.getElementById('custom-rpc').value;
-
-                    if (!name || !chainId || !rpc) {
-                        throw new Error('Please fill in all custom network fields');
-                    }
-
-                    providerConfig = {
-                        name,
-                        chainId: parseInt(chainId),
-                        rpc
-                    };
-                } else {
-                    providerConfig = { ...PROVIDER_CONFIG };
-                }
+                const providerConfig = selectedProvider();
 
                 // Initialize domain with selected provider
                 console.log('[claim] Initializing domain with provider:', providerConfig);
@@ -325,18 +330,7 @@
         // Generate challenge
         document.getElementById('generate-btn').addEventListener('click', async () => {
             try {
-                const providerValue = document.getElementById('provider-select').value;
-                let providerConfig;
-
-                if (providerValue === 'custom') {
-                    providerConfig = {
-                        name: document.getElementById('custom-name').value,
-                        chainId: parseInt(document.getElementById('custom-chain-id').value),
-                        rpc: document.getElementById('custom-rpc').value
-                    };
-                } else {
-                    providerConfig = { ...PROVIDER_CONFIG };
-                }
+                const providerConfig = selectedProvider();
 
                 console.log('[claim] Generating challenge with provider:', providerConfig);
                 const response = await fetch('/account/claim', {
@@ -440,8 +434,19 @@
         }
 
         loadProviderDefaults().then(() => {
-            const opt = document.getElementById('default-provider-option');
-            opt.textContent = `${PROVIDER_CONFIG.name} (Chain ID: ${PROVIDER_CONFIG.chainId})`;
+            const select = document.getElementById('provider-select');
+            select.innerHTML = '';
+            for (const p of PROVIDERS) {
+                const opt = document.createElement('option');
+                opt.value = String(p.chainId);
+                opt.textContent = `${p.name} (Chain ID: ${p.chainId})`;
+                if (String(p.chainId) === String(DEFAULT_CHAIN_ID)) opt.selected = true;
+                select.appendChild(opt);
+            }
+            const customOpt = document.createElement('option');
+            customOpt.value = 'custom';
+            customOpt.textContent = 'Custom Network';
+            select.appendChild(customOpt);
             checkExistingChallenge();
         });
     </script>
