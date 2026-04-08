@@ -15,11 +15,58 @@ const DEFAULT_ACL_STANCE = {
     enableRequestAccess: true
 };
 
+// Cache: domain → { map: {addrLower: name}, expires: ms }
+// Many addresses may share the same name (one user, multiple device wallets) — that's fine,
+// the map is address→name only and is never reverse-queried.
+const NAME_MAP_CACHE = new Map();
+const NAME_MAP_TTL_MS = 60_000;
+
 export class DomainAcl {
     constructor(domain) {
+        this.domain = domain;
         this.config = new Config();
         this.config.setPath(domain);
         this.chain = new DomainChain(domain);
+    }
+
+    /**
+     * Build (or return cached) address → display-name map for this domain by walking
+     * all ACL lists on the contract. Names are not unique — multiple device addresses
+     * for the same person may share a name. Last non-empty name wins if a single
+     * address appears in multiple lists with different names.
+     * @returns {Promise<Map<string,string>>} keys are lowercased addresses
+     */
+    async getNameMap() {
+        const cached = NAME_MAP_CACHE.get(this.domain);
+        if (cached && cached.expires > Date.now()) return cached.map;
+
+        const map = new Map();
+        try {
+            const contract = this.chain.contract;
+            if (contract) {
+                const listNames = await contract.getListNames();
+                for (const listName of listNames) {
+                    const entries = await contract.getACL(listName);
+                    for (const e of entries) {
+                        if (e.name && e.addr) {
+                            map.set(e.addr.toLowerCase(), e.name);
+                        }
+                    }
+                }
+            }
+        } catch (err) {
+            console.error('[DomainAcl] getNameMap failed:', err.message);
+        }
+
+        NAME_MAP_CACHE.set(this.domain, { map, expires: Date.now() + NAME_MAP_TTL_MS });
+        return map;
+    }
+
+    /** Look up a single alias name for an address, or null if none. */
+    async getNameForAddress(address) {
+        if (!address) return null;
+        const map = await this.getNameMap();
+        return map.get(address.toLowerCase()) || null;
     }
     loadPendingRequests() {
         try {
@@ -274,6 +321,7 @@ export class DomainAcl {
                 await tx.wait();
 
                 console.log('Address added to list successfully');
+                NAME_MAP_CACHE.delete(domainChain.domain);
 
                 res.json({
                     success: true,
@@ -303,6 +351,7 @@ export class DomainAcl {
                 await tx.wait();
 
                 console.log('Address removed from list successfully');
+                NAME_MAP_CACHE.delete(domainChain.domain);
 
                 res.json({
                     success: true,
@@ -339,6 +388,7 @@ export class DomainAcl {
                 await tx.wait();
 
                 console.log('List entry updated successfully');
+                NAME_MAP_CACHE.delete(domainChain.domain);
 
                 res.json({
                     success: true,
