@@ -1,4 +1,4 @@
-import {Config} from "epistery";
+import {Config, chainFor} from "epistery";
 import ethers from "ethers";
 import path from 'path';
 import { readFileSync } from 'fs';
@@ -26,20 +26,15 @@ export class DomainChain {
     }
     return this._artifact;
   }
-  get provider() {
-    if (!this._provider) {
-      const rpc = this.config.data.provider.rpc;
-      const chainId = parseInt(this.config.data.provider.chainId);
-      const key = `${rpc}:${chainId}`;
-      if (!DomainChain._providers.has(key)) {
-        DomainChain._providers.set(key, new ethers.providers.JsonRpcProvider(rpc, {
-          chainId,
-          name: this.config.data.provider.name
-        }));
-      }
-      this._provider = DomainChain._providers.get(key);
+  /** Chain object — owns the provider, fee policy, and contract wrapping. */
+  get chain() {
+    if (!this._chain) {
+      this._chain = chainFor(this.config.data.provider);
     }
-    return this._provider;
+    return this._chain;
+  }
+  get provider() {
+    return this.chain.provider;
   }
   get wallet() {
     if (!this._wallet) {
@@ -56,15 +51,7 @@ export class DomainChain {
     return this._contract;
   }
   async getFeeData() {
-    const feeData = await this.provider.getFeeData();
-    // Use network gasPrice as floor — some chains (JOC) have near-zero baseFee
-    // but high minimum gas price, so EIP-1559 computed values are too low
-    const minGasPrice = feeData.gasPrice || ethers.utils.parseUnits("30", "gwei");
-    const networkPriority = feeData.maxPriorityFeePerGas ? feeData.maxPriorityFeePerGas.mul(120).div(100) : minGasPrice;
-    const maxPriorityFeePerGas = networkPriority.gt(minGasPrice) ? networkPriority : minGasPrice;
-    const networkMax = feeData.maxFeePerGas ? feeData.maxFeePerGas.mul(120).div(100) : minGasPrice.mul(2);
-    const maxFeePerGas = networkMax.gt(minGasPrice.mul(2)) ? networkMax : minGasPrice.mul(2);
-    return { maxPriorityFeePerGas, maxFeePerGas }
+    return this.chain.getFeeData();
   }
 
   /**
