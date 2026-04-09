@@ -9,7 +9,7 @@ import { fileURLToPath } from 'url';
 import { readFileSync } from 'fs';
 import { createRequire } from 'module';
 import { Certify } from '@metric-im/administrate';
-import { Epistery, Config } from 'epistery';
+import { Epistery, Config, registeredChains } from 'epistery';
 import { createAuthRouter } from './utils/authentication.mjs';
 import { DomainAcl } from './utils/DomainAcl.mjs';
 import { DomainChain } from './utils/DomainChain.mjs';
@@ -395,31 +395,15 @@ let main = async function() {
     app.post('/api/check-deploy-balance', async (req, res) => {
         try {
             const domain = req.hostname || req.body.domain || 'localhost';
-            const cfg = new Config();
-            cfg.setPath(domain);
-
-            const provider = cfg.data?.provider;
-            if (!provider || !provider.rpc) {
-                return res.status(500).json({ error: 'Provider not configured' });
-            }
-
-            const serverWallet = cfg.data?.wallet;
-            if (!serverWallet || !serverWallet.mnemonic) {
-                return res.status(500).json({ error: 'Server wallet not configured' });
-            }
-
-            const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc, {
-                chainId: parseInt(provider.chainId),
-                name: provider.name
-            });
-            const wallet = ethers.Wallet.fromMnemonic(serverWallet.mnemonic).connect(ethersProvider);
+            const domainChain = new DomainChain(domain);
 
             // Get current balance
-            const balance = await ethersProvider.getBalance(wallet.address);
+            const balance = await domainChain.provider.getBalance(domainChain.wallet.address);
 
-            // Estimate deployment cost using same logic as actual deployment
-            const feeData = await ethersProvider.getFeeData();
-            const minGasPrice = feeData.gasPrice || ethers.utils.parseUnits("30", "gwei");
+            // Estimate deployment cost using per-chain fee policy
+            const feeData = await domainChain.getFeeData();
+            // Use maxFeePerGas (EIP-1559) or gasPrice (legacy) for cost estimate
+            const feePerGas = feeData.maxFeePerGas || feeData.gasPrice;
 
             // Estimate based on actual bytecode size (same as deployment)
             const estimatedDeploymentGas = ethers.BigNumber.from(estimateDeployGas());
@@ -428,23 +412,22 @@ let main = async function() {
             const initGas = ethers.BigNumber.from(300000);
             const totalGas = deploymentGas.add(initGas);
 
-            const networkMax = feeData.maxFeePerGas ? feeData.maxFeePerGas.mul(120).div(100) : minGasPrice.mul(2);
-            const maxFeePerGas = networkMax.gt(minGasPrice.mul(2)) ? networkMax : minGasPrice.mul(2);
-            const estimatedCost = totalGas.mul(maxFeePerGas);
+            const estimatedCost = totalGas.mul(feePerGas);
 
             // Add 50% buffer
             const required = estimatedCost.mul(150).div(100);
             const sufficient = balance.gte(required);
 
+            const provider = domainChain.config.data?.provider || {};
             res.json({
-                address: wallet.address,
+                address: domainChain.wallet.address,
                 balance: ethers.utils.formatEther(balance),
                 currencySymbol: provider.nativeCurrencySymbol || 'POL',
                 estimatedCost: ethers.utils.formatEther(estimatedCost),
                 required: ethers.utils.formatEther(required),
                 sufficient: sufficient,
                 gasEstimate: totalGas.toString(),
-                maxFeePerGas: ethers.utils.formatUnits(maxFeePerGas, 'gwei')
+                maxFeePerGas: ethers.utils.formatUnits(feePerGas, 'gwei')
             });
         } catch (error) {
             console.error('Balance check error:', error);
@@ -517,62 +500,28 @@ let main = async function() {
         }
     });
 
-    // API: Provider defaults from root config (for claim page)
-    // Returns chain info with a public RPC URL (never the private/paid one)
-    const PUBLIC_RPC = {
-        '137': 'https://polygon-rpc.com',
-        '1': 'https://eth.llamarpc.com',
-        '81': 'https://rpc-2.japanopenchain.org:8545',
-        '80002': 'https://rpc-amoy.polygon.technology',
-        '11155111': 'https://eth-sepolia.public.blastapi.io'
-    };
-    // Built-in fallback list, used when root config has no `providers` array.
-    const BUILTIN_PROVIDERS = [
-        { name: 'Polygon Mainnet',     chainId: '137',      nativeCurrencyName: 'POL',  nativeCurrencySymbol: 'POL', nativeCurrencyDecimals: '18' },
-        { name: 'Ethereum Mainnet',    chainId: '1',        nativeCurrencyName: 'Ether',nativeCurrencySymbol: 'ETH', nativeCurrencyDecimals: '18' },
-        { name: 'Japan Open Chain',    chainId: '81',       nativeCurrencyName: 'JOC',  nativeCurrencySymbol: 'JOC', nativeCurrencyDecimals: '18' },
-        { name: 'Polygon Amoy Testnet',chainId: '80002',    nativeCurrencyName: 'POL',  nativeCurrencySymbol: 'POL', nativeCurrencyDecimals: '18' },
-        { name: 'Sepolia Testnet',     chainId: '11155111', nativeCurrencyName: 'Ether',nativeCurrencySymbol: 'ETH', nativeCurrencyDecimals: '18' },
-    ];
-
-    // Strip private RPC fields before sending to the browser.
-    function publicProvider(p) {
-        const chainId = String(p.chainId);
-        return {
-            name: p.name,
-            chainId,
-            rpc: p.publicRpc || PUBLIC_RPC[chainId] || null,
-            nativeCurrencyName: p.nativeCurrencyName,
-            nativeCurrencySymbol: p.nativeCurrencySymbol,
-            nativeCurrencyDecimals: p.nativeCurrencyDecimals
-        };
-    }
-
+    // API: Provider list for claim page UI.
+    // The chain registry in epistery is the source of truth for network
+    // details. Root config only overrides the default selection.
     app.get('/api/provider-defaults', (req, res) => {
         const rootCfg = new Config();
         const rootData = rootCfg.read('/');
-        // Always start from built-ins, then overlay root config: root entries
-        // matching a built-in chainId override (carrying privateRpc, custom name,
-        // etc.); new chainIds get appended.
-        const rootList = Array.isArray(rootData?.default?.providers)
-            ? rootData.default.providers
-            : (rootData?.default?.provider ? [rootData.default.provider] : []);
-        const byChain = new Map();
-        for (const p of BUILTIN_PROVIDERS) byChain.set(String(p.chainId), { ...p });
-        for (const p of rootList) {
-            const key = String(p.chainId);
-            byChain.set(key, { ...byChain.get(key), ...p });
-        }
-        const providers = Array.from(byChain.values());
         const defaultChainId = String(
             rootData?.default?.defaultChainId ||
             rootData?.default?.provider?.chainId ||
-            providers[0].chainId
+            '137'
         );
-        res.json({
-            providers: providers.map(publicProvider),
-            defaultChainId
-        });
+        // registeredChains() returns built-in defaults from each chain class.
+        // Only public info — no privateRpc is exposed.
+        const providers = registeredChains().map(p => ({
+            name: p.name,
+            chainId: String(p.chainId),
+            rpc: p.rpc,
+            nativeCurrencyName: p.nativeCurrencyName,
+            nativeCurrencySymbol: p.nativeCurrencySymbol,
+            nativeCurrencyDecimals: p.nativeCurrencyDecimals,
+        }));
+        res.json({ providers, defaultChainId });
     });
 
     // Static files (after specific routes)

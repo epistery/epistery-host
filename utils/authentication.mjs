@@ -92,26 +92,35 @@ export function createAuthRouter() {
             const challengeToken = crypto.randomBytes(32).toString('hex');
             const normalizedClientAddress = clientAddress.toLowerCase();
 
-            // Merge provider: use root config's RPC (private/paid) for server-side calls,
-            // keep what the client sent as publicRpc (safe to expose).
-            // Look for a matching entry in root config's `providers` array (preferred),
-            // or the legacy single `provider` object.
+            // Merge provider: the chain registry carries default public RPCs.
+            // Root config can override with a privateRpc per chainId for
+            // server-side calls that need an API key.
+            //
+            // Config format (ini):
+            //   [default.rpc.137]
+            //   privateRpc=https://polygon-mainnet.infura.io/v3/KEY
+            //
+            // Legacy format also supported:
+            //   [default.provider]
+            //   chainId=137
+            //   privateRpc=https://...
             const rootCfg = new Config();
             const rootData = rootCfg.read('/');
-            const rootProviders = Array.isArray(rootData?.default?.providers)
-                ? rootData.default.providers
-                : (rootData?.default?.provider ? [rootData.default.provider] : []);
-            const rootMatch = rootProviders.find(
-                (p) => String(p.chainId) === String(providerConfig.chainId)
-            );
+            const chainId = String(providerConfig.chainId);
+            const rpcOverride = rootData?.default?.rpc?.[chainId];
+            const legacyProvider = rootData?.default?.provider;
+            const legacyMatch = legacyProvider && String(legacyProvider.chainId) === chainId
+                ? legacyProvider : null;
 
             const mergedProvider = {
                 ...providerConfig,
                 publicRpc: providerConfig.rpc,
             };
-            // Prefer the root config's private/paid RPC for server-side calls.
-            const privateRpc = rootMatch?.privateRpc || rootMatch?.rpc;
-            if (privateRpc) {
+            // Prefer per-chain override, then legacy provider, for private RPC.
+            const privateRpc = rpcOverride?.privateRpc
+                || legacyMatch?.privateRpc
+                || legacyMatch?.rpc;
+            if (privateRpc && privateRpc !== providerConfig.rpc) {
                 mergedProvider.rpc = privateRpc;
             }
 

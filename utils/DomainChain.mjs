@@ -29,7 +29,16 @@ export class DomainChain {
   /** Chain object — owns the provider, fee policy, and contract wrapping. */
   get chain() {
     if (!this._chain) {
-      this._chain = chainFor(this.config.data.provider);
+      const p = { ...this.config.data.provider };
+      // Check root config for a private RPC override for this chain.
+      const rootData = new Config().read('/');
+      const chainId = String(p.chainId);
+      const privateRpc = rootData?.default?.rpc?.[chainId]?.privateRpc
+          || (rootData?.default?.provider && String(rootData.default.provider.chainId) === chainId
+              ? (rootData.default.provider.privateRpc || rootData.default.provider.rpc)
+              : null);
+      if (privateRpc) p.privateRpc = privateRpc;
+      this._chain = chainFor(p);
     }
     return this._chain;
   }
