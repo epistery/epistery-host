@@ -1815,7 +1815,11 @@
                     let status, action;
 
                     if (!inv.consumed) {
-                        status = '<span style="color: #28a745;">Active</span>';
+                        if (inv.inviteUrl) {
+                            status = `<span style="color: #28a745;">Active</span> <input type="text" value="${inv.inviteUrl}" readonly style="width: 200px; font-size: 12px; padding: 2px 4px; cursor: pointer;" onclick="this.select(); navigator.clipboard.writeText(this.value);" title="Click to copy">`;
+                        } else {
+                            status = '<span style="color: #28a745;">Active</span>';
+                        }
                         action = `<button class="console-btn small danger" onclick="revokeInvite('${inv.codeHash}')">Revoke</button>`;
                     } else if (inv.consumedBy === '0x0000000000000000000000000000000000000000') {
                         status = '<span style="color: #dc3545;">Revoked</span>';

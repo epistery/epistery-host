@@ -176,9 +176,13 @@ export class DomainAcl {
         const invite = await contract.getInvite(codeHash);
         if (invite.consumed) throw new Error('Invite already used or revoked');
 
+        // Look up the name from invite metadata
+        const metadata = this.loadInviteMetadata();
+        const name = metadata[codeHash]?.name || '';
+
         // Redeem on-chain (atomically adds to ACL)
         const feeData = await this.chain.getFeeData();
-        const tx = await contract.redeemInvite(codeHash, redeemerAddress, '', feeData);
+        const tx = await contract.redeemInvite(codeHash, redeemerAddress, name, feeData);
         await tx.wait();
 
         return { listName: invite.listName, role: invite.role };
@@ -570,12 +574,10 @@ export class DomainAcl {
                 const tx = await domainChain.contract.createInvite(codeHash, aclList, aclRole, feeData);
                 await tx.wait();
 
-                // Store optional name/comment metadata locally (not on-chain)
-                if (name || comment) {
-                    const metadata = req.domainAcl.loadInviteMetadata();
-                    metadata[codeHash] = { name: name || '', comment: comment || '' };
-                    req.domainAcl.saveInviteMetadata(metadata);
-                }
+                // Store metadata locally (not on-chain)
+                const metadata = req.domainAcl.loadInviteMetadata();
+                metadata[codeHash] = { name: name || '', comment: comment || '', code, targetPath: path };
+                req.domainAcl.saveInviteMetadata(metadata);
 
                 // Build invite URL
                 const path = targetPath || '/';
@@ -610,18 +612,27 @@ export class DomainAcl {
 
                 const invites = await domainChain.contract.getInvites();
                 const metadata = req.domainAcl.loadInviteMetadata();
-                const formatted = invites.map(inv => ({
-                    codeHash: inv.codeHash,
-                    listName: inv.listName,
-                    role: inv.role,
-                    createdBy: inv.createdBy,
-                    createdAt: inv.createdAt.toNumber() * 1000,
-                    consumed: inv.consumed,
-                    consumedBy: inv.consumedBy,
-                    consumedAt: inv.consumedAt.toNumber() * 1000,
-                    name: metadata[inv.codeHash]?.name || '',
-                    comment: metadata[inv.codeHash]?.comment || ''
-                }));
+                const baseUrl = `${req.protocol}://${req.get('host')}`;
+                const formatted = invites.map(inv => {
+                    const meta = metadata[inv.codeHash] || {};
+                    const entry = {
+                        codeHash: inv.codeHash,
+                        listName: inv.listName,
+                        role: inv.role,
+                        createdBy: inv.createdBy,
+                        createdAt: inv.createdAt.toNumber() * 1000,
+                        consumed: inv.consumed,
+                        consumedBy: inv.consumedBy,
+                        consumedAt: inv.consumedAt.toNumber() * 1000,
+                        name: meta.name || '',
+                        comment: meta.comment || ''
+                    };
+                    if (!inv.consumed && meta.code) {
+                        const path = meta.targetPath || '/';
+                        entry.inviteUrl = `${baseUrl}${path}${path.includes('?') ? '&' : '?'}invite=${meta.code}`;
+                    }
+                    return entry;
+                });
 
                 res.json({ invites: formatted });
             } catch (error) {
