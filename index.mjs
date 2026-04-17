@@ -220,7 +220,7 @@ let main = async function() {
                 return res.status(500).json({ error: 'Server wallet not configured' });
             }
 
-            if (!provider || !provider.rpc) {
+            if (!provider || !(provider.privateRpc || provider.rpc)) {
                 return res.status(500).json({ error: 'Provider not configured' });
             }
 
@@ -228,7 +228,9 @@ let main = async function() {
                 return res.status(500).json({ error: 'Admin address not configured - cannot complete initialization' });
             }
 
-            const ethersProvider = new ethers.providers.JsonRpcProvider(provider.rpc, {
+            // Prefer privateRpc (may contain API key) — never the public rpc for server-side calls
+            const rpcUrl = provider.privateRpc || provider.rpc;
+            const ethersProvider = new ethers.providers.JsonRpcProvider(rpcUrl, {
                 chainId: parseInt(provider.chainId),
                 name: provider.name
             });
