@@ -11,7 +11,8 @@
  *   - Bearer middleware (validates rootz_at_* tokens)
  *   - Async approval for server-to-server OAuth (pending-requests pattern)
  *
- * Domain wallet = custodial identity. OAuth tokens map to Config.data.wallet.address.
+ * OAuth tokens carry the authorizer's real address — the signed identity of the
+ * admin who approved the connection. No synthetic/derived addresses.
  *
  * Server-to-server flow:
  *   1. AI POSTs to /oauth/authorize without admin session
@@ -456,17 +457,15 @@ export class OAuthServer {
       const client = await store.getClient(client_id);
       if (!client) return res.status(400).json({ error: 'invalid_client' });
 
-      const domainWallet = self.getDomainWallet(domain);
-      if (!domainWallet) return res.status(500).json({ error: 'server_error', error_description: 'No domain wallet' });
-
-      const clientWallet = self.deriveClientAddress(domainWallet, client_id);
+      // Use the authorizer's real signed address — no derived/synthetic addresses
+      const authorizerWallet = req.episteryClient.address;
 
       try {
         await store.recordConsent({
           client_id,
-          wallet: clientWallet,
+          wallet: authorizerWallet,
           scope: scope || '',
-          authorizer: req.episteryClient.address
+          authorizer: authorizerWallet
         });
 
         const { code } = await store.createAuthorizationCode({
@@ -475,28 +474,12 @@ export class OAuthServer {
           scope: scope || '',
           code_challenge,
           code_challenge_method: code_challenge_method || 'S256',
-          wallet: clientWallet,
-          authorizer: req.episteryClient.address
+          wallet: authorizerWallet,
+          authorizer: authorizerWallet
         });
 
-        // Persist derived wallet on client record
-        await store.setClientWallet(client_id, clientWallet);
-
-        // Best-effort: add to ACL
-        try {
-          const clientRecord = await store.getClient(client_id);
-          const clientName = clientRecord?.name || client_id;
-          const domainChain = new DomainChain(domain);
-          if (domainChain.contract) {
-            const feeData = await domainChain.getFeeData();
-            const meta = JSON.stringify({ derivedFrom: domainWallet, clientId: client_id, approvedAt: new Date().toISOString() });
-            const tx = await domainChain.contract.addToACL('ai-client', clientWallet, clientName, 2, meta, feeData);
-            await tx.wait();
-            console.log(`[oauth] Added ${clientName} (${clientWallet}) to ai-client ACL`);
-          }
-        } catch (aclErr) {
-          console.warn(`[oauth] Best-effort ACL add failed: ${aclErr.message}`);
-        }
+        // Persist authorizer wallet on client record
+        await store.setClientWallet(client_id, authorizerWallet);
 
         if (redir) {
           const sep = redir.includes('?') ? '&' : '?';
@@ -581,18 +564,16 @@ export class OAuthServer {
         const store = signer ? await self.getStore(domain, signer) : null;
         if (!store) return res.status(503).json({ error: 'Master key not initialized' });
 
-        const domainWallet = self.getDomainWallet(domain);
-        if (!domainWallet) return res.status(500).json({ error: 'No domain wallet configured' });
-
-        const clientWallet = self.deriveClientAddress(domainWallet, request.client_id);
+        // Use the approving admin's real signed address
+        const authorizerWallet = req.episteryClient.address;
 
         try {
           // Record consent
           await store.recordConsent({
             client_id: request.client_id,
-            wallet: clientWallet,
+            wallet: authorizerWallet,
             scope: request.scope,
-            authorizer: req.episteryClient.address
+            authorizer: authorizerWallet
           });
 
           // Create authorization code
@@ -602,26 +583,12 @@ export class OAuthServer {
             scope: request.scope,
             code_challenge: request.code_challenge,
             code_challenge_method: request.code_challenge_method,
-            wallet: clientWallet,
-            authorizer: req.episteryClient.address
+            wallet: authorizerWallet,
+            authorizer: authorizerWallet
           });
 
-          // Persist derived wallet on client record
-          await store.setClientWallet(request.client_id, clientWallet);
-
-          // Best-effort: add to ACL
-          try {
-            const domainChain = new DomainChain(domain);
-            if (domainChain.contract) {
-              const feeData = await domainChain.getFeeData();
-              const meta = JSON.stringify({ derivedFrom: domainWallet, clientId: request.client_id, approvedAt: new Date().toISOString() });
-              const tx = await domainChain.contract.addToACL('ai-client', clientWallet, request.client_name || request.client_id, 2, meta, feeData);
-              await tx.wait();
-              console.log(`[oauth] Added ${request.client_name} (${clientWallet}) to ai-client ACL`);
-            }
-          } catch (aclErr) {
-            console.warn(`[oauth] Best-effort ACL add failed: ${aclErr.message}`);
-          }
+          // Persist authorizer wallet on client record
+          await store.setClientWallet(request.client_id, authorizerWallet);
 
           // Store code on the pending request so poll can return it
           request.status = 'approved';
