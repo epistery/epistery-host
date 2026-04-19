@@ -100,6 +100,7 @@ let main = async function() {
                 provider: provider.name || 'Polygon Mainnet',
                 chainId: provider.chainId?.toString() || '137',
                 rpc: provider.publicRpc || 'https://polygon-rpc.com',
+                rpcProxy: `https://${domain}/rpc`,
                 nativeCurrency: {
                     symbol: provider.nativeCurrency?.symbol || 'POL',
                     name: provider.nativeCurrency?.name || 'POL',
@@ -555,6 +556,9 @@ let main = async function() {
 
     // Mount ACL routes AFTER epistery (req.episteryClient will be available)
     DomainAcl.attach(app)
+
+    // Mount /rpc JSON-RPC proxy (session-gated, rate-limited)
+    DomainChain.attach(app);
 
     // Mount UserVault (encrypted per-user storage, like server-side cookies)
     UserVault.attach(app);

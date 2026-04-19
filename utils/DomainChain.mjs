@@ -10,6 +10,36 @@ import { retryWithBackoff } from './retryWithBackoff.mjs';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// /rpc proxy: method gating and per-session rate limit
+const RPC_ALLOWED_PREFIXES = ['eth_', 'net_', 'web3_'];
+const RPC_ALLOWED_EXACT = new Set(['eth_sendRawTransaction']);
+const RPC_BLOCKED_PREFIXES = ['debug_', 'admin_', 'personal_', 'miner_', 'txpool_'];
+const RPC_WINDOW_MS = 60_000;
+const RPC_LIMIT_PER_WINDOW = 120;
+const RPC_SESSION_BUCKETS = new Map();
+
+function rpcMethodAllowed(method) {
+  if (typeof method !== 'string' || !method) return false;
+  if (RPC_BLOCKED_PREFIXES.some(p => method.startsWith(p))) return false;
+  if (RPC_ALLOWED_EXACT.has(method)) return true;
+  return RPC_ALLOWED_PREFIXES.some(p => method.startsWith(p));
+}
+
+function rpcConsumeBudget(key) {
+  const now = Date.now();
+  let slot = RPC_SESSION_BUCKETS.get(key);
+  if (!slot || slot.resetAt <= now) {
+    slot = { count: 0, resetAt: now + RPC_WINDOW_MS };
+    RPC_SESSION_BUCKETS.set(key, slot);
+  }
+  slot.count++;
+  return slot.count <= RPC_LIMIT_PER_WINDOW;
+}
+
+function rpcError(id, code, message) {
+  return { jsonrpc: '2.0', id: id ?? null, error: { code, message } };
+}
+
 export class DomainChain {
   // Cache RPC providers by endpoint URL to avoid recreating per request
   static _providers = new Map();
@@ -45,6 +75,10 @@ export class DomainChain {
   get provider() {
     return this.chain.provider;
   }
+  /** URL ethers is using for this chain. Prefer privateRpc; fall back to rpc. */
+  get rpcUrl() {
+    return this.provider?.connection?.url || null;
+  }
   get wallet() {
     if (!this._wallet) {
       this._wallet = ethers.Wallet.fromMnemonic(this.config.data.wallet.mnemonic).connect(this.provider);
@@ -61,6 +95,56 @@ export class DomainChain {
   }
   async getFeeData() {
     return this.chain.getFeeData();
+  }
+
+  /**
+   * Mount the JSON-RPC proxy at POST /rpc. Browser-side code hits this instead
+   * of a public RPC URL — the server forwards to the domain's server-side
+   * chain endpoint (privateRpc or rpc). Session-gated so random internet
+   * traffic can't burn the upstream credits; rate-limited per session.
+   */
+  static attach(app) {
+    app.post('/rpc', async (req, res) => {
+      const session = req.episteryClient?.address;
+      if (!session) return res.status(401).json(rpcError(null, -32000, 'Not authenticated'));
+      if (!rpcConsumeBudget(session)) return res.status(429).json(rpcError(null, -32005, 'Rate limit exceeded'));
+
+      const body = req.body;
+      const isBatch = Array.isArray(body);
+      const items = isBatch ? body : [body];
+
+      for (const item of items) {
+        if (!item || typeof item !== 'object' || !rpcMethodAllowed(item.method)) {
+          const err = rpcError(item?.id, -32601, `Method not allowed: ${item?.method}`);
+          return res.status(400).json(isBatch ? [err] : err);
+        }
+      }
+
+      let chain;
+      try {
+        chain = new DomainChain(req.hostname);
+      } catch (e) {
+        return res.status(500).json(rpcError(null, -32603, 'Domain not configured'));
+      }
+      const url = chain.rpcUrl;
+      if (!url) return res.status(500).json(rpcError(null, -32603, 'No RPC URL configured'));
+
+      try {
+        const upstream = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const text = await upstream.text();
+        res.status(upstream.status);
+        res.set('Content-Type', 'application/json');
+        // Pass through verbatim — upstream already framed JSON-RPC responses.
+        return res.send(text);
+      } catch (e) {
+        const err = rpcError(isBatch ? null : body?.id, -32603, `Upstream error: ${e.message || e}`);
+        return res.status(502).json(isBatch ? [err] : err);
+      }
+    });
   }
 
   /**
