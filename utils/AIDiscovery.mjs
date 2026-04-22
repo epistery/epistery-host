@@ -71,10 +71,11 @@ export class AIDiscovery {
           rpc: provider.publicRpc || null
         } : null;
 
+        const now = new Date().toISOString();
         const discovery = {
           specVersion: '1.2.0',
           standard: 'AI Discovery Standard v1.2',
-          generated: new Date().toISOString(),
+          generated: now,
           identity: {
             name: domain,
             domain: domain,
@@ -118,7 +119,7 @@ export class AIDiscovery {
             digitalName: contractAddress,
             network: provider.name || 'unknown',
             contentHash: `sha256:${contentHash}`,
-            signedAt: new Date().toISOString()
+            signedAt: now
           };
         }
 
