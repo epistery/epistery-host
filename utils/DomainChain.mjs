@@ -1,4 +1,4 @@
-import {Config, chainFor} from "epistery";
+import {Config, chainFor, configuredChains} from "epistery";
 import ethers from "ethers";
 import path from 'path';
 import { readFileSync } from 'fs';
@@ -30,14 +30,8 @@ export class DomainChain {
   get chain() {
     if (!this._chain) {
       const p = { ...this.config.data.provider };
-      // Check root config for a private RPC override for this chain.
-      const rootData = new Config().read('/');
-      const chainId = String(p.chainId);
-      const privateRpc = rootData?.default?.rpc?.[chainId]?.privateRpc
-          || (rootData?.default?.provider && String(rootData.default.provider.chainId) === chainId
-              ? (rootData.default.provider.privateRpc || rootData.default.provider.rpc)
-              : null);
-      if (privateRpc) p.privateRpc = privateRpc;
+      const entry = configuredChains().find(c => String(c.chainId) === String(p.chainId));
+      if (entry?.privateRpc) p.privateRpc = entry.privateRpc;
       this._chain = chainFor(p);
     }
     return this._chain;

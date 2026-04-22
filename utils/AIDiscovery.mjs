@@ -9,6 +9,7 @@
  */
 
 import { Config } from 'epistery';
+import crypto from 'crypto';
 
 export class AIDiscovery {
   static attach(app) {
@@ -97,6 +98,29 @@ export class AIDiscovery {
             ai_discovery: '/.well-known/ai'
           }
         };
+
+        // Sign the manifest with the domain contract identity
+        if (hasContract) {
+          const sortKeys = (obj) => {
+            if (Array.isArray(obj)) return obj.map(sortKeys);
+            if (obj && typeof obj === 'object') {
+              return Object.keys(obj).sort().reduce((sorted, key) => {
+                sorted[key] = sortKeys(obj[key]);
+                return sorted;
+              }, {});
+            }
+            return obj;
+          };
+          const canonical = JSON.stringify(sortKeys(discovery));
+          const contentHash = crypto.createHash('sha256').update(canonical).digest('hex');
+          discovery._signature = {
+            method: 'epistery-domain-v1',
+            digitalName: contractAddress,
+            network: provider.name || 'unknown',
+            contentHash: `sha256:${contentHash}`,
+            signedAt: new Date().toISOString()
+          };
+        }
 
         res.json(discovery);
       } catch (error) {
