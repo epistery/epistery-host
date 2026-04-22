@@ -112,7 +112,10 @@ export class AIDiscovery {
             }
             return obj;
           };
-          const canonical = JSON.stringify(sortKeys(discovery));
+          // Hash without volatile fields — generated changes per request
+          const hashTarget = { ...discovery };
+          delete hashTarget.generated;
+          const canonical = JSON.stringify(sortKeys(hashTarget));
           const contentHash = crypto.createHash('sha256').update(canonical).digest('hex');
           discovery._signature = {
             method: 'epistery-domain-v1',
