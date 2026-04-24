@@ -27,6 +27,10 @@ function vaultKey(address) {
   return `vault/${address.toLowerCase()}.json`;
 }
 
+function nameVaultKey(name) {
+  return `vault/name/${name.toLowerCase()}.json`;
+}
+
 export class UserVault {
 
   /**
@@ -70,6 +74,32 @@ export class UserVault {
     return merged;
   }
 
+  /** Read the vault for an ACL name. */
+  static async getByName(storage, name) {
+    try {
+      const key = nameVaultKey(name);
+      const exists = await storage.exists(key);
+      if (!exists) return {};
+      const raw = await storage.readFile(key);
+      return JSON.parse(raw);
+    } catch {
+      return {};
+    }
+  }
+
+  /** Replace the vault for an ACL name. */
+  static async setByName(storage, name, data) {
+    await storage.writeFile(nameVaultKey(name), JSON.stringify(data));
+  }
+
+  /** Shallow-merge patch into an ACL name vault. */
+  static async mergeByName(storage, name, patch) {
+    const existing = await UserVault.getByName(storage, name);
+    const merged = { ...existing, ...patch };
+    await UserVault.setByName(storage, name, merged);
+    return merged;
+  }
+
   /**
    * Attach middleware and API routes.
    * After this, req.userVault is available with { get, set, merge } bound to the
@@ -98,10 +128,29 @@ export class UserVault {
         return next();
       }
 
+      // Resolve ACL name for shared (cross-device) vault
+      let aclName = null;
+      try {
+        if (req.domainAcl) {
+          aclName = await req.domainAcl.getNameForAddress(address);
+        }
+      } catch {}
+
       req.userVault = {
         get: () => UserVault.get(storage, address),
         set: (data) => UserVault.set(storage, address, data),
-        merge: (patch) => UserVault.merge(storage, address, patch)
+        merge: (patch) => UserVault.merge(storage, address, patch),
+        // Shared: uses name vault when ACL name exists, falls back to address vault
+        getShared: () => aclName
+          ? UserVault.getByName(storage, aclName)
+          : UserVault.get(storage, address),
+        setShared: (data) => aclName
+          ? UserVault.setByName(storage, aclName, data)
+          : UserVault.set(storage, address, data),
+        mergeShared: (patch) => aclName
+          ? UserVault.mergeByName(storage, aclName, patch)
+          : UserVault.merge(storage, address, patch),
+        sharedName: aclName
       };
 
       next();
