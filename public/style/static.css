@@ -41,6 +41,9 @@
 .icon-edit:before { content: "\EA8D" }
 .icon-download:before { content: "\EA86" }
 .icon-reply:before { content: "\EB33" }
+.icon-laptop:before { content: "\EAD7" }
+.icon-mobile:before { content: "\EB00" }
+.icon-globe:before { content: "\EAB5" }
 
 /* Color scheme inspired by metric.im with Rootz branding */
 :root {

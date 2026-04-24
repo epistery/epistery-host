@@ -107,6 +107,13 @@
         flex: 1;
         min-width: 0;
     }
+    .wallet-item .wallet-source-icon {
+        font-size: 1.2rem;
+        color: var(--text-color-quiet);
+        flex-shrink: 0;
+        width: 1.6em;
+        text-align: center;
+    }
     .wallet-item .wallet-type {
         color: var(--text-color-quiet);
         font-size: 0.8rem;
@@ -313,6 +320,15 @@
         setTimeout(() => resolve(null), 5000);
     });
 
+    // Determine icon class for a wallet based on source and user-agent
+    function walletIconClass(source) {
+        if (source === 'web3') return 'icon-key';
+        // Browser/rivet wallet — detect device from user-agent
+        const ua = navigator.userAgent.toLowerCase();
+        if (/android|iphone|ipad|ipod|mobile/.test(ua)) return 'icon-mobile';
+        return 'icon-laptop';
+    }
+
     // Render wallet list
     function renderWallets() {
         if (!witness) {
@@ -398,6 +414,11 @@
                 btns.appendChild(deleteBtn);
             }
 
+            const sourceIcon = document.createElement('span');
+            sourceIcon.className = 'icon wallet-source-icon ' + walletIconClass(w.source);
+            sourceIcon.title = w.source === 'web3' ? 'Web3 wallet' : 'Device wallet';
+
+            li.appendChild(sourceIcon);
             li.appendChild(info);
             li.appendChild(btns);
             walletListEl.appendChild(li);
