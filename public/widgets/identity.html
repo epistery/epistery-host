@@ -107,12 +107,8 @@
         flex: 1;
         min-width: 0;
     }
-    .wallet-item .wallet-source-icon {
-        font-size: 1.2rem;
-        color: var(--text-color-quiet);
-        flex-shrink: 0;
-        width: 1.6em;
-        text-align: center;
+    .wallet-type .wallet-source-icon {
+        margin-right: 0.3em;
     }
     .wallet-item .wallet-type {
         color: var(--text-color-quiet);
@@ -368,7 +364,10 @@
 
             const typeSpan = document.createElement('span');
             typeSpan.className = 'wallet-type';
-            typeSpan.textContent = w.label || w.source || '';
+            const sourceIcon = document.createElement('span');
+            sourceIcon.className = 'icon wallet-source-icon ' + walletIconClass(w.source);
+            typeSpan.appendChild(sourceIcon);
+            typeSpan.appendChild(document.createTextNode(w.label || w.source || ''));
 
             info.appendChild(addrSpan);
             info.appendChild(typeSpan);
@@ -414,11 +413,6 @@
                 btns.appendChild(deleteBtn);
             }
 
-            const sourceIcon = document.createElement('span');
-            sourceIcon.className = 'icon wallet-source-icon ' + walletIconClass(w.source);
-            sourceIcon.title = w.source === 'web3' ? 'Web3 wallet' : 'Device wallet';
-
-            li.appendChild(sourceIcon);
             li.appendChild(info);
             li.appendChild(btns);
             walletListEl.appendChild(li);
