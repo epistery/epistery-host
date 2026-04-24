@@ -134,17 +134,8 @@
     .wallet-item .wallet-btns button.btn-delete:hover {
         color: var(--status-error);
     }
-    .wallet-item.active { font-weight: bold; }
-    .wallet-item.active .wallet-addr::before {
-        content: '';
-        display: inline-block;
-        width: 6px;
-        height: 6px;
-        background: var(--status-success);
-        border-radius: 50%;
-        margin-right: var(--spacerhalf);
-        vertical-align: middle;
-    }
+    .wallet-item.active .wallet-addr { font-weight: bold; }
+    .wallet-item.active .wallet-type { color: var(--status-success); }
 
     .wallet-actions {
         display: flex;
