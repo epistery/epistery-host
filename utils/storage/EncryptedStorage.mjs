@@ -71,6 +71,15 @@ export default class EncryptedStorage {
   }
 
   /**
+   * List all files by prefix, paginating through >1000 results.
+   * @param {string} prefix
+   * @returns {Promise<string[]>}
+   */
+  async listAllFiles(prefix) {
+    return this.storage.listAllFiles(prefix);
+  }
+
+  /**
    * Delete a file.
    * @param {string} key
    */

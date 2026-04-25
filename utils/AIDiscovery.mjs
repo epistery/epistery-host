@@ -9,6 +9,7 @@
  */
 
 import { Config } from 'epistery';
+import crypto from 'crypto';
 
 export class AIDiscovery {
   static attach(app) {
@@ -70,10 +71,11 @@ export class AIDiscovery {
           rpc: provider.publicRpc || null
         } : null;
 
+        const now = new Date().toISOString();
         const discovery = {
           specVersion: '1.2.0',
           standard: 'AI Discovery Standard v1.2',
-          generated: new Date().toISOString(),
+          generated: now,
           identity: {
             name: domain,
             domain: domain,
@@ -97,6 +99,32 @@ export class AIDiscovery {
             ai_discovery: '/.well-known/ai'
           }
         };
+
+        // Sign the manifest with the domain contract identity
+        if (hasContract) {
+          const sortKeys = (obj) => {
+            if (Array.isArray(obj)) return obj.map(sortKeys);
+            if (obj && typeof obj === 'object') {
+              return Object.keys(obj).sort().reduce((sorted, key) => {
+                sorted[key] = sortKeys(obj[key]);
+                return sorted;
+              }, {});
+            }
+            return obj;
+          };
+          // Hash without volatile fields — generated changes per request
+          const hashTarget = { ...discovery };
+          delete hashTarget.generated;
+          const canonical = JSON.stringify(sortKeys(hashTarget));
+          const contentHash = crypto.createHash('sha256').update(canonical).digest('hex');
+          discovery._signature = {
+            method: 'epistery-domain-v1',
+            digitalName: contractAddress,
+            network: provider.name || 'unknown',
+            contentHash: `sha256:${contentHash}`,
+            signedAt: now
+          };
+        }
 
         res.json(discovery);
       } catch (error) {

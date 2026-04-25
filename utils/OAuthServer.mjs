@@ -761,6 +761,29 @@ export class OAuthServer {
       }
     });
 
+    // ── Create outbound connection (admin only) ──
+
+    app.post('/api/connections', async (req, res) => {
+      const isAdmin = req.episteryClient && req.domainAcl
+        ? await req.domainAcl.isAdmin(req.episteryClient.address)
+        : false;
+      if (!isAdmin) return res.status(403).json({ error: 'Admin access required' });
+
+      const domain = req.hostname || 'localhost';
+      const signer = self.getSigner(req);
+      const store = signer ? await self.getStore(domain, signer) : null;
+      if (!store) return res.status(503).json({ error: 'service_unavailable' });
+
+      try {
+        const { service, name, credentials } = req.body;
+        if (!service || !name) return res.status(400).json({ error: 'service and name required' });
+        const conn = await store.addConnection({ service, name, credentials: credentials || {}, type: 'outbound' });
+        res.json(conn);
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
     console.log('[oauth] OAuth 2.1 server routes attached');
   }
 

@@ -86,18 +86,18 @@ Protocol negotiation supports versions `2024-11-05` and `2025-03-26`.
 
 Requires OAuth authentication. Unauthenticated requests receive 401 with `WWW-Authenticate` header pointing to the protected resource metadata, triggering the OAuth discovery flow.
 
-### MCP Tools (MCPTools.mjs)
+### MCP Tools
 
-Each tool proxies to an internal epistery agent via HTTP on loopback (`127.0.0.1:{port}`). The Host header is forwarded for domain routing but the connection never leaves the machine.
+Tools are declared in two places:
 
-Tools:
-- **wiki_read**, **wiki_write**, **wiki_list** — Wiki agent CRUD
-- **archive_create**, **archive_list**, **archive_search**, **archive_read**, **archive_stats** — Archive agent
-- **message_list**, **message_post** — Message board agent
-- **secret_list** — Secret agent (metadata only)
-- **whoami** — Current identity info
+**Agent-declared tools** live in each agent's `epistery.json` manifest under a `tools` array. Each tool specifies `name`, `description`, `method`, `path`, `inputSchema`, and an optional `scope` for OAuth enforcement. MCPServer discovers these at startup via AgentManager and proxies calls to the agent's internal HTTP endpoint on loopback (`127.0.0.1:{port}`). Path parameters use `{param}` syntax (e.g. `/{page}`) and are substituted from the tool arguments; remaining arguments become query params (GET) or JSON body (POST).
 
-Each tool has an assigned scope in `TOOL_SCOPES`. The MCP server enforces scope before dispatching any tool call.
+Agents can also implement `describeTools(domain)` to provide dynamic tool descriptions (e.g. horoscope profiles baked into descriptions).
+
+**Static tools** live in `MCPTools.mjs` for host-level operations that read directly from the request rather than proxying to an agent:
+- **whoami** — Current wallet identity, auth method, and permissions
+
+**Scope enforcement**: Each agent tool can declare a `scope` field (e.g. `"wiki:read"`). MCPServer checks this against the OAuth grant in `_proxyAgentTool` before proxying. Bot-auth clients bypass scope checks (governed by ACL lists instead).
 
 ## Encrypted Storage
 
@@ -147,7 +147,7 @@ Token format: `rootz_at_` (access, 1 hour) and `rootz_rt_` (refresh, 30 days) pr
 
 Agents are modular services discovered from `~/.epistery/.agents/`. Each agent is a directory (or symlink) containing:
 
-- `epistery.json` — manifest with name, version, title, icon, main entry, permissions
+- `epistery.json` — manifest with name, version, title, icon, main entry, optional `tools` array for MCP
 - `index.mjs` — default export is a class with `attach(router)` and optional `cleanup()`, `initWebSocket(server)`
 
 AgentManager mounts each agent at two equivalent paths:
@@ -193,7 +193,7 @@ ACL lists are stored on the Polygon blockchain via the DomainAgent contract. Sta
 - **CSRF tokens** (single-use, 10-minute expiry) protect the consent form
 - **Rate limiting** on client registration (10 registrations per IP per hour)
 - **HTML escaping** (`esc()` helper) prevents XSS in consent and error pages
-- **Scope enforcement** — every MCP tool call checked against `TOOL_SCOPES` before execution
+- **Scope enforcement** — agent tool scopes declared in `epistery.json` manifests, checked before proxy dispatch
 - **Loopback proxy** — MCP tool handlers connect to `127.0.0.1` only, preventing SSRF via Host header manipulation
 - **Encrypted storage** — OAuth tokens, client secrets, and consent records encrypted at rest with AES-256-GCM
 - **Master key derivation** — master key encrypted with a domain wallet signature, never stored in plaintext
@@ -211,7 +211,7 @@ epistery-host/
   │     ├── OAuthServer.mjs              — OAuth 2.1 server + Bearer middleware
   │     ├── OAuthStore.mjs               — Encrypted OAuth entity storage
   │     ├── MCPServer.mjs                — MCP JSON-RPC server
-  │     ├── MCPTools.mjs                 — MCP tool definitions + scope enforcement
+  │     ├── MCPTools.mjs                 — Static MCP tools (whoami) + hasScope helper
   │     ├── crypto/
   │     │     ├── aes.mjs                — AES-256-GCM
   │     │     ├── master-key.mjs         — Signature-based key wrapping

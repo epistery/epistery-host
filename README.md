@@ -4,9 +4,13 @@ The Epistery Host is intended to provide epistery agent services on behalf of on
 connected through a DNS CNAME, manages the domain key and provides the services of the epistery server
 npm plugin along with the browser javascript
 
-The Epistery Host implements a plugin model that launches chosen modules to add routes and wield the domain key.
-These include a secrets manager, an auth manager, an advertising network, a domain credits utility. It's open. The
+The Epistery Host implements a plugin model that launches chosen agents to add routes and wield the domain key.
+These include a wiki, message board, file manager, secrets manager, and more. It's open. The
 Epistery host code endeavors to provide a harness for these features, remaining slim itself.
+
+Agents declare their MCP (Model Context Protocol) tools in their own `epistery.json` manifests. The host
+discovers these at startup and proxies MCP tool calls to each agent's internal HTTP endpoint. Only host-level
+tools (like `whoami`) remain in MCPTools.mjs.
 
 ## Features
 
@@ -29,16 +33,15 @@ Once claimed, the domain displays a clean status interface showing:
 * **Browser Wallet** button - Manage domain-specific identity and data wallet
 * **Administrate** button - Visible only to the verified admin address
 
-### Module System
+### Agent System
 
-The host uses `@metric-im/administrate/MultiSite` to spawn and manage service modules:
+Agents are discovered from `~/.epistery/.agents/` and mounted at `/agent/{namespace}/{name}/*`. Each agent
+has an `epistery.json` manifest declaring its name, entry point, optional UI widget, and optional `tools`
+array for MCP integration. Agents with tools get automatic MCP proxy — each tool declares its HTTP method,
+path, input schema, and OAuth scope.
 
-* Secrets Manager - Secure credential storage
-* Auth Manager - Identity and access control
-* Advertising Network - Ad contract management (Geistm Adnet)
-* Domain Credits - Usage tracking and billing
-
-Modules add routes, wield the domain key, and provide optional public-facing UI blocks on the status page.
+Current agents include wiki, message board, files, relay, provenance, secrets, connectors (weather,
+finance), publisher, scan, environs, and mimi (voice portal).
 
 ### Technical Architecture
 

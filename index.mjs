@@ -9,7 +9,7 @@ import { fileURLToPath } from 'url';
 import { readFileSync } from 'fs';
 import { createRequire } from 'module';
 import { Certify } from '@metric-im/administrate';
-import { Epistery, Config, registeredChains } from 'epistery';
+import { Epistery, Config, configuredChains, defaultChainId } from 'epistery';
 import { createAuthRouter } from './utils/authentication.mjs';
 import { DomainAcl } from './utils/DomainAcl.mjs';
 import { DomainChain } from './utils/DomainChain.mjs';
@@ -504,19 +504,10 @@ let main = async function() {
     });
 
     // API: Provider list for claim page UI.
-    // The chain registry in epistery is the source of truth for network
-    // details. Root config only overrides the default selection.
+    // configuredChains() returns registry defaults with root-config privateRpc overlaid.
+    // Only public info is exposed to the client.
     app.get('/api/provider-defaults', (req, res) => {
-        const rootCfg = new Config();
-        const rootData = rootCfg.read('/');
-        const defaultChainId = String(
-            rootData?.default?.defaultChainId ||
-            rootData?.default?.provider?.chainId ||
-            '137'
-        );
-        // registeredChains() returns built-in defaults from each chain class.
-        // Only public info — no privateRpc is exposed.
-        const providers = registeredChains().map(p => ({
+        const providers = configuredChains().map(p => ({
             name: p.name,
             chainId: String(p.chainId),
             rpc: p.rpc,
@@ -524,7 +515,7 @@ let main = async function() {
             nativeCurrencySymbol: p.nativeCurrencySymbol,
             nativeCurrencyDecimals: p.nativeCurrencyDecimals,
         }));
-        res.json({ providers, defaultChainId });
+        res.json({ providers, defaultChainId: defaultChainId() });
     });
 
     // Static files (after specific routes)

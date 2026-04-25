@@ -107,6 +107,9 @@
         flex: 1;
         min-width: 0;
     }
+    .wallet-type .wallet-source-icon {
+        margin-right: 0.3em;
+    }
     .wallet-item .wallet-type {
         color: var(--text-color-quiet);
         font-size: 0.8rem;
@@ -131,17 +134,8 @@
     .wallet-item .wallet-btns button.btn-delete:hover {
         color: var(--status-error);
     }
-    .wallet-item.active { font-weight: bold; }
-    .wallet-item.active .wallet-addr::before {
-        content: '';
-        display: inline-block;
-        width: 6px;
-        height: 6px;
-        background: var(--status-success);
-        border-radius: 50%;
-        margin-right: var(--spacerhalf);
-        vertical-align: middle;
-    }
+    .wallet-item.active .wallet-addr { font-weight: bold; }
+    .wallet-item.active .wallet-type { color: var(--status-success); }
 
     .wallet-actions {
         display: flex;
@@ -173,12 +167,6 @@
         color: var(--bg-color);
     }
 
-    .connections-placeholder {
-        color: var(--text-color-quiet);
-        font-size: 0.85rem;
-        font-style: italic;
-        padding: var(--spacerhalf) 0;
-    }
     .wallet-feedback {
         font-size: 0.85rem;
         padding: var(--spacerhalf);
@@ -248,16 +236,6 @@
         <div id="id-wallet-feedback"></div>
     </div>
 
-    <div class="identity-section identity-section-block">
-        <div class="identity-help-text">
-            You can provide limited access for other web services to read, maybe write data to this epistery
-            domain. To connect an AI chatbot, so you can sign and archive conversations and share working data
-            connect to thisdomain.com/mcp. [Learn more]. The connection and the data are all on chain under the
-            control of the domain owners keys.
-        </div>
-        <h3>Connections</h3>
-        <div id="id-connections-list" class="connections-placeholder">Loading...</div>
-    </div>
 </div>
 
 <script>
@@ -329,6 +307,15 @@
         setTimeout(() => resolve(null), 5000);
     });
 
+    // Determine icon class for a wallet based on source and user-agent
+    function walletIconClass(source) {
+        if (source === 'web3') return 'icon-key';
+        // Browser/rivet wallet — detect device from user-agent
+        const ua = navigator.userAgent.toLowerCase();
+        if (/android|iphone|ipad|ipod|mobile/.test(ua)) return 'icon-mobile';
+        return 'icon-laptop';
+    }
+
     // Render wallet list
     function renderWallets() {
         if (!witness) {
@@ -368,7 +355,10 @@
 
             const typeSpan = document.createElement('span');
             typeSpan.className = 'wallet-type';
-            typeSpan.textContent = w.label || w.source || '';
+            const sourceIcon = document.createElement('span');
+            sourceIcon.className = 'icon wallet-source-icon ' + walletIconClass(w.source);
+            typeSpan.appendChild(sourceIcon);
+            typeSpan.appendChild(document.createTextNode(w.label || w.source || ''));
 
             info.appendChild(addrSpan);
             info.appendChild(typeSpan);
@@ -482,73 +472,5 @@
         }
     } catch (e) {}
 
-    // Load connections
-    const connListEl = document.getElementById('id-connections-list');
-    try {
-        const res = await fetch('/api/connections', { credentials: 'include' });
-        const data = await res.json();
-        const all = [...(data.inbound || []), ...(data.outbound || [])];
-
-        if (all.length === 0) {
-            connListEl.textContent = 'No connections yet';
-            return;
-        }
-
-        connListEl.className = '';
-        connListEl.innerHTML = '';
-        const ul = document.createElement('ul');
-        ul.className = 'wallet-list';
-
-        for (const conn of all) {
-            const li = document.createElement('li');
-            li.className = 'wallet-item';
-
-            const info = document.createElement('div');
-            info.className = 'wallet-info';
-
-            const nameSpan = document.createElement('span');
-            nameSpan.className = 'wallet-addr';
-            nameSpan.style.cursor = 'default';
-            nameSpan.textContent = conn.name || conn.service || 'Unknown';
-
-            const meta = document.createElement('span');
-            meta.className = 'wallet-type';
-            const typeLabel = conn.type === 'inbound' ? 'inbound' : 'outbound';
-            const date = conn.created ? new Date(conn.created).toLocaleDateString() : '';
-            meta.textContent = `${typeLabel}${conn.scope ? ' - ' + conn.scope : ''}${date ? ' - ' + date : ''}`;
-
-            info.appendChild(nameSpan);
-            info.appendChild(meta);
-
-            const btns = document.createElement('div');
-            btns.className = 'wallet-btns';
-            const delBtn = document.createElement('button');
-            delBtn.className = 'icon icon-trash btn-delete';
-            delBtn.title = 'Revoke connection';
-            delBtn.addEventListener('click', async () => {
-                if (!confirm('Revoke this connection?')) return;
-                try {
-                    await fetch('/api/connections/' + conn.id, {
-                        method: 'DELETE', credentials: 'include'
-                    });
-                    li.remove();
-                    if (ul.children.length === 0) {
-                        connListEl.className = 'connections-placeholder';
-                        connListEl.textContent = 'No connections yet';
-                    }
-                } catch (e) {
-                    console.error('[identity] revoke connection failed:', e);
-                }
-            });
-            btns.appendChild(delBtn);
-
-            li.appendChild(info);
-            li.appendChild(btns);
-            ul.appendChild(li);
-        }
-        connListEl.appendChild(ul);
-    } catch (e) {
-        connListEl.textContent = 'No connections yet';
-    }
 })();
 </script>

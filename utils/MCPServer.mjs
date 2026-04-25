@@ -21,7 +21,7 @@
  */
 
 import { Config } from 'epistery';
-import { TOOLS, TOOL_SCOPES, hasScope, createHandlers } from './MCPTools.mjs';
+import { TOOLS, hasScope, createHandlers } from './MCPTools.mjs';
 
 const PROTOCOL_VERSION = '2024-11-05';
 const SERVER_INFO = { name: 'epistery', version: '0.1.0' };
@@ -187,19 +187,6 @@ export class MCPServer {
     const handler = MCPServer.handlers[name];
 
     if (handler) {
-      // Enforce OAuth scopes for static tools
-      const requiredScope = TOOL_SCOPES[name];
-      if (requiredScope !== undefined && !hasScope(req, requiredScope)) {
-        return {
-          jsonrpc: '2.0',
-          id: msg.id,
-          result: {
-            content: [{ type: 'text', text: `Insufficient scope. Required: ${requiredScope}` }],
-            isError: true
-          }
-        };
-      }
-
       try {
         const result = await handler(args || {}, req);
         return { jsonrpc: '2.0', id: msg.id, result };
@@ -287,7 +274,7 @@ export class MCPServer {
           description: dynamic?.description || manifestTool.description,
           inputSchema: dynamic?.inputSchema || manifestTool.inputSchema || { type: 'object', properties: {} },
           // Stash routing info (not part of MCP spec, but we need it for proxy)
-          _agent: { basePath, path: manifestTool.path, method: manifestTool.method || 'GET' }
+          _agent: { basePath, path: manifestTool.path, method: manifestTool.method || 'GET', scope: manifestTool.scope }
         });
       }
     }
@@ -320,6 +307,19 @@ export class MCPServer {
       path: tool.path,
       method: (tool.method || 'GET').toUpperCase()
     };
+
+    // Enforce OAuth scope declared in agent manifest
+    const requiredScope = routing.scope || tool.scope;
+    if (requiredScope && !hasScope(req, requiredScope)) {
+      return {
+        jsonrpc: '2.0',
+        id: msg.id,
+        result: {
+          content: [{ type: 'text', text: `Insufficient scope. Required: ${requiredScope}` }],
+          isError: true
+        }
+      };
+    }
 
     if (!routing.basePath) {
       return {

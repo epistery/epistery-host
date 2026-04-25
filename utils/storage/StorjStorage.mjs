@@ -176,6 +176,39 @@ export default class StorjStorage {
   }
 
   /**
+   * List all files with a prefix, paginating through >1000 results.
+   * @param {string} prefix - key prefix (relative to agent namespace)
+   * @returns {Promise<string[]>} all matching keys (prefix-stripped)
+   */
+  async listAllFiles(prefix = '') {
+    await this.initialize();
+
+    const all = [];
+    let continuationToken;
+
+    try {
+      do {
+        const params = {
+          Bucket: this.bucket,
+          Prefix: this.prefix + prefix
+        };
+        if (continuationToken) params.ContinuationToken = continuationToken;
+
+        const response = await this.client.send(new ListObjectsV2Command(params));
+        for (const item of (response.Contents || [])) {
+          all.push(item.Key.startsWith(this.prefix) ? item.Key.slice(this.prefix.length) : item.Key);
+        }
+        continuationToken = response.IsTruncated ? response.NextContinuationToken : undefined;
+      } while (continuationToken);
+    } catch (error) {
+      console.error(`[${this.agentName}:storj] Failed to list all files:`, error.message);
+      throw error;
+    }
+
+    return all;
+  }
+
+  /**
    * Delete a file
    */
   async deleteFile(key) {

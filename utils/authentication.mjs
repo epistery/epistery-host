@@ -2,7 +2,7 @@ import express from 'express';
 import crypto from 'crypto';
 import dns from 'dns';
 import { promisify } from 'util';
-import { Config } from 'epistery';
+import { Config, configuredChains } from 'epistery';
 
 const resolveTxt = promisify(dns.resolveTxt);
 const APP_NAME = 'epistery';
@@ -92,36 +92,15 @@ export function createAuthRouter() {
             const challengeToken = crypto.randomBytes(32).toString('hex');
             const normalizedClientAddress = clientAddress.toLowerCase();
 
-            // Merge provider: the chain registry carries default public RPCs.
-            // Root config can override with a privateRpc per chainId for
-            // server-side calls that need an API key.
-            //
-            // Config format (ini):
-            //   [default.rpc.137]
-            //   privateRpc=https://polygon-mainnet.infura.io/v3/KEY
-            //
-            // Legacy format also supported:
-            //   [default.provider]
-            //   chainId=137
-            //   privateRpc=https://...
-            const rootCfg = new Config();
-            const rootData = rootCfg.read('/');
-            const chainId = String(providerConfig.chainId);
-            const rpcOverride = rootData?.default?.rpc?.[chainId];
-            const legacyProvider = rootData?.default?.provider;
-            const legacyMatch = legacyProvider && String(legacyProvider.chainId) === chainId
-                ? legacyProvider : null;
-
+            // Merge provider: configuredChains() carries registry defaults
+            // with root-config privateRpc overlaid per chainId.
+            const entry = configuredChains().find(c => String(c.chainId) === String(providerConfig.chainId));
             const mergedProvider = {
                 ...providerConfig,
                 publicRpc: providerConfig.rpc,
             };
-            // Prefer per-chain override, then legacy provider, for private RPC.
-            const privateRpc = rpcOverride?.privateRpc
-                || legacyMatch?.privateRpc
-                || legacyMatch?.rpc;
-            if (privateRpc && privateRpc !== providerConfig.rpc) {
-                mergedProvider.rpc = privateRpc;
+            if (entry?.privateRpc && entry.privateRpc !== providerConfig.rpc) {
+                mergedProvider.rpc = entry.privateRpc;
             }
 
             // Save to domain config
