@@ -201,6 +201,53 @@
             color: var(--page-text-primary);
             text-decoration: underline;
         }
+        /* ── Tabs ── */
+        .admin-tabs {
+            display: flex;
+            border-bottom: 2px solid var(--page-border);
+            margin-bottom: var(--spacer);
+            gap: 0;
+        }
+        .admin-tab {
+            padding: var(--spacerhalf) var(--spacer);
+            cursor: pointer;
+            border: none;
+            background: none;
+            color: var(--page-text-secondary);
+            font-size: 1rem;
+            font-weight: bold;
+            border-bottom: 3px solid transparent;
+            margin-bottom: -2px;
+            transition: color 0.2s, border-color 0.2s;
+        }
+        .admin-tab:hover {
+            color: var(--page-text-primary);
+        }
+        .admin-tab.active {
+            color: var(--rust-mid);
+            border-bottom-color: var(--rust-mid);
+        }
+        .admin-tab-pane {
+            display: none;
+        }
+        .admin-tab-pane.active {
+            display: block;
+        }
+        /* ── Connections ── */
+        .conn-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: var(--spacerhalf);
+            border-bottom: 1px solid var(--page-border);
+        }
+        .conn-item:last-child {
+            border-bottom: none;
+        }
+        .conn-meta {
+            font-size: 0.85em;
+            color: var(--page-text-secondary);
+        }
     </style>
 </head>
 <body>
@@ -252,30 +299,15 @@
                     </div>
                 </section>
 
-                <!-- Agent Management Section -->
-                <section class="admin-section" id="agent-management-section">
-                    <h2>Agent Management</h2>
-                    <p>Select and configure agents for this domain</p>
+                <!-- ── Tab Navigation ── -->
+                <nav class="admin-tabs">
+                    <button class="admin-tab active" data-tab="access">Access</button>
+                    <button class="admin-tab" data-tab="services">Services</button>
+                    <button class="admin-tab" data-tab="settings">Settings</button>
+                </nav>
 
-                    <div id="agents-loading" style="display: block;">
-                        <div class="spinner"></div>
-                        <span>Loading agents...</span>
-                    </div>
-
-                    <div id="agents-container" style="display: none;">
-                        <table style="width: 100%; border-collapse: collapse;">
-                            <thead>
-                                <tr style="border-bottom: 2px solid var(--page-border);">
-                                    <th style="text-align: left; padding: var(--spacerhalf);">Agent</th>
-                                    <th style="text-align: center; padding: var(--spacerhalf);">Enabled</th>
-                                    <th style="text-align: center; padding: var(--spacerhalf);">Default</th>
-                                    <th style="text-align: center; padding: var(--spacerhalf);">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody id="agent-items"></tbody>
-                        </table>
-                    </div>
-                </section>
+                <!-- ═══ ACCESS TAB ═══ -->
+                <div class="admin-tab-pane active" id="tab-access">
 
                 <!-- Pending Access Requests Section -->
                 <section class="admin-section" id="pending-requests-section" style="display: none;">
@@ -350,6 +382,98 @@
                     </div>
                 </section>
 
+                <!-- Whitelist Management Section -->
+                <section class="admin-section">
+                    <h2>Whitelist Management</h2>
+                    <p>Manage addresses authorized to access this domain</p>
+
+                    <!-- List Selector -->
+                    <div style="margin-bottom: 20px; display: flex; gap: 10px; align-items: center;">
+                        <label for="list-selector" style="font-weight: bold;">List:</label>
+                        <select id="list-selector" style="flex: 1; padding: 8px; border: 1px solid var(--page-border); border-radius: 4px; background: var(--bg-color);" disabled>
+                            <option value="">Loading lists...</option>
+                        </select>
+                        <button onclick="createNewList()" class="console-btn">New List</button>
+                    </div>
+
+                    <div id="acl-loading" style="display: block;">
+                        <div class="spinner"></div>
+                        <span>Loading acl...</span>
+                    </div>
+
+                    <div id="acl-error" class="error-box" style="display: none;">
+                        <p id="acl-error-text"></p>
+                    </div>
+
+                    <div id="acl-container" style="display: none;">
+                        <div id="acl-items"></div>
+
+                        <div class="add-address-form">
+                            <input type="text" id="new-address" placeholder="0x..." />
+                            <input type="text" id="new-name" placeholder="Name (optional)" style="flex: 1 0 200px;" />
+                            <button class="console-btn" id="add-address-btn" onclick="addAddress()">Add Address</button>
+                        </div>
+                        <div id="add-progress" style="display: none; margin-top: var(--spacerhalf);">
+                            <div class="spinner"></div>
+                            <span id="add-progress-text">Adding address to acl...</span>
+                        </div>
+                    </div>
+                </section>
+
+                </div><!-- /tab-access -->
+
+                <!-- ═══ SERVICES TAB ═══ -->
+                <div class="admin-tab-pane" id="tab-services">
+
+                <!-- Agent Management Section -->
+                <section class="admin-section" id="agent-management-section">
+                    <h2>Agent Management</h2>
+                    <p>Select and configure agents for this domain</p>
+
+                    <div id="agents-loading" style="display: block;">
+                        <div class="spinner"></div>
+                        <span>Loading agents...</span>
+                    </div>
+
+                    <div id="agents-container" style="display: none;">
+                        <table style="width: 100%; border-collapse: collapse;">
+                            <thead>
+                                <tr style="border-bottom: 2px solid var(--page-border);">
+                                    <th style="text-align: left; padding: var(--spacerhalf);">Agent</th>
+                                    <th style="text-align: center; padding: var(--spacerhalf);">Enabled</th>
+                                    <th style="text-align: center; padding: var(--spacerhalf);">Default</th>
+                                    <th style="text-align: center; padding: var(--spacerhalf);">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="agent-items"></tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <!-- Connections Section -->
+                <section class="admin-section" id="connections-section">
+                    <h2>Connections</h2>
+                    <p>OAuth and MCP connections to this domain</p>
+
+                    <div id="connections-loading" style="display: block;">
+                        <div class="spinner"></div>
+                        <span>Loading connections...</span>
+                    </div>
+
+                    <div id="connections-container" style="display: none;">
+                        <h3 style="font-size: 1rem; margin-bottom: var(--spacerhalf);">Inbound (clients connected to you)</h3>
+                        <div id="connections-inbound"></div>
+
+                        <h3 style="font-size: 1rem; margin-top: var(--spacer); margin-bottom: var(--spacerhalf);">Outbound (your connections to others)</h3>
+                        <div id="connections-outbound"></div>
+                    </div>
+                </section>
+
+                </div><!-- /tab-services -->
+
+                <!-- ═══ SETTINGS TAB ═══ -->
+                <div class="admin-tab-pane" id="tab-settings">
+
                 <!-- Preferences Section -->
                 <section class="admin-section">
                     <h2>Preferences</h2>
@@ -411,43 +535,8 @@
                     </div>
                 </section>
 
-                <!-- Whitelist Management Section -->
-                <section class="admin-section">
-                    <h2>Whitelist Management</h2>
-                    <p>Manage addresses authorized to access this domain</p>
+                </div><!-- /tab-settings -->
 
-                    <!-- List Selector -->
-                    <div style="margin-bottom: 20px; display: flex; gap: 10px; align-items: center;">
-                        <label for="list-selector" style="font-weight: bold;">List:</label>
-                        <select id="list-selector" style="flex: 1; padding: 8px; border: 1px solid var(--page-border); border-radius: 4px; background: var(--bg-color);" disabled>
-                            <option value="">Loading lists...</option>
-                        </select>
-                        <button onclick="createNewList()" class="console-btn">New List</button>
-                    </div>
-
-                    <div id="acl-loading" style="display: block;">
-                        <div class="spinner"></div>
-                        <span>Loading acl...</span>
-                    </div>
-
-                    <div id="acl-error" class="error-box" style="display: none;">
-                        <p id="acl-error-text"></p>
-                    </div>
-
-                    <div id="acl-container" style="display: none;">
-                        <div id="acl-items"></div>
-
-                        <div class="add-address-form">
-                            <input type="text" id="new-address" placeholder="0x..." />
-                            <input type="text" id="new-name" placeholder="Name (optional)" style="flex: 1 0 200px;" />
-                            <button class="console-btn" id="add-address-btn" onclick="addAddress()">Add Address</button>
-                        </div>
-                        <div id="add-progress" style="display: none; margin-top: var(--spacerhalf);">
-                            <div class="spinner"></div>
-                            <span id="add-progress-text">Adding address to acl...</span>
-                        </div>
-                    </div>
-                </section>
             </div>
         </div>
     </main>
@@ -466,6 +555,118 @@
         let contractAddress = null;
         let currentListName = '';
         let availableLists = [];
+        let connections = []; // cached connections list
+
+        // ── Tab Management ──
+        function initTabs() {
+            document.querySelectorAll('.admin-tab').forEach(tab => {
+                tab.addEventListener('click', () => switchTab(tab.dataset.tab));
+            });
+            // Restore from URL hash
+            const hash = location.hash.replace('#', '');
+            if (hash && document.getElementById('tab-' + hash)) {
+                switchTab(hash);
+            }
+            window.addEventListener('hashchange', () => {
+                const h = location.hash.replace('#', '');
+                if (h && document.getElementById('tab-' + h)) switchTab(h);
+            });
+        }
+
+        function switchTab(name) {
+            document.querySelectorAll('.admin-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+            document.querySelectorAll('.admin-tab-pane').forEach(p => p.classList.toggle('active', p.id === 'tab-' + name));
+            history.replaceState(null, '', '#' + name);
+        }
+
+        // ── Connections ──
+        async function loadConnections() {
+            try {
+                const response = await fetch('/api/connections', { credentials: 'include' });
+                if (!response.ok) {
+                    document.getElementById('connections-loading').style.display = 'none';
+                    document.getElementById('connections-container').style.display = 'block';
+                    document.getElementById('connections-inbound').innerHTML = '<div class="info-box"><p>Could not load connections</p></div>';
+                    return;
+                }
+                connections = await response.json();
+                document.getElementById('connections-loading').style.display = 'none';
+                document.getElementById('connections-container').style.display = 'block';
+                renderConnections();
+            } catch (error) {
+                console.error('Failed to load connections:', error);
+                document.getElementById('connections-loading').style.display = 'none';
+                document.getElementById('connections-container').style.display = 'block';
+                document.getElementById('connections-inbound').innerHTML = '<div class="info-box"><p>Error loading connections</p></div>';
+            }
+        }
+
+        function renderConnections() {
+            const inbound = connections.inbound || [];
+            const outbound = connections.outbound || [];
+
+            const inboundEl = document.getElementById('connections-inbound');
+            const outboundEl = document.getElementById('connections-outbound');
+
+            if (inbound.length === 0) {
+                inboundEl.innerHTML = '<div class="info-box"><p>No inbound connections</p></div>';
+            } else {
+                inboundEl.innerHTML = inbound.map(c => {
+                    const name = c.name || c.id;
+                    const created = c.created ? new Date(c.created).toLocaleDateString() : '';
+                    const scope = c.scope || '';
+                    return `<div class="conn-item">
+                        <div>
+                            <strong>${esc(name)}</strong>
+                            ${scope ? `<span class="conn-meta" style="margin-left: 8px;">${esc(scope)}</span>` : ''}
+                            ${created ? `<span class="conn-meta" style="margin-left: 8px;">${created}</span>` : ''}
+                        </div>
+                        <button class="console-btn small danger" onclick="revokeConnection('${c.id}')">Revoke</button>
+                    </div>`;
+                }).join('');
+            }
+
+            if (outbound.length === 0) {
+                outboundEl.innerHTML = '<div class="info-box"><p>No outbound connections</p></div>';
+            } else {
+                outboundEl.innerHTML = outbound.map(c => {
+                    const name = c.name || c.service || c.id;
+                    const service = c.service || '';
+                    return `<div class="conn-item">
+                        <div>
+                            <strong>${esc(name)}</strong>
+                            ${service ? `<span class="conn-meta" style="margin-left: 8px;">${esc(service)}</span>` : ''}
+                        </div>
+                        <button class="console-btn small danger" onclick="revokeConnection('${c.id}')">Revoke</button>
+                    </div>`;
+                }).join('');
+            }
+        }
+
+        function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+        window.revokeConnection = async function(id) {
+            if (!confirm('Revoke this connection?')) return;
+            const btn = event.target;
+            btn.disabled = true;
+            btn.textContent = 'Revoking...';
+            try {
+                const response = await fetch('/api/connections/' + encodeURIComponent(id), {
+                    method: 'DELETE',
+                    credentials: 'include'
+                });
+                if (!response.ok) {
+                    const data = await response.json();
+                    throw new Error(data.error || 'Failed to revoke');
+                }
+                await loadConnections();
+            } catch (error) {
+                console.error('Failed to revoke connection:', error);
+                alert('Failed to revoke: ' + error.message);
+                btn.disabled = false;
+                btn.textContent = 'Revoke';
+            }
+        };
 
         async function checkAdminAccess() {
             try {
@@ -517,7 +718,9 @@
 
                 // User is authorized, show admin content
                 document.getElementById('admin-content').style.display = 'block';
+                initTabs();
                 await loadAgents();
+                loadConnections();
 
                 // Always check contract version to show upgrade UI
                 await checkContractVersion();
