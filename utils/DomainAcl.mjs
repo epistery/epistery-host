@@ -565,6 +565,7 @@ export class DomainAcl {
 
                 const aclList = listName || 'epistery::reader';
                 const aclRole = role !== undefined ? role : 1;
+                const path = targetPath || '/';
 
                 // Generate random invite code
                 const code = crypto.randomBytes(16).toString('hex');
@@ -580,7 +581,6 @@ export class DomainAcl {
                 req.domainAcl.saveInviteMetadata(metadata);
 
                 // Build invite URL
-                const path = targetPath || '/';
                 const inviteUrl = `${req.protocol}://${req.get('host')}${path}${path.includes('?') ? '&' : '?'}invite=${code}`;
 
                 res.json({
