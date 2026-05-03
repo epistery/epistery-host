@@ -5,7 +5,7 @@
  * widget content from the specified agent.
  *
  * Usage in any page:
- * <div data-widget="requestAccess" data-agent="@epistery/wiki" data-list="epistery::read"></div>
+ * <div data-widget="requestAccess" data-agent="epistery/wiki" data-list="epistery::read"></div>
  *
  * The widget loader will fetch content from /pages/widgets/[widgetName].html
  * and populate the element.

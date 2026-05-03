@@ -21,7 +21,7 @@
   },
   "agents": [
     {
-      "name": "@rootz/archive-agent",
+      "name": "rootz/archive-agent",
       "version": "0.1.0",
       "description": "AI conversation archive with semantic search and knowledge extraction. Create, search, and browse archived AI conversations with full-text and embedding-based search.",
       "status": "operational",
@@ -44,11 +44,11 @@
       "authentication": "none"
     },
     {
-      "name": "@rootz/secret-explorer",
+      "name": "rootz/secret-explorer",
       "version": "0.1.0",
       "description": "Read-only blockchain secret scanner. Discovers secrets owned by a wallet or Identity contract, views metadata and notes, and decrypts with the right keys. Supports Polygon, Amoy, JOC networks.",
       "status": "degraded",
-      "status_detail": "Mounted but blockchain scanning disabled — @rootz/chain-reader not installed on server",
+      "status_detail": "Mounted but blockchain scanning disabled — rootz/chain-reader not installed on server",
       "base_url": "/agent/rootz/secret-explorer",
       "endpoints": {
         "status": "GET /status",
@@ -73,28 +73,28 @@
       "authentication": "none"
     },
     {
-      "name": "@epistery/wiki",
+      "name": "epistery/wiki",
       "version": "0.1.0",
       "description": "Decentralized wiki with IPFS storage and epistery authentication.",
       "status": "operational",
       "base_url": "/agent/epistery/wiki"
     },
     {
-      "name": "@epistery/message-board",
+      "name": "epistery/message-board",
       "version": "0.1.0",
       "description": "Community message board with whitelist and notabot access control.",
       "status": "operational",
       "base_url": "/agent/epistery/message-board"
     },
     {
-      "name": "@epistery/files",
+      "name": "epistery/files",
       "version": "0.1.0",
       "description": "IPFS file management with origin tracking via data wallets.",
       "status": "operational",
       "base_url": "/agent/epistery/files"
     },
     {
-      "name": "@epistery/provenance",
+      "name": "epistery/provenance",
       "version": "0.1.0",
       "description": "Track physical objects with QR codes and blockchain provenance.",
       "status": "operational",

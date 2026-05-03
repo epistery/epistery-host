@@ -21,6 +21,14 @@ const DEFAULT_ACL_STANCE = {
 const NAME_MAP_CACHE = new Map();
 const NAME_MAP_TTL_MS = 60_000;
 
+/**
+ * Normalize agent name: strip leading @ for on-chain key consistency.
+ * "@epistery/wiki" → "epistery/wiki", "epistery/wiki" → "epistery/wiki"
+ */
+export function normalizeAgentName(name) {
+    return name ? name.replace(/^@/, '') : name;
+}
+
 export class DomainAcl {
     constructor(domain) {
         this.domain = domain;
@@ -125,6 +133,7 @@ export class DomainAcl {
      * @returns {Promise<{allowed: boolean, level: number, strategy: string}>}
      */
     async checkAgentAccess(agentName, userAddress, domain, customAuthFunctions = {}, defaultAclStance = null) {
+        agentName = normalizeAgentName(agentName);
         const contract = this.chain.contract;
         const fallback = defaultAclStance || DEFAULT_ACL_STANCE;
 
@@ -269,14 +278,13 @@ export class DomainAcl {
         // API: Get agent ACL configuration from contract
         router.get('/api/acl/agent{/:agent}', async (req, res) => {
             try {
-                const agent = req.params.agent;
+                const agent = normalizeAgentName(req.params.agent);
                 const domainChain = req.domainAcl.chain;
                 if (!domainChain.contract) {
                     return res.status(400).json({ error: 'Contract not deployed' });
                 }
 
                 // Get agent config from contract public attributes
-                // Key is the agent name (e.g., "@epistery/wiki")
                 const configJson = await domainChain.contract.getPublicAttribute(domainChain.contract.signer.address, agent);
 
                 let agentConfig = {};
@@ -410,7 +418,8 @@ export class DomainAcl {
         // Accepts { agent, acl, authConfig? } - writes everything in one transaction
         router.put('/api/acl/agent', async (req, res) => {
             try {
-                const { agent, acl, authConfig } = req.body;
+                const agent = normalizeAgentName(req.body.agent);
+                const { acl, authConfig } = req.body;
                 if (!agent || !Array.isArray(acl)) {
                     return res.status(400).json({ error: 'Agent name and ACL array required' });
                 }
@@ -454,7 +463,8 @@ export class DomainAcl {
         // API: Save enableRequestAccess to contract
         router.put('/api/acl/auth-strategy', async (req, res) => {
             try {
-                const { agent, authConfig } = req.body;
+                const agent = normalizeAgentName(req.body.agent);
+                const { authConfig } = req.body;
                 if (!agent || !authConfig) {
                     return res.status(400).json({ error: 'Agent name and authConfig required' });
                 }

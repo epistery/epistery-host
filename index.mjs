@@ -338,7 +338,7 @@ let main = async function() {
                         }
                     };
                     const tx = await contract.setPublicAttribute(
-                        '@epistery/message-board',
+                        'epistery/message-board',
                         JSON.stringify(messageBoardConfig),
                         txOverrides
                     );

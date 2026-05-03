@@ -2,7 +2,7 @@
   "version": 1,
   "plugins": [
     {
-      "name": "@epistery/wiki",
+      "name": "epistery/wiki",
       "version": "0.1.0",
       "description": "Collaborative wiki with markdown and epistery authentication",
       "repository": "https://github.com/epistery/wiki.git",
@@ -11,7 +11,7 @@
       "category": "content"
     },
     {
-      "name": "@epistery/files",
+      "name": "epistery/files",
       "version": "0.2.0",
       "description": "File management with Storj storage and data wallet origin tracking",
       "repository": "https://github.com/epistery/files.git",
@@ -20,7 +20,7 @@
       "category": "content"
     },
     {
-      "name": "@epistery/message-board",
+      "name": "epistery/message-board",
       "version": "0.1.0",
       "description": "Community message board with access control",
       "repository": "https://github.com/epistery/message-board.git",
@@ -29,7 +29,7 @@
       "category": "social"
     },
     {
-      "name": "@epistery/provenance",
+      "name": "epistery/provenance",
       "version": "0.1.0",
       "description": "Track physical objects with QR codes and blockchain provenance",
       "repository": "https://github.com/epistery/provenance.git",
@@ -38,7 +38,7 @@
       "category": "tools"
     },
     {
-      "name": "@epistery/mimi",
+      "name": "epistery/mimi",
       "version": "0.1.0",
       "description": "Voice portal - talk to your epistery host",
       "repository": "https://github.com/epistery/mimi.git",
@@ -47,7 +47,7 @@
       "category": "tools"
     },
     {
-      "name": "@epistery/connector",
+      "name": "epistery/connector",
       "version": "1.0.0",
       "description": "Bridge epistery-host to external services (weather, finance, custom URLs)",
       "repository": "https://github.com/epistery/connector.git",
@@ -56,7 +56,7 @@
       "category": "tools"
     },
     {
-      "name": "@rootz/secret-agent",
+      "name": "rootz/secret-agent",
       "version": "0.1.0",
       "description": "Encryption services for epistery",
       "repository": "https://github.com/epistery/secret-agent.git",
@@ -65,7 +65,7 @@
       "category": "infrastructure"
     },
     {
-      "name": "@epistery/registry",
+      "name": "epistery/registry",
       "version": "0.1.0",
       "description": "Plugin registry — curated catalog of installable plugins",
       "repository": "https://github.com/epistery/registry.git",
