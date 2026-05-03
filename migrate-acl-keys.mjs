@@ -18,7 +18,7 @@ import path from 'path';
 const AGENTS_DIR = path.join(process.env.HOME, '.epistery', '.agents');
 const EPISTERY_DIR = path.join(process.env.HOME, '.epistery');
 
-// Agent names that might have on-chain ACL data (old @-prefixed format)
+// Agent names and attribute keys that might have on-chain data (old @-prefixed format)
 const KNOWN_AGENTS = [
     '@epistery/wiki',
     '@epistery/files',
@@ -29,7 +29,13 @@ const KNOWN_AGENTS = [
     '@epistery/registry',
     '@epistery/relay',
     '@epistery/scan',
+    '@epistery/pinapp',
+    '@epistery/pinapp/impl',
+    '@epistery/pinapp/factory',
     '@rootz/secret-agent',
+    '@rootz/ai-discovery',
+    '@geistm/adnet-agent',
+    '@geistm/scout',
 ];
 
 const args = process.argv.slice(2);
