@@ -17,6 +17,7 @@ import { OAuthServer } from './utils/OAuthServer.mjs';
 import { MCPServer } from './utils/MCPServer.mjs';
 import { AIDiscovery } from './utils/AIDiscovery.mjs';
 import { AgentManager } from './utils/AgentManager.mjs';
+import { PluginManager } from './utils/PluginManager.mjs';
 import { PeerBridge } from './utils/PeerBridge.mjs';
 import { UserVault } from './utils/UserVault.mjs';
 import { retryWithBackoff } from './utils/retryWithBackoff.mjs';
@@ -563,6 +564,11 @@ let main = async function() {
     // Mount dynamic AI Discovery endpoint (/.well-known/ai)
     AIDiscovery.attach(app);
 
+    // Serve plugin registry as static JSON (before epistery.routes() catches all)
+    app.get('/.well-known/epistery/plugins', (req, res) => {
+        res.sendFile(path.join(__dirname, 'public/.well-known/epistery/plugins.json'));
+    });
+
     // Also mount the same routes at RFC 8615 well-known path
     // Note: We reuse the routes() to avoid duplicate middleware
     app.use('/.well-known/epistery', epistery.routes());
@@ -878,6 +884,9 @@ let main = async function() {
     const http_port = parseInt(process.env.PORT || 4080);
     const https_port = parseInt(process.env.PORTSSL || 4443);
     const certify = await Certify.attach(app);
+
+    // Mount plugin management API (before agents load so routes are ready)
+    PluginManager.attach(app);
 
     // Load and attach agent modules from ~/.epistery/.agents
     const agentsPath = path.join(config.configDir, '.agents');

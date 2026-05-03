@@ -427,8 +427,13 @@
 
                 <!-- Agent Management Section -->
                 <section class="admin-section" id="agent-management-section">
-                    <h2>Agent Management</h2>
-                    <p>Select and configure agents for this domain</p>
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <h2>Agent Management</h2>
+                            <p>Select and configure agents for this domain</p>
+                        </div>
+                        <button class="console-btn" onclick="openPluginStore()">Plugin Store</button>
+                    </div>
 
                     <div id="agents-loading" style="display: block;">
                         <div class="spinner"></div>
@@ -440,7 +445,6 @@
                             <thead>
                                 <tr style="border-bottom: 2px solid var(--page-border);">
                                     <th style="text-align: left; padding: var(--spacerhalf);">Agent</th>
-                                    <th style="text-align: center; padding: var(--spacerhalf);">Enabled</th>
                                     <th style="text-align: center; padding: var(--spacerhalf);">Default</th>
                                     <th style="text-align: center; padding: var(--spacerhalf);">Actions</th>
                                 </tr>
@@ -548,6 +552,36 @@
             </div>
         </div>
     </footer>
+
+    <!-- Plugin Store Modal -->
+    <div id="plugin-store-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:1000; overflow:auto;" onclick="if(event.target===this)closePluginStore()">
+        <div style="max-width:800px; margin:5vh auto; background:var(--bg-color-d); border:1px solid var(--page-border); border-radius:8px; padding:var(--spacer2);">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:var(--spacer);">
+                <h2 style="margin:0;">Plugin Store</h2>
+                <button class="console-btn small" onclick="closePluginStore()">&#10005;</button>
+            </div>
+            <div id="plugins-loading" style="display:none;">
+                <div class="spinner"></div>
+                <span>Loading plugin registry...</span>
+            </div>
+            <div id="plugins-container" style="display:none;">
+                <div style="display:flex; justify-content:flex-end; gap:var(--spacerhalf); margin-bottom:var(--spacer);">
+                    <button class="console-btn small" onclick="checkPluginUpdates()">Check for Updates</button>
+                </div>
+                <table style="width:100%; border-collapse:collapse;">
+                    <thead>
+                        <tr style="border-bottom:2px solid var(--page-border);">
+                            <th style="text-align:left; padding:var(--spacerhalf);">Plugin</th>
+                            <th style="text-align:center; padding:var(--spacerhalf);">Status</th>
+                            <th style="text-align:center; padding:var(--spacerhalf);">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="plugin-items"></tbody>
+                </table>
+            </div>
+            <div id="plugins-error" style="display:none;"></div>
+        </div>
+    </div>
 
     <script type="module">
         let currentPolicy = 'public';
@@ -1562,14 +1596,26 @@
             }
         };
 
-        // Load and render agents
+        // Load and render agents — only agents on disk AND added to this domain
         async function loadAgents() {
             try {
-                const response = await fetch('/api/agents');
-                const data = await response.json();
+                const [installedResp, agentsResp] = await Promise.all([
+                    fetch('/api/plugins/installed').then(r => r.ok ? r.json() : { agents: {} }),
+                    fetch('/api/agents').then(r => r.json())
+                ]);
 
-                const agents = data.agents || [];
-                const defaultAgent = data.defaultAgent;
+                const fsAgents = installedResp.agents || {};
+                const memAgents = agentsResp.agents || [];
+                const defaultAgent = agentsResp.defaultAgent;
+
+                // Only show agents on disk AND enabled (added) for this domain
+                const agents = [];
+                for (const a of memAgents) {
+                    const dirName = a.name.split('/').pop();
+                    if (!fsAgents[dirName]) continue;    // not on disk — skip
+                    if (a.enabled === false) continue;    // removed from domain — skip
+                    agents.push(a);
+                }
 
                 document.getElementById('agents-loading').style.display = 'none';
                 document.getElementById('agents-container').style.display = 'block';
@@ -1586,13 +1632,13 @@
             const container = document.getElementById('agent-items');
 
             if (agents.length === 0) {
-                container.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: var(--spacer);">No agents installed</td></tr>';
+                container.innerHTML = '<tr><td colspan="3" style="text-align: center; padding: var(--spacer);">No agents added</td></tr>';
                 return;
             }
 
             let html = '';
 
-            // Add "None" option row at the top
+            // "None" option for default agent
             const hasNoDefault = !defaultAgent;
             html += `
                 <tr style="border-bottom: 1px solid var(--page-border); background: var(--panel-background);">
@@ -1601,28 +1647,20 @@
                         <small style="color: var(--text-color-quiet);">Show home page by default</small>
                     </td>
                     <td style="text-align: center; padding: var(--spacer);">
-                        <small style="color: var(--neutral);">N/A</small>
-                    </td>
-                    <td style="text-align: center; padding: var(--spacer);">
                         <input type="radio" name="default-agent" value=""
                                ${hasNoDefault ? 'checked' : ''}
                                onchange="setDefaultAgent('')" />
                     </td>
                     <td style="text-align: center; padding: var(--spacer);">
-                        <small style="color: var(--neutral);">N/A</small>
                     </td>
                 </tr>
             `;
 
             for (const agent of agents) {
-                // Skip acl agent
-                if (agent.name === '@epistery/acl') {
-                    continue;
-                }
+                if (agent.name === '@epistery/acl') continue;
 
                 const displayName = agent.title || agent.name;
                 const isDefault = defaultAgent === agent.name;
-                const isEnabled = agent.enabled !== false; // Default to enabled
                 const canBeDefault = !agent.noUserInterface;
                 const adminPath = `${agent.shortPath}/admin`;
 
@@ -1638,11 +1676,6 @@
                             </div>
                         </td>
                         <td style="text-align: center; padding: var(--spacer);">
-                            <input type="checkbox" ${isEnabled ? 'checked' : ''}
-                                   onchange="toggleAgentEnabled('${agent.name}', this.checked)"
-                                   ${isDefault ? 'disabled title="Default agent is always enabled"' : ''} />
-                        </td>
-                        <td style="text-align: center; padding: var(--spacer);">
                             ${canBeDefault ? `
                                 <input type="radio" name="default-agent" value="${agent.name}"
                                        ${isDefault ? 'checked' : ''}
@@ -1650,7 +1683,11 @@
                             ` : `<small style="color: var(--neutral);">N/A</small>`}
                         </td>
                         <td style="text-align: center; padding: var(--spacer);">
-                            <a href="${adminPath}" class="console-btn small" style="text-decoration: none;">Configure</a>
+                            <div class="action-buttons" style="justify-content: center;">
+                                ${agent.shortPath ? `<a href="${adminPath}" class="console-btn small" style="text-decoration: none;">Configure</a>` : ''}
+                                <button class="console-btn small danger" onclick="removeAgentFromDomain('${agent.name}')"
+                                        ${isDefault ? 'disabled title="Clear default first"' : ''}>Remove</button>
+                            </div>
                         </td>
                     </tr>
                 `;
@@ -1659,26 +1696,46 @@
             container.innerHTML = html;
         }
 
-        window.toggleAgentEnabled = async function(agentName, enabled) {
+        window.removeAgentFromDomain = async function(agentName) {
+            const displayName = agentName.split('/').pop();
+            if (!confirm(`Remove ${displayName} from this domain? Its data will be preserved.`)) return;
+
             try {
                 const response = await fetch('/api/toggle-agent', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ agentName, enabled })
+                    body: JSON.stringify({ agentName, enabled: false })
                 });
 
                 if (!response.ok) {
                     const error = await response.json();
-                    throw new Error(error.error || 'Failed to toggle agent');
+                    throw new Error(error.error || 'Failed to remove agent');
                 }
 
-                // Reload agents to reflect changes
                 await loadAgents();
             } catch (error) {
-                console.error('Failed to toggle agent:', error);
-                alert('Failed to toggle agent: ' + error.message);
-                // Reload to reset checkbox
+                console.error('Failed to remove agent:', error);
+                alert('Failed to remove agent: ' + error.message);
+            }
+        };
+
+        window.addAgentToDomain = async function(agentName) {
+            try {
+                const response = await fetch('/api/toggle-agent', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ agentName, enabled: true })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to add agent');
+                }
+
                 await loadAgents();
+            } catch (error) {
+                console.error('Failed to add agent:', error);
+                alert('Failed to add agent: ' + error.message);
             }
         };
 
@@ -1702,6 +1759,353 @@
                 alert('Failed to set default agent: ' + error.message);
                 // Reload to reset radio buttons
                 await loadAgents();
+            }
+        };
+
+        // ── Plugin Store functions ──
+
+        window.openPluginStore = function() {
+            const modal = document.getElementById('plugin-store-modal');
+            modal.style.display = 'block';
+            // Reset state for fresh load
+            document.getElementById('plugins-loading').style.display = 'block';
+            document.getElementById('plugins-container').style.display = 'none';
+            document.getElementById('plugins-error').style.display = 'none';
+            loadPlugins();
+        };
+
+        window.closePluginStore = function() {
+            document.getElementById('plugin-store-modal').style.display = 'none';
+        };
+
+        async function loadPlugins() {
+            try {
+                // Fetch registry sources, installed agents, and domain state in parallel
+                const [sourcesResp, installedResp, agentsResp] = await Promise.all([
+                    fetch('/api/plugins/sources').then(r => r.ok ? r.json() : { sources: [] }),
+                    fetch('/api/plugins/installed').then(r => r.ok ? r.json() : { agents: {} }),
+                    fetch('/api/agents').then(r => r.json())
+                ]);
+
+                const sources = sourcesResp.sources || [];
+                const installed = installedResp.agents || {};
+
+                // Which manifest names are enabled for this domain?
+                const enabledNames = new Set();
+                for (const a of (agentsResp.agents || [])) {
+                    if (a.enabled !== false) enabledNames.add(a.name);
+                }
+
+                // Bridge: installed() maps filesystem dirName → manifest name.
+                // Use this to build lookups that work regardless of naming mismatches
+                // between registry name, manifest name, and directory name.
+                const domainAdded = {};
+                const agentNameByDir = {};
+                for (const [dirName, fsAgent] of Object.entries(installed)) {
+                    const manifestName = fsAgent.name || dirName;
+                    const isAdded = enabledNames.has(manifestName);
+                    domainAdded[dirName] = isAdded;
+                    domainAdded[manifestName] = isAdded;
+                    agentNameByDir[dirName] = manifestName;
+                }
+
+                // Fetch all registry sources in parallel
+                const registryPlugins = {};
+                if (sources.length > 0) {
+                    const fetches = sources.map(url =>
+                        fetch(url, { credentials: 'include' }).then(r => r.ok ? r.json() : null).catch(() => null)
+                    );
+                    const results = await Promise.all(fetches);
+                    for (const result of results) {
+                        if (!result?.plugins) continue;
+                        for (const p of result.plugins) {
+                            if (!registryPlugins[p.name]) registryPlugins[p.name] = p;
+                        }
+                    }
+                }
+
+                // Build combined view
+                const plugins = [];
+                const seen = new Set();
+
+                // Registry plugins first — merge with installed + domain state
+                for (const [name, regPlugin] of Object.entries(registryPlugins)) {
+                    const dirName = name.split('/').pop();
+                    seen.add(dirName);
+                    const local = installed[dirName];
+                    plugins.push({
+                        ...regPlugin,
+                        dirName,
+                        type: local?.type || null,
+                        version: local?.version || regPlugin.version,
+                        target: local?.target || null,
+                        addedToDomain: domainAdded[name] === true || domainAdded[dirName] === true,
+                        agentName: agentNameByDir[dirName] || name
+                    });
+                }
+
+                // Installed agents not in any registry
+                for (const [dirName, agent] of Object.entries(installed)) {
+                    if (seen.has(dirName)) continue;
+                    const name = agent.name || dirName;
+                    plugins.push({
+                        name,
+                        dirName,
+                        type: agent.type,
+                        version: agent.version,
+                        target: agent.target || null,
+                        description: '',
+                        category: '',
+                        addedToDomain: domainAdded[name] === true || domainAdded[dirName] === true,
+                        agentName: agentNameByDir[dirName] || name
+                    });
+                }
+
+                document.getElementById('plugins-loading').style.display = 'none';
+                document.getElementById('plugins-container').style.display = 'block';
+                renderPlugins(plugins);
+            } catch (error) {
+                console.error('Failed to load plugins:', error);
+                document.getElementById('plugins-loading').style.display = 'none';
+                document.getElementById('plugins-error').style.display = 'block';
+                document.getElementById('plugins-error').innerHTML = `<div class="error-box"><p>Failed to load plugins: ${error.message}</p></div>`;
+            }
+        }
+
+        function renderPlugins(plugins) {
+            const container = document.getElementById('plugin-items');
+
+            if (plugins.length === 0) {
+                container.innerHTML = '<tr><td colspan="3" style="text-align: center; padding: var(--spacer);">No plugins found</td></tr>';
+                return;
+            }
+
+            let html = '';
+            for (const plugin of plugins) {
+                const displayName = plugin.name.split('/').pop();
+                const isInstalled = !!plugin.type;
+
+                let statusLabel, actions = '';
+
+                if (!isInstalled) {
+                    // Not in .agents/ — available from registry
+                    statusLabel = '<span style="color: var(--text-color-quiet);">Available</span>';
+                    if (plugin.repository) {
+                        actions = `<button class="console-btn small" onclick="installPlugin('${plugin.name}', '${plugin.repository}', '${plugin.branch || 'main'}')" id="btn-install-${displayName}">Install</button>`;
+                    }
+                } else if (plugin.addedToDomain) {
+                    // Installed + added to this domain
+                    statusLabel = `<span style="color: #28a745;">Added</span>`
+                        + `<small style="color: var(--text-color-quiet);"> v${plugin.version || '?'}</small>`;
+                    if (plugin.type === 'managed') {
+                        actions += `<button class="console-btn small" onclick="updatePlugin('${plugin.name}')" id="btn-update-${displayName}">Update</button>`;
+                    }
+                    if (plugin.type === 'linked') {
+                        statusLabel += `<br><small style="color: var(--text-color-quiet); font-size: 0.75em;" title="${plugin.target}">linked</small>`;
+                    }
+                    actions += `<button class="console-btn small danger" onclick="removeAgentFromStore('${plugin.agentName}')" id="btn-remove-${displayName}">Remove</button>`;
+                } else {
+                    // Installed but not added to this domain
+                    statusLabel = `<span style="color: var(--text-color-quiet);">Installed</span>`
+                        + `<small style="color: var(--text-color-quiet);"> v${plugin.version || '?'}</small>`;
+                    actions = `<button class="console-btn small" onclick="addAgentFromStore('${plugin.agentName}')" id="btn-add-${displayName}">Add</button>`;
+                    if (plugin.type === 'linked') {
+                        statusLabel += `<br><small style="color: var(--text-color-quiet); font-size: 0.75em;" title="${plugin.target}">linked</small>`;
+                    }
+                }
+
+                html += `
+                    <tr style="border-bottom: 1px solid var(--page-border);">
+                        <td style="padding: var(--spacer);">
+                            <div style="display: flex; align-items: start; gap: var(--spacerhalf);">
+                                ${plugin.icon ? `<img src="${plugin.icon}" style="width: 24px; height: 24px; object-fit: cover;" alt="${displayName}" onerror="this.style.display='none'">` : ''}
+                                <div>
+                                    <strong>${displayName}</strong>
+                                    <span style="color: var(--text-color-quiet); font-size: 0.85em; margin-left: 4px;">${plugin.category || ''}</span><br>
+                                    <small style="color: var(--text-color-quiet);">${plugin.description || ''}</small>
+                                </div>
+                            </div>
+                        </td>
+                        <td style="text-align: center; padding: var(--spacer);">
+                            ${statusLabel}
+                        </td>
+                        <td style="text-align: center; padding: var(--spacer);">
+                            <div class="action-buttons" style="justify-content: center;">
+                                ${actions}
+                            </div>
+                            <div id="plugin-status-${displayName}" style="font-size: 0.85em; margin-top: 4px;"></div>
+                        </td>
+                    </tr>
+                `;
+            }
+
+            container.innerHTML = html;
+        }
+
+        function pluginStatus(name, msg, isError) {
+            const displayName = name.split('/').pop();
+            const el = document.getElementById(`plugin-status-${displayName}`);
+            if (el) {
+                el.innerHTML = isError
+                    ? `<span style="color: #dc3545;">${msg}</span>`
+                    : `<span style="color: #28a745;">${msg}</span>`;
+            }
+        }
+
+        function pluginBtnSpinner(id) {
+            const btn = document.getElementById(id);
+            if (btn) {
+                btn.disabled = true;
+                btn._origText = btn.textContent;
+                btn.innerHTML = '<div class="spinner" style="width:14px;height:14px;border-width:2px;margin:0;display:inline-block;vertical-align:middle;"></div>';
+            }
+        }
+
+        function pluginBtnRestore(id) {
+            const btn = document.getElementById(id);
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = btn._origText || 'Done';
+            }
+        }
+
+        window.installPlugin = async function(name, repository, branch) {
+            const displayName = name.split('/').pop();
+            const btnId = `btn-install-${displayName}`;
+            pluginBtnSpinner(btnId);
+            pluginStatus(name, 'Installing...');
+
+            try {
+                const response = await fetch('/api/plugins/install', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, repository, branch })
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'Install failed');
+
+                // Auto-add to domain after install
+                await addAgentToDomain(name);
+
+                pluginStatus(name, 'Installed');
+                await loadPlugins();
+                await loadAgents();
+            } catch (error) {
+                pluginStatus(name, error.message, true);
+                pluginBtnRestore(btnId);
+            }
+        };
+
+        window.removeAgentFromStore = async function(name) {
+            const displayName = name.split('/').pop();
+            const btnId = `btn-remove-${displayName}`;
+            pluginBtnSpinner(btnId);
+
+            try {
+                await fetch('/api/toggle-agent', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ agentName: name, enabled: false })
+                });
+                await loadPlugins();
+                await loadAgents();
+            } catch (error) {
+                pluginStatus(name, error.message, true);
+                pluginBtnRestore(btnId);
+            }
+        };
+
+        window.addAgentFromStore = async function(name) {
+            const displayName = name.split('/').pop();
+            const btnId = `btn-add-${displayName}`;
+            pluginBtnSpinner(btnId);
+
+            try {
+                await addAgentToDomain(name);
+                pluginStatus(name, 'Added');
+                await loadPlugins();
+                await loadAgents();
+            } catch (error) {
+                pluginStatus(name, error.message, true);
+                pluginBtnRestore(btnId);
+            }
+        };
+
+        window.updatePlugin = async function(name) {
+            const displayName = name.split('/').pop();
+            const btnId = `btn-update-${displayName}`;
+            pluginBtnSpinner(btnId);
+            pluginStatus(name, 'Updating...');
+
+            try {
+                const response = await fetch('/api/plugins/update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name })
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'Update failed');
+
+                pluginStatus(name, 'Updated successfully');
+                await loadPlugins();
+                await loadAgents();
+            } catch (error) {
+                pluginStatus(name, error.message, true);
+                pluginBtnRestore(btnId);
+            }
+        };
+
+        window.removePlugin = async function(name) {
+            if (!confirm(`Remove ${name}? This will delete the plugin files.`)) return;
+
+            const displayName = name.split('/').pop();
+            const btnId = `btn-remove-${displayName}`;
+            pluginBtnSpinner(btnId);
+            pluginStatus(name, 'Removing...');
+
+            try {
+                const response = await fetch('/api/plugins/remove', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name })
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'Remove failed');
+
+                pluginStatus(name, 'Removed');
+                await loadPlugins();
+                await loadAgents();
+            } catch (error) {
+                pluginStatus(name, error.message, true);
+                pluginBtnRestore(btnId);
+            }
+        };
+
+        window.checkPluginUpdates = async function() {
+            try {
+                const response = await fetch('/api/plugins/check-updates', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'Check failed');
+
+                const updates = data.updates || [];
+                const withUpdates = updates.filter(u => u.hasUpdate);
+
+                if (withUpdates.length === 0) {
+                    alert('All plugins are up to date.');
+                } else {
+                    const names = withUpdates.map(u => u.name).join(', ');
+                    if (confirm(`Updates available for: ${names}\n\nUpdate all?`)) {
+                        for (const u of withUpdates) {
+                            await updatePlugin(u.name);
+                        }
+                    }
+                }
+            } catch (error) {
+                alert('Failed to check for updates: ' + error.message);
             }
         };
 

@@ -35,13 +35,17 @@ Once claimed, the domain displays a clean status interface showing:
 
 ### Agent System
 
-Agents are discovered from `~/.epistery/.agents/` and mounted at `/agent/{namespace}/{name}/*`. Each agent
+Agents are discovered from `~/.epistery/.agents/` and mounted at `/agent/{org}/{name}/*`. Each agent
 has an `epistery.json` manifest declaring its name, entry point, optional UI widget, and optional `tools`
 array for MCP integration. Agents with tools get automatic MCP proxy — each tool declares its HTTP method,
 path, input schema, and OAuth scope.
 
+Plugin names use the format `org/name` (e.g. `epistery/wiki`), mapping directly to the URL mount path.
+The legacy `@org/name` format is accepted and auto-normalized. The registry agent enforces that the org
+prefix matches the source repository's GitHub org.
+
 Current agents include wiki, message board, files, relay, provenance, secrets, connectors (weather,
-finance), publisher, scan, environs, and mimi (voice portal).
+finance), publisher, scan, registry, and mimi (voice portal).
 
 ### Technical Architecture
 

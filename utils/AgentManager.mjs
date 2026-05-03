@@ -169,8 +169,12 @@ export class AgentManager {
     async buildAgentRouter(agentInfo) {
         const { name, manifest, entryPath } = agentInfo;
 
-        // Cache-bust: append timestamp so Node reimports the module
-        const moduleUrl = pathToFileURL(entryPath).href + `?t=${Date.now()}`;
+        // Cache-bust on reload so Node reimports the module.
+        // Skip on first load so debugger breakpoints work (clean file URL).
+        agentInfo._loadCount = (agentInfo._loadCount || 0) + 1;
+        const moduleUrl = agentInfo._loadCount > 1
+            ? pathToFileURL(entryPath).href + `?t=${Date.now()}`
+            : pathToFileURL(entryPath).href;
         const AgentClass = (await import(moduleUrl)).default;
         const agentInstance = new AgentClass({
             ...manifest.config,
@@ -327,6 +331,40 @@ export class AgentManager {
             });
             child.on('error', reject);
         });
+    }
+
+    /**
+     * Load a single agent by its directory name into the running system.
+     * Used by PluginManager to hot-load a newly installed plugin.
+     */
+    async loadAgentByName(dirName) {
+        const agentDir = join(this.agentsPath, dirName);
+        const manifestPath = join(agentDir, 'epistery.json');
+        const entryPath = join(agentDir, 'index.mjs');
+
+        if (!existsSync(manifestPath)) throw new Error(`${dirName} missing epistery.json`);
+        if (!existsSync(entryPath)) throw new Error(`${dirName} missing index.mjs`);
+
+        const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+        const agentInfo = { name: dirName, path: agentDir, manifest, entryPath };
+        await this.loadAgent(agentInfo, this.app);
+    }
+
+    /**
+     * Unload a running agent: cleanup instance, remove from agents Map,
+     * and rebuild tool registry. Used by PluginManager on plugin removal.
+     */
+    async unloadAgent(dirName) {
+        const agentData = this.agents.get(dirName);
+        if (!agentData) throw new Error(`Agent ${dirName} not loaded`);
+
+        if (typeof agentData.instance.cleanup === 'function') {
+            await agentData.instance.cleanup();
+        }
+
+        this.agents.delete(dirName);
+        this._rebuildToolRegistry();
+        console.log(`[AgentManager] Unloaded ${dirName}`);
     }
 
     /**
