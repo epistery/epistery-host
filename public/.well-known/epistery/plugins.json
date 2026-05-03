@@ -56,12 +56,12 @@
       "category": "tools"
     },
     {
-      "name": "rootz/secret-agent",
+      "name": "epistery/secret-agent",
       "version": "0.1.0",
       "description": "Encryption services for epistery",
       "repository": "https://github.com/epistery/secret-agent.git",
       "branch": "main",
-      "icon": "/agent/rootz/secret-agent/icon.svg",
+      "icon": "/agent/epistery/secret-agent/icon.svg",
       "category": "infrastructure"
     },
     {
