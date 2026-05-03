@@ -185,6 +185,19 @@ export class AgentManager {
         });
 
         const agentRouter = express.Router();
+
+        // Agents live under ~/.epistery/.agents/ — both directories start with '.'
+        // Express's send module rejects sendFile through dotfile paths by default.
+        // Patch res.sendFile on agent routes to allow dotfile paths.
+        agentRouter.use((req, res, next) => {
+            const _sendFile = res.sendFile.bind(res);
+            res.sendFile = function(filePath, options, fn) {
+                if (typeof options === 'function') { fn = options; options = {}; }
+                return _sendFile(filePath, { dotfiles: 'allow', ...options }, fn);
+            };
+            next();
+        });
+
         if (typeof agentInstance.attach === 'function') {
             agentInstance.attach(agentRouter);
         } else {

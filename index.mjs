@@ -564,11 +564,6 @@ let main = async function() {
     // Mount dynamic AI Discovery endpoint (/.well-known/ai)
     AIDiscovery.attach(app);
 
-    // Serve plugin registry as static JSON (before epistery.routes() catches all)
-    app.get('/.well-known/epistery/plugins', (req, res) => {
-        res.sendFile(path.join(__dirname, 'public/.well-known/epistery/plugins.json'));
-    });
-
     // Also mount the same routes at RFC 8615 well-known path
     // Note: We reuse the routes() to avoid duplicate middleware
     app.use('/.well-known/epistery', epistery.routes());
