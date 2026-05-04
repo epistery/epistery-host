@@ -11,7 +11,7 @@ import { createRequire } from 'module';
 import { Certify } from '@metric-im/administrate';
 import { Epistery, Config, configuredChains, defaultChainId } from 'epistery';
 import { createAuthRouter } from './utils/authentication.mjs';
-import { DomainAcl } from './utils/DomainAcl.mjs';
+import { DomainAcl, normalizeAgentName } from './utils/DomainAcl.mjs';
 import { DomainChain } from './utils/DomainChain.mjs';
 import { OAuthServer } from './utils/OAuthServer.mjs';
 import { MCPServer } from './utils/MCPServer.mjs';
@@ -583,12 +583,20 @@ let main = async function() {
         cfg.setPath(domain);
 
         const defaultAgent = cfg.data?.default_agent || null;
-        const enabledAgents = cfg.data?.enabled_agents || {};
+        const contract = req.domainAcl?.chain?.contract;
 
         const agents = [];
         for (const [, agentData] of agentManager.agents) {
-            // Default to enabled if not specified
-            const enabled = enabledAgents[agentData.manifest.name] !== false;
+            const agentName = normalizeAgentName(agentData.manifest.name);
+            let enabled = false;
+            if (contract) {
+                try {
+                    const configJson = await contract.getPublicAttribute(contract.signer.address, agentName);
+                    enabled = !!configJson;
+                } catch (e) {
+                    // contract read failed — leave disabled
+                }
+            }
 
             agents.push({
                 name: agentData.manifest.name,
@@ -700,7 +708,6 @@ let main = async function() {
     app.post('/api/toggle-agent', async (req, res) => {
         try {
             const { agentName, enabled } = req.body;
-            const domain = req.headers.host?.split(':')[0] || 'localhost';
 
             if (!agentName || enabled === undefined) {
                 return res.status(400).json({ error: 'agentName and enabled are required' });
@@ -712,16 +719,26 @@ let main = async function() {
                 return res.status(403).json({ error: 'Not authorized' });
             }
 
-            // Save to config
-            const cfg = new Config();
-            cfg.setPath(domain);
-
-            if (!cfg.data.enabled_agents) {
-                cfg.data.enabled_agents = {};
+            const domainChain = req.domainAcl.chain;
+            if (!domainChain.contract) {
+                return res.status(400).json({ error: 'Contract not deployed' });
             }
 
-            cfg.data.enabled_agents[agentName] = enabled;
-            cfg.save();
+            const agent = normalizeAgentName(agentName);
+            const feeData = await domainChain.getFeeData();
+
+            if (enabled) {
+                // Only write '{}' if no attribute exists yet (don't overwrite existing config)
+                const existing = await domainChain.contract.getPublicAttribute(domainChain.contract.signer.address, agent);
+                if (!existing) {
+                    const tx = await domainChain.contract.setPublicAttribute(agent, '{}', feeData);
+                    await tx.wait();
+                }
+            } else {
+                // Clear the attribute to disable
+                const tx = await domainChain.contract.setPublicAttribute(agent, '', feeData);
+                await tx.wait();
+            }
 
             res.json({ success: true });
         } catch (error) {
