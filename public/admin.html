@@ -1704,9 +1704,10 @@
                 const canBeDefault = !agent.noUserInterface;
                 const adminPath = `${agent.shortPath}/admin`;
 
+                const safeId = agent.simpleName.replace(/[^a-zA-Z0-9-]/g, '-');
                 html += `
-                    <tr style="border-bottom: 1px solid var(--page-border);${agent.enabled ? '' : ' opacity: 0.5;'}">
-                        <td style="padding: var(--spacer);">
+                    <tr id="agent-row-${safeId}" style="border-bottom: 1px solid var(--page-border);">
+                        <td style="padding: var(--spacer);${agent.enabled ? '' : ' opacity: 0.5;'}">
                             <div style="display: flex; align-items: start; gap: var(--spacerhalf);">
                                 ${agent.icon ? `<img src="${agent.icon}" style="width: 24px; height: 24px; object-fit: cover;" alt="${displayName}">` : ''}
                                 <div>
@@ -1729,7 +1730,7 @@
                                     <button class="console-btn small danger" onclick="removeAgentFromDomain('${agent.name}')"
                                             ${isDefault ? 'disabled title="Clear default first"' : ''}>Remove</button>
                                 ` : `
-                                    <button class="console-btn small" onclick="addAgentToDomain('${agent.name}')">Add</button>
+                                    <button class="console-btn small" onclick="addAgentToDomain('${agent.name}', this)">Add</button>
                                 `}
                             </div>
                         </td>
@@ -1743,6 +1744,10 @@
         window.removeAgentFromDomain = async function(agentName) {
             const displayName = agentName.split('/').pop();
             if (!confirm(`Remove ${displayName} from this domain? Its data will be preserved.`)) return;
+
+            const btn = event.target;
+            btn.disabled = true;
+            btn.textContent = 'Removing\u2026';
 
             try {
                 const response = await fetch('/api/toggle-agent', {
@@ -1760,10 +1765,16 @@
             } catch (error) {
                 console.error('Failed to remove agent:', error);
                 alert('Failed to remove agent: ' + error.message);
+                btn.disabled = false;
+                btn.textContent = 'Remove';
             }
         };
 
-        window.addAgentToDomain = async function(agentName) {
+        window.addAgentToDomain = async function(agentName, btn) {
+            if (btn) {
+                btn.disabled = true;
+                btn.textContent = 'Adding\u2026';
+            }
             try {
                 const response = await fetch('/api/toggle-agent', {
                     method: 'POST',
@@ -1780,6 +1791,10 @@
             } catch (error) {
                 console.error('Failed to add agent:', error);
                 alert('Failed to add agent: ' + error.message);
+                if (btn) {
+                    btn.disabled = false;
+                    btn.textContent = 'Add';
+                }
             }
         };
 
