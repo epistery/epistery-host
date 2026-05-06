@@ -1,9 +1,10 @@
 /**
  * ECDH key exchange for team member key sharing.
- * Ported from @rootz/crypto ecdh.ts — core + ephemeral methods.
+ * Ported from @rootz/crypto ecdh.ts — core, ephemeral, fat package methods.
  *
  * Uses secp256k1 curve via ethers.js SigningKey (Ethereum compatible).
- * Fat packages and V5 KeyVault are deferred to identity convergence.
+ * Fat packages enable multi-device decryption: one encrypted master key entry
+ * per rivet on an IdentityContract, each independently decryptable.
  */
 
 import { createRequire } from 'module';
@@ -231,6 +232,199 @@ export class ECDH {
     );
 
     return bytesToHex(new Uint8Array(plaintext));
+  }
+
+  // ═══ Fat Package — Multi-Device Master Key Bundles ═══
+
+  /**
+   * Create a fat package: encrypt master key for multiple devices at once.
+   * Each device entry is self-contained — no dependency on the creator after creation.
+   *
+   * @param {string} masterKey - hex master key to encrypt
+   * @param {Array<{address: string, publicKey: string, name?: string}>} devices - target devices
+   * @param {Object} metadata
+   * @param {string} metadata.secretContract - contract address
+   * @param {number} [metadata.keyVaultBlock] - block number
+   * @param {string} [metadata.secretName] - human-readable name
+   * @param {string} [metadata.identityContract] - identity contract address
+   * @param {number} [metadata.chainId] - EVM chain ID
+   * @param {string} [metadata.chainName] - human-readable chain name
+   * @returns {Promise<import('./types.mjs').FatPackage>}
+   */
+  static async createFatPackage(masterKey, devices, metadata = {}) {
+    if (!devices || devices.length === 0) {
+      throw new Error('At least one device required for fat package');
+    }
+
+    const deviceEntries = [];
+    for (const device of devices) {
+      if (!device.publicKey || !device.address) {
+        throw new Error(`Device missing publicKey or address: ${JSON.stringify(device)}`);
+      }
+      const entry = await this.encryptForDevice(masterKey, device.publicKey);
+      deviceEntries.push({
+        deviceAddress: device.address,
+        deviceName: device.name || undefined,
+        ephemeralPub: entry.ephemeralPub,
+        encryptedMasterKey: entry.encryptedMasterKey,
+      });
+    }
+
+    return {
+      type: 'fat-key-package',
+      version: '3.0',
+      secretContract: metadata.secretContract || '',
+      keyVaultBlock: metadata.keyVaultBlock || 0,
+      secretName: metadata.secretName || '',
+      identityContract: metadata.identityContract || undefined,
+      chainId: metadata.chainId || 0,
+      chainName: metadata.chainName || undefined,
+      timestamp: Date.now(),
+      devices: deviceEntries,
+    };
+  }
+
+  /**
+   * Decrypt master key from a fat package.
+   * Finds the device entry matching the given address and decrypts.
+   *
+   * @param {import('./types.mjs').FatPackage} fatPackage
+   * @param {string} deviceAddress - address of the decrypting device
+   * @param {string} devicePrivateKey - hex private key
+   * @returns {Promise<string>} decrypted master key hex
+   */
+  static async decryptFromFatPackage(fatPackage, deviceAddress, devicePrivateKey) {
+    const entry = fatPackage.devices.find(
+      d => d.deviceAddress.toLowerCase() === deviceAddress.toLowerCase()
+    );
+
+    if (!entry) {
+      const available = fatPackage.devices.map(d => d.deviceAddress).join(', ');
+      throw new Error(`Device ${deviceAddress} not found in fat package. Available: ${available}`);
+    }
+
+    return this.decryptFromEphemeral(
+      entry.encryptedMasterKey,
+      entry.ephemeralPub,
+      devicePrivateKey
+    );
+  }
+
+  /**
+   * Add a device to an existing fat package.
+   * Requires the decrypted master key (caller must already have access).
+   *
+   * @param {import('./types.mjs').FatPackage} fatPackage
+   * @param {string} masterKey - decrypted master key hex
+   * @param {{address: string, publicKey: string, name?: string}} newDevice
+   * @returns {Promise<import('./types.mjs').FatPackage>} new fat package with added device
+   */
+  static async addDeviceToFatPackage(fatPackage, masterKey, newDevice) {
+    const exists = fatPackage.devices.some(
+      d => d.deviceAddress.toLowerCase() === newDevice.address.toLowerCase()
+    );
+    if (exists) {
+      throw new Error(`Device ${newDevice.address} already in fat package`);
+    }
+
+    const entry = await this.encryptForDevice(masterKey, newDevice.publicKey);
+
+    return {
+      ...fatPackage,
+      timestamp: Date.now(),
+      devices: [
+        ...fatPackage.devices,
+        {
+          deviceAddress: newDevice.address,
+          deviceName: newDevice.name || undefined,
+          ephemeralPub: entry.ephemeralPub,
+          encryptedMasterKey: entry.encryptedMasterKey,
+        }
+      ],
+    };
+  }
+
+  // ═══ Single Device Package — LOCAL mode ═══
+
+  /**
+   * Create a single-device package (LOCAL mode).
+   * The wallet is both creator and owner — on-chain recoverable.
+   *
+   * @param {string} masterKey - hex master key
+   * @param {string} devicePublicKey - hex public key
+   * @param {string} secretContract - contract address
+   * @param {string} deviceAddress - device address
+   * @returns {Promise<import('./types.mjs').SingleDevicePackage>}
+   */
+  static async createSingleDevicePackage(masterKey, devicePublicKey, secretContract, deviceAddress) {
+    const entry = await this.encryptForDevice(masterKey, devicePublicKey);
+
+    return {
+      type: 'single-device-package',
+      version: '1.0',
+      secretContract,
+      deviceAddress,
+      ephemeralPub: entry.ephemeralPub,
+      encryptedMasterKey: entry.encryptedMasterKey,
+      algorithm: 'ECDH-AES-256-GCM',
+      timestamp: Date.now(),
+    };
+  }
+
+  /**
+   * Decrypt from a single-device package.
+   *
+   * @param {import('./types.mjs').SingleDevicePackage} pkg
+   * @param {string} devicePrivateKey - hex private key
+   * @returns {Promise<string>} decrypted master key hex
+   */
+  static async decryptSingleDevicePackage(pkg, devicePrivateKey) {
+    return this.decryptFromEphemeral(
+      pkg.encryptedMasterKey,
+      pkg.ephemeralPub,
+      devicePrivateKey
+    );
+  }
+
+  // ═══ V5 KeyVault format (on-chain compatibility) ═══
+
+  /**
+   * Decrypt from V5 KeyVault data found on-chain.
+   * Handles both single-device and multi-device formats.
+   *
+   * @param {import('./types.mjs').V5KeyVaultData} keysData
+   * @param {string} deviceAddress - address of the decrypting device
+   * @param {string} devicePrivateKey - hex private key
+   * @returns {Promise<string>} decrypted master key hex
+   */
+  static async decryptFromV5KeyVaultData(keysData, deviceAddress, devicePrivateKey) {
+    if (keysData.isMultiDevice && keysData.deviceEntries) {
+      // Multi-device: search deviceEntries by address
+      const entry = keysData.deviceEntries.find(
+        d => d.deviceAddress.toLowerCase() === deviceAddress.toLowerCase()
+      );
+      if (!entry) {
+        throw new Error(`Device ${deviceAddress} not found in V5 KeyVault multi-device data`);
+      }
+      if (!entry.ephemeralPub) {
+        throw new Error('Device entry missing ephemeralPub');
+      }
+      return this.decryptFromEphemeral(
+        entry.encryptedMasterKey,
+        entry.ephemeralPub,
+        devicePrivateKey
+      );
+    }
+
+    // Single device: use top-level encryptedMasterKey
+    if (!keysData.ephemeralPub) {
+      throw new Error('V5 KeyVault data missing ephemeralPub for single-device decryption');
+    }
+    return this.decryptFromEphemeral(
+      keysData.encryptedMasterKey,
+      keysData.ephemeralPub,
+      devicePrivateKey
+    );
   }
 
   /**

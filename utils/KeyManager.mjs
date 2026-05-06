@@ -8,6 +8,8 @@
 
 import { Config } from 'epistery';
 import { MasterKey } from './crypto/master-key.mjs';
+import { ECDH } from './crypto/ecdh.mjs';
+import { PACKAGE_TYPES } from './crypto/types.mjs';
 
 class KeyManager {
   constructor() {
@@ -73,7 +75,21 @@ class KeyManager {
       throw new Error(`No master key for domain ${domain}. Initialize first.`);
     }
 
-    const masterKey = await MasterKey.decryptFromPackage(pkg, signer);
+    // Detect package format and decrypt accordingly
+    let masterKey;
+    if (pkg.type === PACKAGE_TYPES.FAT) {
+      // Fat package — find device entry by wallet address and decrypt
+      const address = await signer.getAddress();
+      masterKey = await ECDH.decryptFromFatPackage(pkg, address, signer.privateKey);
+      console.log(`[key-manager] Decrypted fat package for ${domain} (device: ${address})`);
+    } else if (pkg.type === PACKAGE_TYPES.SINGLE) {
+      // Single device package — decrypt via ephemeral key
+      masterKey = await ECDH.decryptSingleDevicePackage(pkg, signer.privateKey);
+      console.log(`[key-manager] Decrypted single-device package for ${domain}`);
+    } else {
+      // Legacy signature-based master key package
+      masterKey = await MasterKey.decryptFromPackage(pkg, signer);
+    }
     this.cache.set(domain, masterKey);
 
     // Migrate legacy key to canonical path
@@ -109,7 +125,31 @@ class KeyManager {
   getKeyInfo(domain) {
     const { pkg } = this._readPackage(domain);
     if (!pkg) return null;
+
+    // Fat package or single-device package
+    if (pkg.type === PACKAGE_TYPES.FAT) {
+      return {
+        type: pkg.type,
+        version: pkg.version,
+        timestamp: pkg.timestamp,
+        deviceCount: pkg.devices?.length || 0,
+        identityContract: pkg.identityContract || null,
+        valid: true,
+      };
+    }
+    if (pkg.type === PACKAGE_TYPES.SINGLE) {
+      return {
+        type: pkg.type,
+        version: pkg.version,
+        timestamp: pkg.timestamp,
+        deviceAddress: pkg.deviceAddress,
+        valid: true,
+      };
+    }
+
+    // Legacy signature-based package
     return {
+      type: 'signature-based',
       encryptedFor: pkg.encryptedFor,
       timestamp: pkg.timestamp,
       version: pkg.version,

@@ -761,6 +761,49 @@ export class OAuthServer {
       }
     });
 
+    // ── Cleanup expired tokens (admin only) ──
+
+    app.post('/api/connections/cleanup', async (req, res) => {
+      const isAdmin = req.episteryClient && req.domainAcl
+        ? await req.domainAcl.isAdmin(req.episteryClient.address)
+        : false;
+      if (!isAdmin) return res.status(403).json({ error: 'Admin access required' });
+
+      const domain = req.hostname || 'localhost';
+      const signer = self.getSigner(req);
+      const store = signer ? await self.getStore(domain, signer) : null;
+      if (!store) return res.status(503).json({ error: 'service_unavailable' });
+
+      try {
+        const cleaned = await store.cleanupExpiredTokens();
+        res.json({ ok: true, cleaned });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // ── Revoke all connections (admin only) ──
+
+    app.post('/api/connections/revoke-all', async (req, res) => {
+      const isAdmin = req.episteryClient && req.domainAcl
+        ? await req.domainAcl.isAdmin(req.episteryClient.address)
+        : false;
+      if (!isAdmin) return res.status(403).json({ error: 'Admin access required' });
+
+      const domain = req.hostname || 'localhost';
+      const signer = self.getSigner(req);
+      const store = signer ? await self.getStore(domain, signer) : null;
+      if (!store) return res.status(503).json({ error: 'service_unavailable' });
+
+      try {
+        const result = await store.revokeAll();
+        console.log(`[oauth] Revoked all: ${result.tokens} tokens, ${result.consent} consent records for ${domain}`);
+        res.json({ ok: true, ...result });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
     // ── Create outbound connection (admin only) ──
 
     app.post('/api/connections', async (req, res) => {

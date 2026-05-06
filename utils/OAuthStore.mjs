@@ -364,4 +364,42 @@ export default class OAuthStore {
     }
     return false;
   }
+
+  // ── Cleanup ──
+
+  /**
+   * Remove expired tokens from index.
+   * Access tokens expire after 1 hour, refresh tokens after 30 days.
+   * @returns {Promise<number>} count of expired tokens removed
+   */
+  async cleanupExpiredTokens() {
+    const index = await this._readIndex('tokens');
+    const now = Date.now();
+    let cleaned = 0;
+    for (const [hash, meta] of Object.entries(index)) {
+      if (meta.expires && meta.expires < now) {
+        delete index[hash];
+        cleaned++;
+      }
+    }
+    if (cleaned > 0) await this._writeIndex('tokens', index);
+    return cleaned;
+  }
+
+  /**
+   * Revoke all tokens and consent records for all clients.
+   * Nuclear option for cleaning up stale connections.
+   * @returns {Promise<{tokens: number, consent: number}>}
+   */
+  async revokeAll() {
+    const tokenIndex = await this._readIndex('tokens');
+    const consentIndex = await this._readIndex('consent');
+    const tokenCount = Object.keys(tokenIndex).length;
+    const consentCount = Object.keys(consentIndex).length;
+
+    if (tokenCount > 0) await this._writeIndex('tokens', {});
+    if (consentCount > 0) await this._writeIndex('consent', {});
+
+    return { tokens: tokenCount, consent: consentCount };
+  }
 }

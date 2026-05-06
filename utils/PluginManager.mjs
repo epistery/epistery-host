@@ -133,11 +133,22 @@ export class PluginManager {
 
         // Clone — inject PAT if configured, log only the public URL
         const authRepo = self._authUrl(repository);
-        await self._exec(
-            'git', ['clone', '--branch', branch, '--single-branch', authRepo, targetDir],
-            self._agentsDir,
-            `git clone --branch ${branch} --single-branch ${repository} ${targetDir}`
-        );
+        if (authRepo === repository && repository.includes('github.com')) {
+            const org = new URL(repository).pathname.split('/').filter(Boolean)[0];
+            console.warn(`[PluginManager] No GitHub PAT for org "${org}". If repo is private, add [plugins.github] ${org}=ghp_xxx to ~/.epistery/config.ini`);
+        }
+        try {
+            await self._exec(
+                'git', ['clone', '--branch', branch, '--single-branch', authRepo, targetDir],
+                self._agentsDir,
+                `git clone --branch ${branch} --single-branch ${repository} ${targetDir}`
+            );
+        } catch (err) {
+            if (authRepo === repository && repository.includes('github.com')) {
+                throw new Error(`Clone failed for ${name}. If the repo is private, configure a GitHub PAT: [plugins.github] in ~/.epistery/config.ini. Original error: ${err.message}`);
+            }
+            throw err;
+        }
 
         // npm install
         await agentManager.executeCommand(

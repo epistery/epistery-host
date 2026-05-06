@@ -465,6 +465,10 @@
                     </div>
 
                     <div id="connections-container" style="display: none;">
+                        <div style="display: flex; gap: 8px; margin-bottom: var(--spacer);">
+                            <button class="console-btn small" onclick="cleanupExpiredTokens()">Cleanup Expired</button>
+                            <button class="console-btn small danger" onclick="revokeAllConnections()">Revoke All</button>
+                        </div>
                         <h3 style="font-size: 1rem; margin-bottom: var(--spacerhalf);">Inbound (clients connected to you)</h3>
                         <div id="connections-inbound"></div>
 
@@ -678,6 +682,43 @@
         }
 
         function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+        window.cleanupExpiredTokens = async function() {
+            try {
+                const response = await fetch('/api/connections/cleanup', {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+                if (data.ok) {
+                    alert(`Cleaned up ${data.cleaned} expired token${data.cleaned !== 1 ? 's' : ''}`);
+                    await loadConnections();
+                } else {
+                    alert('Cleanup failed: ' + (data.error || 'Unknown error'));
+                }
+            } catch (error) {
+                alert('Cleanup failed: ' + error.message);
+            }
+        };
+
+        window.revokeAllConnections = async function() {
+            if (!confirm('Revoke ALL inbound connections and tokens? This will disconnect all connected clients.')) return;
+            try {
+                const response = await fetch('/api/connections/revoke-all', {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+                if (data.ok) {
+                    alert(`Revoked ${data.tokens} tokens and ${data.consent} consent records`);
+                    await loadConnections();
+                } else {
+                    alert('Revoke all failed: ' + (data.error || 'Unknown error'));
+                }
+            } catch (error) {
+                alert('Revoke all failed: ' + error.message);
+            }
+        };
 
         window.revokeConnection = async function(id) {
             if (!confirm('Revoke this connection?')) return;
