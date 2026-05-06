@@ -1649,12 +1649,11 @@
                 const memAgents = agentsResp.agents || [];
                 const defaultAgent = agentsResp.defaultAgent;
 
-                // Only show agents on disk AND enabled (added) for this domain
+                // Show all agents on disk (admin needs to see disabled agents to enable them)
                 const agents = [];
                 for (const a of memAgents) {
                     const dirName = a.name.split('/').pop();
                     if (!fsAgents[dirName]) continue;    // not on disk — skip
-                    if (a.enabled === false) continue;    // removed from domain — skip
                     agents.push(a);
                 }
 
@@ -1706,7 +1705,7 @@
                 const adminPath = `${agent.shortPath}/admin`;
 
                 html += `
-                    <tr style="border-bottom: 1px solid var(--page-border);">
+                    <tr style="border-bottom: 1px solid var(--page-border);${agent.enabled ? '' : ' opacity: 0.5;'}">
                         <td style="padding: var(--spacer);">
                             <div style="display: flex; align-items: start; gap: var(--spacerhalf);">
                                 ${agent.icon ? `<img src="${agent.icon}" style="width: 24px; height: 24px; object-fit: cover;" alt="${displayName}">` : ''}
@@ -1717,17 +1716,21 @@
                             </div>
                         </td>
                         <td style="text-align: center; padding: var(--spacer);">
-                            ${canBeDefault ? `
+                            ${canBeDefault && agent.enabled ? `
                                 <input type="radio" name="default-agent" value="${agent.name}"
                                        ${isDefault ? 'checked' : ''}
                                        onchange="setDefaultAgent('${agent.name}')" />
-                            ` : `<small style="color: var(--neutral);">N/A</small>`}
+                            ` : `<small style="color: var(--neutral);">${!agent.enabled ? '' : 'N/A'}</small>`}
                         </td>
                         <td style="text-align: center; padding: var(--spacer);">
                             <div class="action-buttons" style="justify-content: center;">
-                                ${agent.shortPath ? `<a href="${adminPath}" class="console-btn small" style="text-decoration: none;">Configure</a>` : ''}
-                                <button class="console-btn small danger" onclick="removeAgentFromDomain('${agent.name}')"
-                                        ${isDefault ? 'disabled title="Clear default first"' : ''}>Remove</button>
+                                ${agent.enabled ? `
+                                    ${agent.shortPath ? `<a href="${adminPath}" class="console-btn small" style="text-decoration: none;">Configure</a>` : ''}
+                                    <button class="console-btn small danger" onclick="removeAgentFromDomain('${agent.name}')"
+                                            ${isDefault ? 'disabled title="Clear default first"' : ''}>Remove</button>
+                                ` : `
+                                    <button class="console-btn small" onclick="addAgentToDomain('${agent.name}')">Add</button>
+                                `}
                             </div>
                         </td>
                     </tr>
