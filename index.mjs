@@ -902,7 +902,7 @@ let main = async function() {
 
     // Load and attach agent modules from ~/.epistery/.agents
     const agentsPath = path.join(config.configDir, '.agents');
-    agentManager = new AgentManager(agentsPath);
+    agentManager = new AgentManager(agentsPath, { contractArtifact: DomainAgentArtifact });
     await agentManager.loadAll(app);
     app.locals.agentManager = agentManager;
 

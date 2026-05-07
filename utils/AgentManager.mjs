@@ -4,6 +4,11 @@ import { pathToFileURL } from 'url';
 import { spawn } from 'child_process';
 import express from 'express';
 import StorageFactory from './storage/StorageFactory.mjs';
+import EncryptedStorage from './storage/EncryptedStorage.mjs';
+import keyManager from './KeyManager.mjs';
+import { MasterKey } from './crypto/master-key.mjs';
+import { ECDH } from './crypto/ecdh.mjs';
+import { PACKAGE_TYPES, VERSIONS } from './crypto/types.mjs';
 
 /**
  * AgentManager - Discovers and loads epistery agent modules
@@ -28,11 +33,12 @@ import StorageFactory from './storage/StorageFactory.mjs';
  *     path supports {param} substitution from input args
  */
 export class AgentManager {
-    constructor(agentsPath) {
+    constructor(agentsPath, options = {}) {
         this.agentsPath = agentsPath;
         this.agents = new Map();
         this.toolRegistry = []; // collected from agent manifests
         this.externalTools = new Map(); // peerId -> tools[] (from bridge peers)
+        this.contractArtifact = options.contractArtifact || null;
     }
 
     /**
@@ -181,7 +187,15 @@ export class AgentManager {
             getStorage: (domain, agentName) => StorageFactory.create(null, domain, agentName, this.app?.locals?.epistery?.signer),
             getAgentTools: () => this.getRegisteredTools(),
             callBridgedTool: (peerId, toolName, args) => this.callBridgedTool(peerId, toolName, args),
-            _agentManager: this
+            _agentManager: this,
+            // Host services — agents MUST NOT use relative imports to reach host internals.
+            // Everything an agent needs from the host is injected here.
+            host: {
+                keyManager,
+                crypto: { MasterKey, ECDH, PACKAGE_TYPES, VERSIONS },
+                storage: { StorageFactory, EncryptedStorage },
+                contractArtifact: this.contractArtifact
+            }
         });
 
         const agentRouter = express.Router();
