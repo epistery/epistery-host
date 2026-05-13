@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+import "epistery/contracts/IAddressNaming.sol";
+
 /**
  * @title DomainAgent
  * @dev Domain-bound access control and data management contract
@@ -9,12 +11,13 @@ pragma solidity ^0.8.0;
  * - Named access control lists (ACLs) with role-based permissions
  * - Public and private attribute storage
  * - Approval workflow system
+ * - Address naming (conforms to IAddressNaming for off-chain interop)
  *
  * The owner (contract deployer) and host automatically have admin access.
  */
-contract DomainAgent {
+contract DomainAgent is IAddressNaming {
   // Contract version
-  string public constant VERSION = "1.3.0";
+  string public constant VERSION = "1.4.1";
 
   // Domain this contract serves
   string public domain;
@@ -53,8 +56,15 @@ contract DomainAgent {
   // Member reverse lookup: member => memberships
   mapping(address => MembershipEntry[]) private memberMemberships;
 
+  // Address names — identity name lives on the address itself, not on any
+  // (address, list) join. Roles stay on ACLEntry; the per-list `name` slot
+  // on ACLEntry is now a per-list handle / role-label. Single-tenant here,
+  // so no outer owner mapping. (Mirrors epistery Agent.sol v3.2.0.)
+  mapping(address => string) private addressNames;
+
   // Events
   event ACLModified(address indexed host, string listName, address indexed addr, string action, uint256 timestamp);
+  event AddressNameSet(address indexed addr, string name);
   event ApprovalRequested(address indexed approver, address indexed requestor, string fileName, string fileHash, uint256 timestamp);
   event ApprovalHandled(address indexed approver, address indexed requestor, string fileName, bool approved, uint256 timestamp);
   event AttributeSet(address indexed owner, string key, bool isPrivate, uint256 timestamp);
@@ -359,6 +369,39 @@ contract DomainAgent {
     }
 
     return memberships;
+  }
+
+  // ============================================================================
+  // ADDRESS NAMING (decoupled from ACL / roles)
+  //
+  // Names belong to the address itself, not to any (address, list) join.
+  // Roles are per-list (ACLEntry); names are per-address. Set name to "" to
+  // clear. The ownerAddress argument on the read side is ignored (this is a
+  // single-tenant contract); it's kept on the signature so that epistery's
+  // Utils.ResolveAddressName works against both Agent.sol and DomainAgent.sol
+  // without branching.
+  // ============================================================================
+
+  /**
+   * @dev Set the human-readable name for an address.
+   * @param addr The address to name
+   * @param name The name string (empty string clears)
+   */
+  function setAddressName(address addr, string memory name) external override {
+    require(msg.sender == host || msg.sender == owner, "Only host or owner can set names");
+    require(addr != address(0), "Address cannot be zero");
+    addressNames[addr] = name;
+    emit AddressNameSet(addr, name);
+  }
+
+  /**
+   * @dev Resolve an address to its name. The ownerAddress argument is
+   * accepted for ABI compatibility with epistery's Agent.sol and is ignored.
+   * @param addr The address to resolve
+   * @return The name, or empty string if unset
+   */
+  function getAddressName(address /*ownerAddress*/, address addr) external view override returns (string memory) {
+    return addressNames[addr];
   }
 
   /**
