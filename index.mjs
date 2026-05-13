@@ -285,9 +285,6 @@ let main = async function() {
             // Check balance upfront for deployment + initialization
             const balance = await retryWithBackoff(() => ethersProvider.getBalance(wallet.address));
             const feeData = await retryWithBackoff(() => ethersProvider.getFeeData());
-            // Use network gasPrice as floor — some chains (JOC) have near-zero baseFee
-            // but high minimum gas price, so EIP-1559 computed values are too low
-            const minGasPrice = feeData.gasPrice || ethers.utils.parseUnits("30", "gwei");
 
             // Estimate based on actual bytecode size (more accurate than fixed 750k)
             const estimatedDeploymentGas = ethers.BigNumber.from(estimateDeployGas());
@@ -296,8 +293,40 @@ let main = async function() {
             const initGas = ethers.BigNumber.from(300000);
             const totalGas = deploymentGas.add(initGas);
 
-            const networkMax = feeData.maxFeePerGas ? feeData.maxFeePerGas.mul(120).div(100) : minGasPrice.mul(2);
-            const maxFeePerGas = networkMax.gt(minGasPrice.mul(2)) ? networkMax : minGasPrice.mul(2);
+            // Gas-price shape depends on whether the chain prices in EIP-1559 style
+            // (Polygon, Ethereum: separate baseFee + priorityFee) or legacy single
+            // gasPrice (JOC and similar). Earlier code applied an aggressive `* 2`
+            // floor on maxFeePerGas plus a priority-fee floor equal to the whole
+            // gasPrice — which on EIP-1559 chains effectively doubles the priority
+            // and overpays by ~2-3x per tx. Trust the network values here; keep
+            // the legacy floor only for legacy chains.
+            const isEip1559 = feeData.maxFeePerGas != null && feeData.maxPriorityFeePerGas != null;
+
+            let maxFeePerGas;
+            let maxPriorityFeePerGas;
+            if (isEip1559) {
+                // Small headroom over current network max.
+                maxFeePerGas = feeData.maxFeePerGas.mul(120).div(100);
+                // Priority should be small (~1-5 gwei on Polygon). Use what the
+                // provider suggests with a 20% buffer; fall back to 2 gwei if the
+                // node reports zero.
+                const suggestedPriority = feeData.maxPriorityFeePerGas;
+                maxPriorityFeePerGas = suggestedPriority.gt(0)
+                    ? suggestedPriority.mul(120).div(100)
+                    : ethers.utils.parseUnits("2", "gwei");
+                // Priority can never exceed the cap.
+                if (maxPriorityFeePerGas.gt(maxFeePerGas)) {
+                    maxPriorityFeePerGas = maxFeePerGas;
+                }
+            } else {
+                // Legacy chains (JOC etc.) — keep the floor logic that motivated
+                // the original code: some have near-zero baseFee but high min
+                // gasPrice that EIP-1559-style fees would underprice.
+                const minGasPrice = feeData.gasPrice || ethers.utils.parseUnits("30", "gwei");
+                maxFeePerGas = minGasPrice.mul(2);
+                maxPriorityFeePerGas = minGasPrice;
+            }
+
             const estimatedTotalCost = totalGas.mul(maxFeePerGas);
             const requiredBalance = estimatedTotalCost.mul(150).div(100); // 50% buffer
 
@@ -310,10 +339,6 @@ let main = async function() {
                     serverWallet: wallet.address
                 });
             }
-
-            // Use EIP-1559 style transaction
-            const networkPriority = feeData.maxPriorityFeePerGas ? feeData.maxPriorityFeePerGas.mul(120).div(100) : minGasPrice;
-            const maxPriorityFeePerGas = networkPriority.gt(minGasPrice) ? networkPriority : minGasPrice;
 
             const factory = new ethers.ContractFactory(DomainAgentArtifact.abi, DomainAgentArtifact.bytecode, wallet);
             // Server wallet is host (manages the contract)
