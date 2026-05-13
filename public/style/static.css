@@ -1042,6 +1042,11 @@ footer {
         display: flex;
     }
 
+    /* Admin pages have no sidebar content, so suppress the hamburger */
+    body:has(main.console-layout.no-sidebar) #mobile-controls {
+        display: none;
+    }
+
     #side-bar.active {
         right: 0 !important;
     }

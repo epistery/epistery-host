@@ -96,22 +96,25 @@
         const accessBox = document.getElementById('accessBox');
         const container = accessBox?.closest('[data-widget="requestAccess"]');
         const agentName = container?.dataset.agent || '';
-        const listName = container?.dataset.list || 'epistery::read';
+        const listName = container?.dataset.list || 'epistery::reader';
+        const requiredLevel = parseInt(container?.dataset.level || '2', 10);
         let userAddress = '';
 
-        console.log('[requestAccess] Initialized with agent:', agentName, 'list:', listName);
+        console.log('[requestAccess] Initialized with agent:', agentName || '(host)', 'list:', listName, 'level:', requiredLevel);
 
         async function checkAccess() {
             try {
-                // Check if user has access to the agent
-                const accessResponse = await fetch(`/api/acl/check-access?agent=${encodeURIComponent(agentName)}`);
+                // Check access — empty agent means host-level (DEFAULT_ACL_STANCE)
+                const url = agentName
+                    ? `/api/acl/check-access?agent=${encodeURIComponent(agentName)}`
+                    : `/api/acl/check-access`;
+                const accessResponse = await fetch(url);
                 const accessData = await accessResponse.json();
 
                 // Get user address from response (if authenticated)
                 userAddress = accessData.address || '';
 
-                // Show address if user has write access (level >= 2)
-                if (accessData.level >= 2) {
+                if (accessData.level >= requiredLevel) {
                     showHasAccess();
                 } else {
                     showRequestButton();
@@ -227,11 +230,7 @@
             }
         };
 
-        // Initialize
-        if (!agentName) {
-            console.error('[requestAccess] Agent name required in query string');
-        } else {
-            checkAccess();
-        }
+        // Initialize — empty agent name is valid (means host-level)
+        checkAccess();
     })();
 </script>

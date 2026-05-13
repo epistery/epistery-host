@@ -680,20 +680,17 @@ export class DomainAcl {
             }
         });
 
-        // API: Check if current user has access to an agent
+        // API: Check if current user has access to an agent (or the host if no agent given)
         router.get('/api/acl/check-access', async (req, res) => {
             try {
                 const { agent } = req.query;
-
-                if (!agent) {
-                    return res.status(400).json({ error: 'Agent name required' });
-                }
 
                 if (!req.episteryClient) {
                     return res.json({ allowed: false, level: 0 });
                 }
 
-                const result = await req.domainAcl.checkAgentAccess(agent, req.episteryClient.address, req.hostname);
+                // No agent → host-level check against DEFAULT_ACL_STANCE via empty agent name
+                const result = await req.domainAcl.checkAgentAccess(agent || '', req.episteryClient.address, req.hostname);
 
                 res.json({
                     allowed: result.allowed,

@@ -65,14 +65,6 @@
         background: var(--secondary);
         color: white;
     }
-    .badge-request {
-        background: var(--action-color);
-        color: white;
-        cursor: pointer;
-    }
-    .badge-request:hover {
-        background: var(--action-color-hilite);
-    }
     .badge-locked {
         background: var(--bg-color-d);
         color: var(--text-color-quiet);
@@ -152,13 +144,11 @@
             if (agent.noUserInterface) continue;
 
             const acl = agent._acl?.acl || [];
-            const authConfig = agent._acl?.authConfig || {};
             const userAccess = agent._access || {};
 
             // Determine if agent has open access (default list access > 0)
             const defaultEntry = acl.find(e => e.list === 'default');
             const isOpen = defaultEntry && defaultEntry.access > 0;
-            const canRequest = authConfig.enableRequestAccess && !isOpen;
             const hasAccess = userAccess.level > 0;
 
             const a = document.createElement('a');
@@ -193,7 +183,7 @@
 
             a.appendChild(info);
 
-            // Access badge
+            // Access badge — host-level access is requested via the requestAccess widget on the home page
             if (isOpen) {
                 const badge = document.createElement('span');
                 badge.className = 'agent-card-badge badge-open';
@@ -201,16 +191,6 @@
                 a.appendChild(badge);
             } else if (hasAccess || isAdmin) {
                 // User already has access, no badge needed
-            } else if (canRequest) {
-                const badge = document.createElement('span');
-                badge.className = 'agent-card-badge badge-request';
-                badge.textContent = 'Request Access';
-                badge.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    requestAgentAccess(agent.name, agent.title || agent.simpleName);
-                });
-                a.appendChild(badge);
             } else {
                 const badge = document.createElement('span');
                 badge.className = 'agent-card-badge badge-locked';
@@ -246,51 +226,6 @@
     } catch (e) {
         console.error('[agent-cards] Failed to load agents:', e);
         grid.innerHTML = '<div class="agent-cards-empty">Failed to load agents.</div>';
-    }
-
-    // Request access flow - inline on the home page
-    async function requestAgentAccess(agentName, displayName) {
-        const message = prompt(`Request access to ${displayName}?\nOptionally add a message for the administrator:`);
-        if (message === null) return; // cancelled
-
-        try {
-            const data = localStorage.getItem('epistery');
-            if (!data) {
-                alert('Please wait for your wallet to initialize, then try again.');
-                return;
-            }
-            const parsed = JSON.parse(data);
-            let wallet = parsed.wallets?.[0];
-            if (wallet && wallet.wallet) wallet = wallet.wallet;
-            if (!wallet || !wallet.address) {
-                alert('No wallet address found');
-                return;
-            }
-
-            const address = wallet.rivetAddress || wallet.address;
-            const response = await fetch('/api/acl/request-access', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    address,
-                    listName: 'epistery::reader',
-                    agentName,
-                    message: message || '',
-                    name: ''
-                })
-            });
-
-            const result = await response.json();
-            if (result.success) {
-                alert(result.alreadyRequested
-                    ? 'You already have a pending request for this service.'
-                    : 'Access request submitted. An administrator will review it.');
-            } else {
-                alert('Failed to request access: ' + (result.error || 'Unknown error'));
-            }
-        } catch (err) {
-            alert('Failed to request access: ' + err.message);
-        }
     }
 })();
 </script>
