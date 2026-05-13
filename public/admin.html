@@ -64,6 +64,85 @@
             font-size: 12px;
             font-weight: bold;
         }
+        .role-badge {
+            display: inline-block;
+            background: var(--bg-color-d, rgba(255,255,255,0.08));
+            color: var(--rust-mid, #c89b6e);
+            padding: 1px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            align-self: flex-start;
+        }
+        .users-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+        .users-table th, .users-table td {
+            text-align: left;
+            padding: var(--spacerhalf);
+            border-bottom: 1px solid var(--page-border);
+            vertical-align: middle;
+        }
+        .users-table th {
+            font-weight: bold;
+            color: var(--page-text-secondary);
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .users-table th.sortable {
+            cursor: pointer;
+            user-select: none;
+        }
+        .users-table th.sortable:hover {
+            color: var(--rust-mid, #c89b6e);
+        }
+        .users-table th.sortable::after {
+            content: ' ↕';
+            opacity: 0.4;
+            font-size: 0.8rem;
+        }
+        .users-table th.sortable.sort-asc::after { content: ' ↑'; opacity: 1; }
+        .users-table th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; }
+        .users-table td.col-address { font-family: monospace; font-size: 0.85rem; white-space: nowrap; }
+        .users-table td.col-lists { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+        .users-table td.col-created { font-size: 0.85rem; color: var(--page-text-secondary); white-space: nowrap; }
+        .list-badge {
+            display: inline-block;
+            background: rgba(200, 155, 110, 0.15);
+            color: var(--rust-mid, #c89b6e);
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.75rem;
+            font-family: monospace;
+        }
+        .list-badge.role-3 { background: rgba(0, 123, 255, 0.18); color: #5fa3ff; }
+        .list-badge.role-4 { background: rgba(200, 155, 110, 0.25); color: #d4a87a; font-weight: bold; }
+        .list-checkboxes {
+            display: flex;
+            flex-wrap: wrap;
+            gap: var(--spacerhalf);
+            padding: 6px 0;
+        }
+        .list-checkboxes label {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            padding: 2px 8px;
+            border-radius: 4px;
+            background: rgba(255,255,255,0.04);
+        }
+        .list-checkboxes label.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .list-checkboxes input[type="checkbox"] { margin: 0; }
         .action-buttons {
             display: flex;
             gap: var(--spacerhalf);
@@ -382,43 +461,88 @@
                     </div>
                 </section>
 
-                <!-- Whitelist Management Section -->
+                <!-- User Management Section -->
                 <section class="admin-section">
-                    <h2>Whitelist Management</h2>
-                    <p>Manage addresses authorized to access this domain</p>
+                    <h2>User Management</h2>
+                    <p>Each address is one row. Names are domain-scoped (agent v3.2.0+); a single person with multiple devices appears as multiple rows sharing a name.</p>
 
-                    <!-- List Selector -->
-                    <div style="margin-bottom: 20px; display: flex; gap: 10px; align-items: center;">
-                        <label for="list-selector" style="font-weight: bold;">List:</label>
-                        <select id="list-selector" style="flex: 1; padding: 8px; border: 1px solid var(--page-border); border-radius: 4px; background: var(--bg-color);" disabled>
-                            <option value="">Loading lists...</option>
-                        </select>
-                        <button onclick="createNewList()" class="console-btn">New List</button>
-                    </div>
-
-                    <div id="acl-loading" style="display: block;">
+                    <div id="users-loading" style="display: block;">
                         <div class="spinner"></div>
-                        <span>Loading acl...</span>
+                        <span>Loading users...</span>
                     </div>
 
-                    <div id="acl-error" class="error-box" style="display: none;">
-                        <p id="acl-error-text"></p>
+                    <div id="users-error" class="error-box" style="display: none;">
+                        <p id="users-error-text"></p>
                     </div>
 
-                    <div id="acl-container" style="display: none;">
-                        <div id="acl-items"></div>
+                    <div id="users-container" style="display: none;">
+                        <table class="users-table">
+                            <thead>
+                                <tr>
+                                    <th class="sortable" data-sort="address">Address</th>
+                                    <th class="sortable" data-sort="name">Name</th>
+                                    <th>Type</th>
+                                    <th>Lists</th>
+                                    <th>Created</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody id="users-tbody"></tbody>
+                        </table>
 
-                        <div class="add-address-form">
-                            <input type="text" id="new-address" placeholder="0x..." />
-                            <input type="text" id="new-name" placeholder="Name (optional)" style="flex: 1 0 200px;" />
-                            <button class="console-btn" id="add-address-btn" onclick="addAddress()">Add Address</button>
-                        </div>
-                        <div id="add-progress" style="display: none; margin-top: var(--spacerhalf);">
-                            <div class="spinner"></div>
-                            <span id="add-progress-text">Adding address to acl...</span>
+                        <div class="add-user-form" style="margin-top: var(--spacer2); padding-top: var(--spacer); border-top: 1px solid var(--page-border);">
+                            <h3 style="font-size: 1rem; margin: 0 0 var(--spacerhalf);">Add User</h3>
+                            <div style="display: flex; gap: var(--spacerhalf); flex-wrap: wrap; align-items: center;">
+                                <input type="text" id="new-user-address" placeholder="0x..." style="flex: 2 1 320px; padding: 8px; border: 1px solid var(--page-border); border-radius: 4px; background: var(--page-background); color: var(--page-text-primary);" />
+                                <input type="text" id="new-user-name" placeholder="Identity name (optional)" style="flex: 1 1 200px; padding: 8px; border: 1px solid var(--page-border); border-radius: 4px; background: var(--page-background); color: var(--page-text-primary);" />
+                            </div>
+                            <div style="margin-top: var(--spacerhalf);">
+                                <strong style="font-size: 0.9rem;">Lists:</strong>
+                                <div id="new-user-lists" class="list-checkboxes" style="margin-top: 4px;"></div>
+                                <div style="margin-top: 4px;">
+                                    <input type="text" id="new-user-newlist" placeholder="+ new list name (e.g. moderators)" style="padding: 6px; border: 1px solid var(--page-border); border-radius: 4px; background: var(--page-background); color: var(--page-text-primary); font-size: 0.85rem; width: 260px;" />
+                                </div>
+                            </div>
+                            <div style="margin-top: var(--spacerhalf);">
+                                <button class="console-btn" id="add-user-btn" onclick="addUser()">Add User</button>
+                            </div>
+                            <div id="add-user-progress" style="display: none; margin-top: var(--spacerhalf);">
+                                <div class="spinner"></div>
+                                <span id="add-user-progress-text">Adding user...</span>
+                            </div>
                         </div>
                     </div>
                 </section>
+
+                <!-- Edit User Modal -->
+                <div id="user-edit-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:1000; overflow:auto;" onclick="if(event.target===this)closeUserEdit()">
+                    <div style="max-width:600px; margin:5vh auto; background:var(--bg-color-d); border:1px solid var(--page-border); border-radius:8px; padding:var(--spacer2);">
+                        <h3 style="margin-top:0;">Edit User</h3>
+                        <div id="user-edit-address" style="font-family:monospace; font-size:0.9rem; word-break:break-all; margin-bottom:var(--spacer); color:var(--page-text-secondary);"></div>
+                        <div id="user-edit-badges" style="margin-bottom:var(--spacer);"></div>
+                        <label style="display:block;">
+                            <span style="font-size:0.9rem; font-weight:bold;">Identity Name</span>
+                            <input type="text" id="user-edit-name" placeholder="(no name)" style="width:100%; padding:8px; margin-top:4px; border:1px solid var(--page-border); border-radius:4px; background:var(--page-background); color:var(--page-text-primary); box-sizing:border-box;" />
+                        </label>
+                        <div style="margin-top:var(--spacer);">
+                            <strong style="font-size:0.9rem;">List Memberships</strong>
+                            <div id="user-edit-lists-note" style="display:none; font-size:0.8rem; color:var(--page-text-secondary); font-style:italic; margin-top:4px;">Owner/Host memberships are managed by the agent contract and cannot be changed here.</div>
+                            <div id="user-edit-lists" class="list-checkboxes" style="margin-top:4px;"></div>
+                            <div style="margin-top:4px;">
+                                <input type="text" id="user-edit-newlist" placeholder="+ add to new list" style="padding: 6px; border: 1px solid var(--page-border); border-radius: 4px; background: var(--page-background); color: var(--page-text-primary); font-size: 0.85rem; width: 260px;" />
+                            </div>
+                        </div>
+                        <div style="display:flex; gap:10px; margin-top:var(--spacer);">
+                            <button class="console-btn" onclick="saveUserEdit()">Save</button>
+                            <button class="console-btn" onclick="closeUserEdit()" style="background:var(--bg-color);">Cancel</button>
+                            <button class="console-btn danger" id="user-edit-remove" onclick="removeUserFromAll()" style="margin-left:auto;">Remove from all lists</button>
+                        </div>
+                        <div id="user-edit-progress" style="display:none; margin-top:var(--spacerhalf);">
+                            <div class="spinner"></div>
+                            <span id="user-edit-progress-text">Saving...</span>
+                        </div>
+                    </div>
+                </div>
 
                 </div><!-- /tab-access -->
 
@@ -589,10 +713,11 @@
 
     <script type="module">
         let currentPolicy = 'public';
-        let acl = []; // Array of {address, name, role, meta}
         let contractAddress = null;
-        let currentListName = '';
-        let availableLists = [];
+        let users = []; // Array of {address, name, addressType, isVirtual, ownerRole, lists:[{listName,role}], createdAt}
+        let allLists = []; // Known list names on this contract
+        let userSort = { by: 'address', dir: 1 }; // 1 asc, -1 desc
+        let editingUser = null;
         let connections = []; // cached connections list
 
         // ── Tab Management ──
@@ -803,9 +928,9 @@
                 // Try to load contract-dependent features if contract is deployed
                 if (contractAddress) {
                     try {
-                        await loadLists();
+                        await loadUsers();
                     } catch (error) {
-                        console.warn('Failed to load lists (may need contract upgrade):', error);
+                        console.warn('Failed to load users (may need contract upgrade):', error);
                     }
                     try {
                         await loadPendingRequests();
@@ -862,151 +987,356 @@
             }
         }
 
-        // Load ACL lists from contract
-        async function loadLists() {
-            try {
-                const response = await fetch('/api/acl/list');
-                const data = await response.json();
-                let lists = data.lists || [];
-
-                // Always ensure epistery::admin is in the list
-                if (!lists.includes('epistery::admin')) {
-                    lists.unshift('epistery::admin');
-                }
-
-                // Set current list
-                if (!currentListName) {
-                    currentListName = 'epistery::admin';
-                }
-
-                // Update the selector dropdown
-                const selector = document.getElementById('list-selector');
-                selector.innerHTML = lists.map(listName =>
-                    `<option value="${listName}" ${listName === currentListName ? 'selected' : ''}>${listName}</option>`
-                ).join('');
-                selector.disabled = false;
-
-                // Add change event listener (only once)
-                if (!selector.dataset.listenerAttached) {
-                    selector.addEventListener('change', async (e) => {
-                        currentListName = e.target.value;
-                        await loadWhitelist();
-                    });
-                    selector.dataset.listenerAttached = 'true';
-                }
-
-                // Also populate invite code ACL dropdown (exclude admin)
-                const inviteSelect = document.getElementById('invite-list-select');
-                if (inviteSelect) {
-                    const inviteLists = lists.filter(l => l !== 'epistery::admin');
-                    inviteSelect.innerHTML = inviteLists.map(listName =>
-                        `<option value="${listName}" ${listName.includes('::reader') ? 'selected' : ''}>${listName}</option>`
-                    ).join('');
-                }
-
-                await loadWhitelist();
-            } catch (error) {
-                console.error('Failed to load lists:', error);
-                currentListName = 'epistery::admin';
-                const selector = document.getElementById('list-selector');
-                selector.innerHTML = '<option value="epistery::admin">epistery::admin</option>';
-                selector.disabled = false;
-                await loadWhitelist();
-            }
+        // ── User Management (address-centric ACL view) ──
+        function escHtml(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
         }
 
-        async function loadWhitelist() {
-            try {
-                const listName = currentListName || 'epistery::admin';
-                const response = await fetch(`/api/acl/list/${encodeURIComponent(listName)}`);
+        function abbrevAddr(addr) {
+            if (!addr || addr.length < 14) return addr || '';
+            return addr.slice(0, 8) + '…' + addr.slice(-6);
+        }
 
+        function fmtDate(iso) {
+            if (!iso) return '—';
+            try {
+                const d = new Date(iso);
+                if (isNaN(d.getTime())) return '—';
+                return d.toISOString().slice(0, 10);
+            } catch { return '—'; }
+        }
+
+        function roleLabel(role) {
+            if (role === 4) return 'Owner';
+            if (role === 3) return 'Admin';
+            if (role === 2) return 'Write';
+            if (role === 1) return 'Read';
+            return '';
+        }
+
+        // Populate invite-list dropdown (used by the Invite Codes section).
+        function populateInviteListDropdown() {
+            const inviteSelect = document.getElementById('invite-list-select');
+            if (!inviteSelect) return;
+            const inviteLists = allLists.filter(l => l !== 'epistery::admin');
+            inviteSelect.innerHTML = inviteLists.map(listName =>
+                `<option value="${escHtml(listName)}" ${listName.includes('::reader') ? 'selected' : ''}>${escHtml(listName)}</option>`
+            ).join('');
+        }
+
+        async function loadUsers() {
+            try {
+                const response = await fetch('/api/users');
                 if (!response.ok) {
-                    throw new Error('Failed to load acl');
+                    const err = await response.json().catch(() => ({}));
+                    throw new Error(err.error || `HTTP ${response.status}`);
                 }
-
                 const data = await response.json();
+                users = data.users || [];
+                allLists = data.lists || [];
+                if (!allLists.includes('epistery::admin')) allLists.unshift('epistery::admin');
 
-                acl = data || [];
+                document.getElementById('users-loading').style.display = 'none';
+                document.getElementById('users-error').style.display = 'none';
+                document.getElementById('users-container').style.display = 'block';
 
-                document.getElementById('acl-loading').style.display = 'none';
-                document.getElementById('acl-container').style.display = 'block';
-
-                renderWhitelist();
+                populateInviteListDropdown();
+                renderAddUserListBoxes();
+                renderUsers();
             } catch (error) {
-                console.error('Failed to load acl:', error);
-                document.getElementById('acl-loading').style.display = 'none';
-                document.getElementById('acl-error').style.display = 'block';
-                document.getElementById('acl-error-text').textContent = 'Failed to load acl. Check console for details.';
+                console.error('Failed to load users:', error);
+                document.getElementById('users-loading').style.display = 'none';
+                document.getElementById('users-error').style.display = 'block';
+                document.getElementById('users-error-text').textContent = 'Failed to load users: ' + error.message;
             }
         }
 
-        window.createNewList = async function() {
-            const listName = prompt('Enter new list name (e.g., "moderators", "contributors"):');
-            if (!listName) return;
+        function compareUsers(a, b) {
+            const key = userSort.by;
+            const av = (key === 'name' ? (a.name || '') : a.address).toLowerCase();
+            const bv = (key === 'name' ? (b.name || '') : b.address).toLowerCase();
+            if (av < bv) return -1 * userSort.dir;
+            if (av > bv) return 1 * userSort.dir;
+            return 0;
+        }
 
-            // Switch to the new list name - it will be created when first member is added
-            currentListName = listName;
+        function renderUsers() {
+            const tbody = document.getElementById('users-tbody');
+            // Update sort indicators on the headers
+            document.querySelectorAll('.users-table th.sortable').forEach(th => {
+                th.classList.remove('sort-asc', 'sort-desc');
+                if (th.dataset.sort === userSort.by) {
+                    th.classList.add(userSort.dir === 1 ? 'sort-asc' : 'sort-desc');
+                }
+            });
 
-            // Add to dropdown if not already there
-            const selector = document.getElementById('list-selector');
-            const existingOption = Array.from(selector.options).find(opt => opt.value === listName);
-            if (!existingOption) {
-                const option = document.createElement('option');
-                option.value = listName;
-                option.textContent = listName;
-                option.selected = true;
-                selector.appendChild(option);
-            } else {
-                selector.value = listName;
-            }
-
-            await loadWhitelist();
-        };
-
-        function renderWhitelist() {
-            const container = document.getElementById('acl-items');
-
-            if (acl.length === 0) {
-                container.innerHTML = '<div class="info-box"><p>No addresses in list</p></div>';
+            if (users.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--page-text-secondary); padding:var(--spacer);">No users on this domain yet.</td></tr>';
                 return;
             }
 
-            let html = '';
-            for (const entry of acl) {
-                const address = entry.address;
-                const name = entry.name || '';
-                const role = entry.role || 0;
-
-                // Check if this is a virtual entry (auto-added sponsor/owner)
-                const isVirtual = entry.meta && entry.meta.includes('"auto":true');
-                const editDisabled = isVirtual ? 'disabled title="Virtual entries cannot be edited"' : 'title="Edit"';
-                const removeDisabled = isVirtual ? 'disabled title="Virtual entries cannot be removed"' : 'title="Remove"';
-
-                html += `
-                    <div class="acl-item" data-address="${address}">
-                        <div class="address-info">
-                            <span class="address-text">${address}</span>
-                            ${isVirtual ? '<small style="color: var(--page-text-secondary); font-style: italic;"> (auto)</small>' : ''}
-                        </div>
-                        <div class="name-display">
-                            <span class="name-text">${name || '—'}</span>
-                            <input type="text" class="name-input" value="${name}" style="display: none;" ${isVirtual ? 'disabled' : ''} />
-                        </div>
-                        <div class="action-buttons">
-                            <button class="console-btn small" onclick="${isVirtual ? '' : `toggleEdit('${address}')`}" ${editDisabled}>
-                                <span class="edit-icon"><svg class="icon-svg" viewBox="0 0 20 20"><path d="M17.561 2.439c-1.442-1.443-2.525-1.227-2.525-1.227L8.984 7.264 2.21 14.037 1.2 18.799l4.763-1.01 6.774-6.771 6.052-6.052c-.001 0 .216-1.083-1.228-2.527zM5.68 17.32l-1.394.261a3.475 3.475 0 0 0-.261-1.394l1.655 1.133z"/></svg></span>
-                                <span class="save-icon" style="display: none;"><svg class="icon-svg" viewBox="0 0 20 20"><path d="M15.173 2H4c-1.101 0-2 .9-2 2v12c0 1.1.899 2 2 2h12c1.101 0 2-.9 2-2V5.127L15.173 2zM14 8c0 .549-.45 1-1 1H7c-.55 0-1-.451-1-1V3h8v5zm-1-4h-2v4h2V4z"/></svg></span>
-                            </button>
-                            <button class="console-btn small danger" onclick="${isVirtual ? '' : `removeAddress('${address}')`}" ${removeDisabled}>
-                                <svg class="icon-svg" viewBox="0 0 20 20"><path d="M6 2l2-2h4l2 2h4v2H2V2h4zM3 6h14l-1 14H4L3 6zm5 2v10h1V8H8zm3 0v10h1V8h-1z"/></svg>
-                            </button>
-                        </div>
-                    </div>
+            const sorted = users.slice().sort(compareUsers);
+            tbody.innerHTML = sorted.map(u => {
+                const name = u.name ? escHtml(u.name) : '<span style="color:var(--page-text-secondary);">—</span>';
+                const type = u.addressType ? escHtml(u.addressType) : '<span style="color:var(--page-text-secondary);">—</span>';
+                const ownerBadge = u.isVirtual
+                    ? `<span class="role-badge" style="margin-left:6px;">${u.ownerRole === 4 ? 'Owner' : u.ownerRole === 3 ? 'Host' : 'Auto'}</span>`
+                    : '';
+                const listBadges = (u.lists || []).map(l => {
+                    const cls = `list-badge role-${l.role}`;
+                    const title = roleLabel(l.role) || `role ${l.role}`;
+                    return `<span class="${cls}" title="${escHtml(title)}">${escHtml(l.listName)}</span>`;
+                }).join('');
+                return `
+                    <tr>
+                        <td class="col-address" title="${escHtml(u.address)}">${abbrevAddr(u.address)}${ownerBadge}</td>
+                        <td>${name}</td>
+                        <td>${type}</td>
+                        <td class="col-lists">${listBadges || '<span style="color:var(--page-text-secondary);">—</span>'}</td>
+                        <td class="col-created">${fmtDate(u.createdAt)}</td>
+                        <td><button class="console-btn small" onclick="openUserEdit('${escHtml(u.address)}')" title="Edit user">✎</button></td>
+                    </tr>
                 `;
+            }).join('');
+        }
+
+        // Header click → sort toggle
+        document.addEventListener('click', (e) => {
+            const th = e.target.closest('.users-table th.sortable');
+            if (!th) return;
+            const key = th.dataset.sort;
+            if (userSort.by === key) {
+                userSort.dir = -userSort.dir;
+            } else {
+                userSort.by = key;
+                userSort.dir = 1;
+            }
+            renderUsers();
+        });
+
+        function renderAddUserListBoxes() {
+            const container = document.getElementById('new-user-lists');
+            container.innerHTML = allLists.map(listName => `
+                <label>
+                    <input type="checkbox" value="${escHtml(listName)}" ${listName === 'epistery::reader' ? 'checked' : ''}>
+                    ${escHtml(listName)}
+                </label>
+            `).join('');
+        }
+
+        window.addUser = async function() {
+            const addrEl = document.getElementById('new-user-address');
+            const nameEl = document.getElementById('new-user-name');
+            const newListEl = document.getElementById('new-user-newlist');
+            const btn = document.getElementById('add-user-btn');
+            const progressDiv = document.getElementById('add-user-progress');
+            const progressText = document.getElementById('add-user-progress-text');
+
+            const address = addrEl.value.trim();
+            const name = nameEl.value.trim();
+            if (!address || !/^0x[a-fA-F0-9]{40}$/.test(address)) {
+                alert('Please enter a valid Ethereum address (0x + 40 hex chars)');
+                return;
+            }
+            if (users.some(u => u.address.toLowerCase() === address.toLowerCase())) {
+                alert('Address already exists. Use the pencil to edit.');
+                return;
+            }
+            const checked = Array.from(document.querySelectorAll('#new-user-lists input[type="checkbox"]:checked')).map(c => c.value);
+            const newListName = newListEl.value.trim();
+            if (newListName) checked.push(newListName);
+            if (checked.length === 0) {
+                alert('Pick at least one list to add this user to.');
+                return;
             }
 
-            container.innerHTML = html;
-        }
+            btn.disabled = true;
+            progressDiv.style.display = 'block';
+            try {
+                for (const listName of checked) {
+                    progressText.textContent = `Adding to ${listName}…`;
+                    const r = await fetch('/api/acl/add', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ address, listName, name: '' })
+                    });
+                    if (!r.ok) {
+                        const data = await r.json().catch(() => ({}));
+                        throw new Error(data.error || `Failed to add to ${listName}`);
+                    }
+                }
+                if (name) {
+                    progressText.textContent = 'Setting identity name…';
+                    const r = await fetch('/whitelist/setName', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ address, name })
+                    });
+                    if (!r.ok) {
+                        const data = await r.json().catch(() => ({}));
+                        console.warn('setName failed:', data.error || r.status);
+                    }
+                }
+                progressText.textContent = 'Reloading…';
+                await loadUsers();
+                addrEl.value = '';
+                nameEl.value = '';
+                newListEl.value = '';
+                setTimeout(() => { progressDiv.style.display = 'none'; }, 800);
+            } catch (error) {
+                console.error('addUser failed:', error);
+                alert('Failed to add user: ' + error.message);
+                progressDiv.style.display = 'none';
+            } finally {
+                btn.disabled = false;
+            }
+        };
+
+        window.openUserEdit = function(address) {
+            const user = users.find(u => u.address.toLowerCase() === address.toLowerCase());
+            if (!user) return;
+            editingUser = user;
+
+            document.getElementById('user-edit-address').textContent = user.address;
+            document.getElementById('user-edit-name').value = user.name || '';
+
+            const badges = document.getElementById('user-edit-badges');
+            if (user.isVirtual) {
+                const label = user.ownerRole === 4 ? 'Owner' : user.ownerRole === 3 ? 'Host' : 'Auto';
+                badges.innerHTML = `<span class="role-badge">${label}</span> <span style="font-size:0.85rem; color:var(--page-text-secondary); margin-left:6px;">${user.addressType || ''}</span>`;
+            } else {
+                badges.innerHTML = user.addressType
+                    ? `<span style="font-size:0.85rem; color:var(--page-text-secondary);">${escHtml(user.addressType)}</span>`
+                    : '';
+            }
+
+            const note = document.getElementById('user-edit-lists-note');
+            note.style.display = user.isVirtual ? 'block' : 'none';
+
+            const lists = document.getElementById('user-edit-lists');
+            const memberLists = new Set((user.lists || []).map(l => l.listName));
+            lists.innerHTML = allLists.map(listName => {
+                const checked = memberLists.has(listName);
+                const disabled = user.isVirtual ? 'disabled' : '';
+                const cls = user.isVirtual ? 'class="disabled"' : '';
+                return `
+                    <label ${cls}>
+                        <input type="checkbox" value="${escHtml(listName)}" ${checked ? 'checked' : ''} ${disabled}>
+                        ${escHtml(listName)}
+                    </label>
+                `;
+            }).join('');
+
+            document.getElementById('user-edit-newlist').value = '';
+            document.getElementById('user-edit-newlist').disabled = !!user.isVirtual;
+            document.getElementById('user-edit-remove').style.display = user.isVirtual ? 'none' : '';
+            document.getElementById('user-edit-progress').style.display = 'none';
+            document.getElementById('user-edit-modal').style.display = 'block';
+        };
+
+        window.closeUserEdit = function() {
+            document.getElementById('user-edit-modal').style.display = 'none';
+            editingUser = null;
+        };
+
+        window.saveUserEdit = async function() {
+            if (!editingUser) return;
+            const user = editingUser;
+            const newName = document.getElementById('user-edit-name').value.trim();
+            const progressDiv = document.getElementById('user-edit-progress');
+            const progressText = document.getElementById('user-edit-progress-text');
+            progressDiv.style.display = 'block';
+
+            try {
+                if (newName !== (user.name || '')) {
+                    progressText.textContent = 'Setting identity name…';
+                    const r = await fetch('/whitelist/setName', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ address: user.address, name: newName })
+                    });
+                    if (!r.ok) {
+                        const data = await r.json().catch(() => ({}));
+                        throw new Error(data.error || 'Failed to set identity name');
+                    }
+                }
+
+                if (!user.isVirtual) {
+                    const current = new Set((user.lists || []).map(l => l.listName));
+                    const checked = new Set(Array.from(document.querySelectorAll('#user-edit-lists input[type="checkbox"]:checked')).map(c => c.value));
+                    const newListName = document.getElementById('user-edit-newlist').value.trim();
+                    if (newListName) checked.add(newListName);
+
+                    const toAdd = [...checked].filter(l => !current.has(l));
+                    const toRemove = [...current].filter(l => !checked.has(l));
+
+                    for (const listName of toAdd) {
+                        progressText.textContent = `Adding to ${listName}…`;
+                        const r = await fetch('/api/acl/add', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ address: user.address, listName, name: '' })
+                        });
+                        if (!r.ok) {
+                            const data = await r.json().catch(() => ({}));
+                            throw new Error(data.error || `Failed to add to ${listName}`);
+                        }
+                    }
+                    for (const listName of toRemove) {
+                        progressText.textContent = `Removing from ${listName}…`;
+                        const r = await fetch('/api/acl/remove', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ address: user.address, listName })
+                        });
+                        if (!r.ok) {
+                            const data = await r.json().catch(() => ({}));
+                            throw new Error(data.error || `Failed to remove from ${listName}`);
+                        }
+                    }
+                }
+
+                progressText.textContent = 'Reloading…';
+                await loadUsers();
+                closeUserEdit();
+            } catch (error) {
+                console.error('saveUserEdit failed:', error);
+                alert('Save failed: ' + error.message);
+                progressDiv.style.display = 'none';
+            }
+        };
+
+        window.removeUserFromAll = async function() {
+            if (!editingUser || editingUser.isVirtual) return;
+            const user = editingUser;
+            if (!confirm(`Remove ${user.address} from all lists?`)) return;
+            const progressDiv = document.getElementById('user-edit-progress');
+            const progressText = document.getElementById('user-edit-progress-text');
+            progressDiv.style.display = 'block';
+            try {
+                for (const m of (user.lists || [])) {
+                    progressText.textContent = `Removing from ${m.listName}…`;
+                    const r = await fetch('/api/acl/remove', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ address: user.address, listName: m.listName })
+                    });
+                    if (!r.ok) {
+                        const data = await r.json().catch(() => ({}));
+                        throw new Error(data.error || `Failed to remove from ${m.listName}`);
+                    }
+                }
+                await loadUsers();
+                closeUserEdit();
+            } catch (error) {
+                console.error('removeUserFromAll failed:', error);
+                alert('Remove failed: ' + error.message);
+                progressDiv.style.display = 'none';
+            }
+        };
+
 
         async function loadPolicy() {
             try {
@@ -1020,220 +1350,6 @@
             }
         }
 
-        window.addAddress = async function() {
-            const addressInput = document.getElementById('new-address');
-            const nameInput = document.getElementById('new-name');
-            const addButton = document.getElementById('add-address-btn');
-            const progressDiv = document.getElementById('add-progress');
-            const progressText = document.getElementById('add-progress-text');
-
-            const address = addressInput.value.trim();
-            const name = nameInput.value.trim();
-
-            if (!address || !address.startsWith('0x')) {
-                alert('Please enter a valid Ethereum address');
-                return;
-            }
-
-            if (acl.some(entry => entry.address.toLowerCase() === address.toLowerCase())) {
-                alert('Address already in list');
-                return;
-            }
-
-            try {
-                // Show loading state
-                addButton.disabled = true;
-                addressInput.disabled = true;
-                nameInput.disabled = true;
-                progressDiv.style.display = 'block';
-                progressText.textContent = 'Adding address to blockchain...';
-
-                const listName = currentListName || 'epistery::admin';
-
-                const response = await fetch('/api/acl/add', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        address: address,
-                        listName: listName,
-                        name: name
-                    })
-                });
-
-                if (!response.ok) {
-                    const data = await response.json();
-                    throw new Error(data.error || 'Failed to add address');
-                }
-
-                progressText.textContent = 'Address added successfully!';
-
-                // Reload lists (in case this was the first address in a new list) and whitelist
-                await loadLists();
-
-                // Clear inputs
-                addressInput.value = '';
-                nameInput.value = '';
-
-                // Hide progress after a short delay
-                setTimeout(() => {
-                    progressDiv.style.display = 'none';
-                }, 2000);
-            } catch (error) {
-                console.error('Failed to add address:', error);
-                progressDiv.style.display = 'none';
-                alert('Failed to add address. Check console for details.');
-            } finally {
-                // Re-enable inputs
-                addButton.disabled = false;
-                addressInput.disabled = false;
-                nameInput.disabled = false;
-            }
-        };
-
-        window.removeAddress = async function(address) {
-            if (!confirm(`Remove ${address} from list?`)) {
-                return;
-            }
-
-            // Find the remove button for this address
-            const buttons = document.querySelectorAll('.console-btn.small.danger');
-            let removeButton = null;
-            for (const btn of buttons) {
-                if (btn.getAttribute('onclick')?.includes(address)) {
-                    removeButton = btn;
-                    break;
-                }
-            }
-
-            try {
-                const listName = currentListName || 'epistery::admin';
-
-                // Show working indicator
-                if (removeButton) {
-                    const originalHTML = removeButton.innerHTML;
-                    removeButton.innerHTML = '<span style="font-size: 10px;">Removing...</span>';
-                    removeButton.disabled = true;
-
-                    const response = await fetch('/api/acl/remove', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            address: address,
-                            listName: listName
-                        })
-                    });
-
-                    if (!response.ok) {
-                        const data = await response.json();
-                        // Restore button on error
-                        removeButton.innerHTML = originalHTML;
-                        removeButton.disabled = false;
-                        throw new Error(data.error || 'Failed to remove address');
-                    }
-
-                    // Reload list (button will be re-rendered)
-                    await loadWhitelist();
-                } else {
-                    // Fallback if button not found
-                    const response = await fetch('/api/acl/remove', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            address: address,
-                            listName: listName
-                        })
-                    });
-
-                    if (!response.ok) {
-                        const data = await response.json();
-                        throw new Error(data.error || 'Failed to remove address');
-                    }
-
-                    await loadWhitelist();
-                }
-            } catch (error) {
-                console.error('Failed to remove address:', error);
-                alert('Failed to remove address. Check console for details.');
-            }
-        };
-
-        window.updateAdminLabel = function(checkbox) {
-            const label = checkbox.parentElement.querySelector('.admin-toggle-label');
-            label.textContent = checkbox.checked ? 'Admin' : '';
-        };
-
-        window.updateNewAdminLabel = function(checkbox) {
-            const label = document.getElementById('new-admin-label');
-            label.textContent = checkbox.checked ? 'Admin' : '';
-        };
-
-        window.toggleEdit = async function(address) {
-            const item = document.querySelector(`.acl-item[data-address="${address}"]`);
-            const nameText = item.querySelector('.name-text');
-            const nameInput = item.querySelector('.name-input');
-            const editIcon = item.querySelector('.edit-icon');
-            const saveIcon = item.querySelector('.save-icon');
-
-            // Check if we're in edit mode (save icon is visible)
-            if (saveIcon.style.display !== 'none') {
-                // Save mode - save changes
-                const newName = nameInput.value.trim();
-
-                // Show working indicator
-                const button = item.querySelector('.action-buttons button');
-                const originalHTML = saveIcon.innerHTML;
-                saveIcon.innerHTML = '<span style="font-size: 10px;">Saving...</span>';
-                button.disabled = true;
-
-                try {
-                    const listName = currentListName || 'epistery::admin';
-                    const response = await fetch('/api/acl/update', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            address: address,
-                            name: newName,
-                            listName: listName
-                        })
-                    });
-
-                    if (!response.ok) {
-                        const data = await response.json();
-                        throw new Error(data.error || 'Failed to update metadata');
-                    }
-
-                    // Update local data in acl array
-                    const entry = acl.find(e => e.address.toLowerCase() === address.toLowerCase());
-                    if (entry) {
-                        entry.name = newName;
-                    }
-
-                    // Switch back to view mode
-                    nameText.textContent = newName || '—';
-                    nameText.style.display = '';
-                    nameInput.style.display = 'none';
-
-                    editIcon.style.display = '';
-                    saveIcon.style.display = 'none';
-                    saveIcon.innerHTML = originalHTML;
-                    button.disabled = false;
-
-                } catch (error) {
-                    // Restore button on error
-                    saveIcon.innerHTML = originalHTML;
-                    button.disabled = false;
-                    console.error('Failed to update metadata:', error);
-                    alert('Failed to update. Check console for details.');
-                }
-            } else {
-                // Edit mode - enable inputs
-                nameText.style.display = 'none';
-                nameInput.style.display = 'block';
-
-                editIcon.style.display = 'none';
-                saveIcon.style.display = '';
-            }
-        };
 
         // Contract version checking and upgrade
         async function getContractVersion() {
@@ -1369,14 +1485,18 @@
                         </div>
                     `;
                 } else {
-                    // ACL access request (from browser client)
+                    // ACL access request (from browser client). The admin reads the message
+                    // and decides the user's identity name (pre-filled with the requester's
+                    // self-supplied suggestion); on approve, that name is written to the
+                    // address→name mapping via /whitelist/setName.
                     const shortAddress = `${request.address.substring(0, 8)}...${request.address.substring(request.address.length - 6)}`;
+                    const suggestedName = (request.name || '').replace(/"/g, '&quot;');
+                    const reqId = `req-${request.address}-${request.listName.replace(/[^a-zA-Z0-9]/g, '_')}`;
 
                     html += `
                         <div class="console-section" style="padding: 15px;">
                             <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">
                                 <div>
-                                    <strong>Name:</strong> ${request.name || 'Anonymous'}<br>
                                     <strong>Address:</strong> <code onclick="copyToClipboard('${request.address}')" style="cursor: pointer; text-decoration: underline;" title="Click to copy full address">${shortAddress}</code><br>
                                     <strong>List:</strong> ${request.listName}<br>
                                     <strong>Agent:</strong> ${request.agentName}<br>
@@ -1384,8 +1504,14 @@
                                 </div>
                             </div>
                             ${request.message ? `<div style="margin: 10px 0; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 4px;"><em>"${request.message}"</em></div>` : ''}
+                            <div style="display: flex; gap: 10px; align-items: center; margin-top: 10px;">
+                                <label style="display: flex; align-items: center; gap: 6px; flex: 1;">
+                                    <span style="white-space: nowrap;">Identity name:</span>
+                                    <input type="text" id="${reqId}-name" class="name-input" value="${suggestedName}" placeholder="(leave empty for none)" style="flex: 1;">
+                                </label>
+                            </div>
                             <div style="display: flex; gap: 10px; margin-top: 10px;">
-                                <button class="console-btn" onclick="handleApproveRequest('${request.address}', '${request.listName}')" style="background: #28a745;">
+                                <button class="console-btn" onclick="handleApproveRequest('${request.address}', '${request.listName}', '${reqId}-name')" style="background: #28a745;">
                                     ✓ Approve
                                 </button>
                                 <button class="console-btn" onclick="handleDenyRequest('${request.address}', '${request.listName}')" style="background: #dc3545;">
@@ -1401,9 +1527,11 @@
             container.innerHTML = html;
         }
 
-        window.handleApproveRequest = async function(address, listName) {
+        window.handleApproveRequest = async function(address, listName, nameInputId) {
             const button = event.target;
             const originalText = button.innerHTML;
+            const nameInput = nameInputId ? document.getElementById(nameInputId) : null;
+            const name = nameInput ? nameInput.value.trim() : '';
 
             try {
                 // Show loading state
@@ -1417,7 +1545,8 @@
                     body: JSON.stringify({
                         address,
                         listName,
-                        action: 'approve'
+                        action: 'approve',
+                        name
                     })
                 });
 
@@ -1431,9 +1560,9 @@
                 button.style.background = '#218838';
 
                 setTimeout(async () => {
-                    // Reload pending requests and acl
+                    // Reload pending requests and user table
                     await loadPendingRequests();
-                    await loadWhitelist();
+                    await loadUsers();
                 }, 1000);
 
             } catch (error) {

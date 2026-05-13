@@ -170,8 +170,9 @@ export class DomainChain {
     }
 
     // 1. Migrate ACL lists
+    let lists = null;
     try {
-      const lists = acls
+      lists = acls
         ? acls
         : await (async () => {
             const names = await retryWithBackoff(() => oldContract.getListNames());
@@ -358,6 +359,34 @@ export class DomainChain {
       }
     } catch {
       console.log('[deploy] No invites to migrate (old contract may lack exportInvites)');
+    }
+
+    // 6. Migrate identity names (agent v3.2.0+): lift the first non-auto
+    // WhitelistEntry.name for each address into the new address→name mapping.
+    // Auto entries (Owner/Host virtuals) carry role-label leakage like "Owner" —
+    // skipping them is the whole point of the v3.2.0 change.
+    if (lists) {
+      const seen = new Set();
+      for (const list of lists) {
+        for (const entry of list.entries) {
+          try { if (JSON.parse(entry.meta)?.auto) continue; } catch {}
+          if (!entry.name || !entry.name.trim()) continue;
+          const key = entry.addr.toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          try {
+            const tx = await newContract.setAddressName(
+              entry.addr, entry.name.slice(0, 128), txOverrides
+            );
+            await tx.wait();
+            console.log(`[deploy] Migrated identity name: ${entry.addr} → ${entry.name}`);
+          } catch (err) {
+            // Older v3.1.x contracts lack setAddressName — surface once and stop the loop
+            console.warn(`[deploy] setAddressName ${entry.addr}: ${err.message}`);
+            if (/setAddressName|not a function|reverted/i.test(err.message)) break;
+          }
+        }
+      }
     }
 
     console.log(`[deploy] Migration from ${oldContractAddress} complete`);

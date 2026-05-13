@@ -256,6 +256,72 @@ export class DomainAcl {
         });
 
         // API: Get all ACL list names from contract
+        // API: Aggregate address-centric view across all lists for the user-management UI.
+        // Returns one row per unique address with resolved identity name, addressType
+        // (from meta.walletSource), list memberships with role, virtual/owner flags, and
+        // earliest addedAt across memberships.
+        router.get('/api/users', async (req, res) => {
+            try {
+                const isAdmin = await req.domainAcl.isAdmin(req.episteryClient?.address);
+                if (!isAdmin) return res.status(403).json({ error: 'Not authorized' });
+
+                const contract = req.domainAcl.chain.contract;
+                if (!contract) return res.status(400).json({ error: 'Contract not deployed' });
+
+                const epistery = req.app.locals.epistery;
+                const listNames = await contract.getListNames();
+
+                const usersMap = new Map(); // address.toLowerCase() → user record
+                for (const listName of listNames) {
+                    const entries = await contract.getACL(listName);
+                    for (const entry of entries) {
+                        const key = entry.addr.toLowerCase();
+                        let user = usersMap.get(key);
+                        if (!user) {
+                            user = {
+                                address: entry.addr,
+                                name: '',
+                                addressType: '',
+                                isVirtual: false,
+                                ownerRole: 0,
+                                lists: [],
+                                createdAt: null
+                            };
+                            usersMap.set(key, user);
+                        }
+                        let metaObj = {};
+                        try { metaObj = JSON.parse(entry.meta) || {}; } catch {}
+                        if (metaObj.auto) {
+                            user.isVirtual = true;
+                            const r = Number(entry.role);
+                            if (r > user.ownerRole) user.ownerRole = r;
+                        }
+                        if (metaObj.walletSource && !user.addressType) {
+                            user.addressType = metaObj.walletSource;
+                        }
+                        if (metaObj.addedAt) {
+                            if (!user.createdAt || metaObj.addedAt < user.createdAt) {
+                                user.createdAt = metaObj.addedAt;
+                            }
+                        }
+                        user.lists.push({ listName, role: Number(entry.role) });
+                    }
+                }
+
+                const users = Array.from(usersMap.values());
+                // Resolve identity names in parallel (opportunistic; older contracts return undefined)
+                await Promise.all(users.map(async u => {
+                    try { u.name = (await epistery.resolveName(u.address)) || ''; } catch {}
+                }));
+
+                users.sort((a, b) => a.address.localeCompare(b.address));
+                res.json({ users, lists: listNames });
+            } catch (error) {
+                console.error('[users] Error:', error);
+                res.status(500).json({ error: error.message });
+            }
+        });
+
         router.get('/api/acl/list{/:listName}', async (req, res) => {
             try {
                 if (!req.domainAcl.chain.contract) {
@@ -315,7 +381,7 @@ export class DomainAcl {
         // API: Add address to acl
         router.post('/api/acl/add', async (req, res) => {
             try {
-                const { address, name, listName: reqListName, contractAddress: reqContractAddress } = req.body;
+                const { address, name, listName: reqListName, contractAddress: reqContractAddress, addressType, role: reqRole } = req.body;
                 const domainChain = req.domainAcl.chain;
                 if (!domainChain.contract) {
                     return res.status(400).json({ error: 'Contract not deployed' });
@@ -324,9 +390,15 @@ export class DomainAcl {
                 const listName = reqListName || 'epistery::admin';
                 console.log(`Adding ${address} to list ${listName} for domain ${domainChain.domain}...`);
 
-                // Default role is 2 (write access)
-                const role = 2;
-                const meta = JSON.stringify({ addedBy: 'admin-ui', addedAt: new Date().toISOString() });
+                // Admin lists default to role 3 (admin); other lists default to role 2 (write).
+                const role = Number.isInteger(reqRole)
+                    ? reqRole
+                    : (listName.includes('::admin') ? 3 : 2);
+                const meta = JSON.stringify({
+                    addedBy: 'admin-ui',
+                    addedAt: new Date().toISOString(),
+                    ...(addressType ? { walletSource: addressType } : {})
+                });
 
                 const feeData = await domainChain.getFeeData();
                 const tx = await domainChain.contract.addToACL(listName, address, name || '', role, meta, feeData);
@@ -505,7 +577,7 @@ export class DomainAcl {
         // API: Request access to ACL (for non-admins)
         const requestAccessHandler = async (req, res) => {
             try {
-                const { address, listName, agentName, message, name } = req.body;
+                const { address, listName, agentName, message, name, addressType } = req.body;
                 const domain = req.hostname;
 
                 console.log('[request-access] Received request:', { address, listName, agentName, domain });
@@ -538,6 +610,7 @@ export class DomainAcl {
                     agentName: agentName || 'unknown',
                     message: message || '',
                     name: name || '',
+                    addressType: addressType || '',
                     requestedAt: new Date().toISOString(),
                     status: 'pending'
                 };
@@ -695,7 +768,8 @@ export class DomainAcl {
                 res.json({
                     allowed: result.allowed,
                     level: result.level,
-                    address: req.episteryClient.address
+                    address: req.episteryClient.address,
+                    name: req.episteryClient.name
                 });
             } catch (error) {
                 console.error('[check-access] Error:', error);
@@ -753,7 +827,7 @@ export class DomainAcl {
                     return res.status(403).json({ error: 'Not authorized' });
                 }
 
-                const { address, listName, action } = req.body;
+                const { address, listName, action, name } = req.body;
                 if (!address || !listName || !action) {
                     return res.status(400).json({ error: 'Missing required fields' });
                 }
@@ -775,17 +849,32 @@ export class DomainAcl {
                 const request = allRequests[requestIndex];
 
                 if (action === 'approve') {
-                    // Add to ACL
+                    // Admin-entered identity name takes precedence over the requester's
+                    // self-supplied suggestion; this name is written to the agent contract's
+                    // address→name mapping (v3.2.0+), not into WhitelistEntry.name.
+                    const identityName = (typeof name === 'string' ? name : request.name || '').trim();
+
                     const role = listName.includes('::admin') ? 3 : 2; // 3=admin, 2=write
                     const meta = JSON.stringify({
                         addedBy: 'access-request',
                         addedAt: new Date().toISOString(),
-                        requestMessage: request.message
+                        requestMessage: request.message,
+                        ...(request.addressType ? { walletSource: request.addressType } : {})
                     });
 
                     const feeData = await domainChain.getFeeData();
-                    const tx = await domainChain.contract.addToACL(listName, address, request.name || '', role, meta, feeData);
+                    // Per-list handle slot stays empty — identity name lives in addressNames.
+                    const tx = await domainChain.contract.addToACL(listName, address, '', role, meta, feeData);
                     await tx.wait();
+
+                    // Apply identity name (optional — empty string clears).
+                    if (identityName.length > 0) {
+                        try {
+                            await req.app.locals.epistery.setAddressName(address, identityName.slice(0, 128));
+                        } catch (err) {
+                            console.warn('[handle-request] setAddressName failed (older agent contract?):', err.message);
+                        }
+                    }
 
                     request.status = 'approved';
                     request.approvedAt = new Date().toISOString();

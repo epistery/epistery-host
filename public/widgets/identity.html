@@ -101,6 +101,11 @@
         cursor: pointer;
     }
     .wallet-item .wallet-addr:hover { color: var(--action-color); }
+    .wallet-item .wallet-name {
+        color: var(--text-color-quiet);
+        margin-left: var(--spacerthird);
+        font-family: inherit;
+    }
     .wallet-item .wallet-info {
         display: flex;
         flex-direction: column;
@@ -353,6 +358,19 @@
                 } catch (e) {}
             });
 
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'wallet-name';
+
+            const addrRow = document.createElement('div');
+            addrRow.appendChild(addrSpan);
+            addrRow.appendChild(nameSpan);
+
+            // Resolve identity name from agent contract (agent v3.2.0+ address→name mapping)
+            fetch('/whitelist/resolveName?address=' + encodeURIComponent(w.address))
+                .then(r => r.ok ? r.json() : null)
+                .then(d => { if (d && d.name) nameSpan.textContent = '(' + d.name + ')'; })
+                .catch(() => {});
+
             const typeSpan = document.createElement('span');
             typeSpan.className = 'wallet-type';
             const sourceIcon = document.createElement('span');
@@ -360,7 +378,7 @@
             typeSpan.appendChild(sourceIcon);
             typeSpan.appendChild(document.createTextNode(w.label || w.source || ''));
 
-            info.appendChild(addrSpan);
+            info.appendChild(addrRow);
             info.appendChild(typeSpan);
 
             // Action buttons

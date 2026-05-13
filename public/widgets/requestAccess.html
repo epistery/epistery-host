@@ -99,6 +99,7 @@
         const listName = container?.dataset.list || 'epistery::reader';
         const requiredLevel = parseInt(container?.dataset.level || '2', 10);
         let userAddress = '';
+        let userName = '';
 
         console.log('[requestAccess] Initialized with agent:', agentName || '(host)', 'list:', listName, 'level:', requiredLevel);
 
@@ -113,6 +114,7 @@
 
                 // Get user address from response (if authenticated)
                 userAddress = accessData.address || '';
+                userName = accessData.name || '';
 
                 if (accessData.level >= requiredLevel) {
                     showHasAccess();
@@ -152,19 +154,20 @@
             document.getElementById('hasAccess').classList.remove('hidden');
 
             const shortform = `${userAddress.slice(0,8)}...${userAddress.slice(userAddress.length-6)}`;
+            const display = userName || shortform;
             const addressEl = document.getElementById('userAddress');
-            addressEl.textContent = shortform;
-            addressEl.title = userAddress;
+            addressEl.textContent = display;
+            addressEl.title = userName ? `${userName} — ${userAddress}` : userAddress;
 
             document.getElementById('accessBox').classList.add('has-access');
 
-            // Copy to clipboard on click
+            // Copy address to clipboard on click (always the full address, even when showing name)
             addressEl.addEventListener('click', async () => {
                 try {
                     await navigator.clipboard.writeText(userAddress);
                     addressEl.textContent = 'copied!';
                     setTimeout(() => {
-                        addressEl.textContent = shortform;
+                        addressEl.textContent = display;
                     }, 500);
                 } catch (error) {
                     console.error('[requestAccess] Failed to copy:', error);
@@ -196,6 +199,8 @@
                 }
 
                 const address = wallet.rivetAddress || wallet.address;
+                // Capture wallet source so admins see the address type in user management
+                const walletSource = wallet.source || parsed.wallets?.[0]?.source || 'browser';
 
                 const response = await fetch('/api/acl/request-access', {
                     method: 'POST',
@@ -205,7 +210,8 @@
                         listName,
                         agentName,
                         message,
-                        name
+                        name,
+                        addressType: walletSource
                     })
                 });
 
