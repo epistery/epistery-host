@@ -238,6 +238,50 @@ let main = async function() {
             });
             const wallet = ethers.Wallet.fromMnemonic(serverWallet.mnemonic).connect(ethersProvider);
 
+            // Pre-flight: refuse to spend gas redeploying the same version.
+            // Reads the expected VERSION from the source file shipped in this
+            // build, queries the currently-deployed contract's VERSION, and
+            // bails out if they match. Override with { force: true } in the
+            // request body if you really want to redeploy identical bytecode.
+            if (!req.body?.force) {
+                try {
+                    const contractSource = readFileSync(
+                        path.join(__dirname, 'contracts/DomainAgent.sol'),
+                        'utf8'
+                    );
+                    const versionMatch = contractSource.match(/VERSION\s*=\s*"([^"]+)"/);
+                    const expectedVersion = versionMatch?.[1];
+                    const currentAddr = cfg.data?.contract_address;
+
+                    if (expectedVersion && currentAddr) {
+                        try {
+                            const probeContract = new ethers.Contract(
+                                currentAddr,
+                                ['function VERSION() view returns (string)'],
+                                ethersProvider
+                            );
+                            const deployedVersion = await retryWithBackoff(() => probeContract.VERSION());
+                            if (deployedVersion === expectedVersion) {
+                                return res.status(409).json({
+                                    error: 'No-op deploy refused: deployed contract already at expected version',
+                                    deployedVersion,
+                                    expectedVersion,
+                                    contractAddress: currentAddr,
+                                    hint: 'If this is intentional (e.g., clean redeploy), retry with { force: true } in the request body'
+                                });
+                            }
+                        } catch (versionErr) {
+                            // Couldn't read VERSION on-chain — likely no contract yet,
+                            // or older bytecode without the VERSION constant. Either way,
+                            // deploy is the right next step.
+                            console.log('[deploy] pre-flight: could not read deployed VERSION, proceeding:', versionErr.message);
+                        }
+                    }
+                } catch (preflightErr) {
+                    console.warn('[deploy] pre-flight check failed, proceeding:', preflightErr.message);
+                }
+            }
+
             // Check balance upfront for deployment + initialization
             const balance = await retryWithBackoff(() => ethersProvider.getBalance(wallet.address));
             const feeData = await retryWithBackoff(() => ethersProvider.getFeeData());
