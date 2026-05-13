@@ -294,30 +294,39 @@ let main = async function() {
             const totalGas = deploymentGas.add(initGas);
 
             // Gas-price shape depends on whether the chain prices in EIP-1559 style
-            // (Polygon, Ethereum: separate baseFee + priorityFee) or legacy single
-            // gasPrice (JOC and similar). Earlier code applied an aggressive `* 2`
-            // floor on maxFeePerGas plus a priority-fee floor equal to the whole
-            // gasPrice — which on EIP-1559 chains effectively doubles the priority
-            // and overpays by ~2-3x per tx. Trust the network values here; keep
-            // the legacy floor only for legacy chains.
+            // (Ethereum: separate baseFee + priorityFee) or legacy single gasPrice
+            // (JOC and similar). Polygon is EIP-1559 BUT enforces a 25 gwei minimum
+            // priority fee at the node level — ethers' default 1.5 gwei suggestion
+            // gets rejected as "transaction gas price below minimum". Apply a
+            // chain-aware priority floor for chains that need it.
             const isEip1559 = feeData.maxFeePerGas != null && feeData.maxPriorityFeePerGas != null;
+            const chainId = parseInt(provider.chainId);
+            // Polygon mainnet (137), Mumbai testnet (80001), Amoy testnet (80002)
+            // all enforce ~25 gwei minimum priority. Use 30 gwei with headroom.
+            const isPolygon = chainId === 137 || chainId === 80001 || chainId === 80002;
+            const minPriority = isPolygon
+                ? ethers.utils.parseUnits("30", "gwei")
+                : ethers.utils.parseUnits("2", "gwei");
 
             let maxFeePerGas;
             let maxPriorityFeePerGas;
             if (isEip1559) {
-                // Small headroom over current network max.
-                maxFeePerGas = feeData.maxFeePerGas.mul(120).div(100);
-                // Priority should be small (~1-5 gwei on Polygon). Use what the
-                // provider suggests with a 20% buffer; fall back to 2 gwei if the
-                // node reports zero.
-                const suggestedPriority = feeData.maxPriorityFeePerGas;
-                maxPriorityFeePerGas = suggestedPriority.gt(0)
-                    ? suggestedPriority.mul(120).div(100)
-                    : ethers.utils.parseUnits("2", "gwei");
-                // Priority can never exceed the cap.
-                if (maxPriorityFeePerGas.gt(maxFeePerGas)) {
-                    maxPriorityFeePerGas = maxFeePerGas;
-                }
+                // Use the larger of ethers' suggestion (with 20% buffer) and the
+                // chain-specific minimum priority.
+                const suggestedPriority = feeData.maxPriorityFeePerGas.gt(0)
+                    ? feeData.maxPriorityFeePerGas.mul(120).div(100)
+                    : minPriority;
+                maxPriorityFeePerGas = suggestedPriority.gt(minPriority)
+                    ? suggestedPriority
+                    : minPriority;
+
+                // maxFeePerGas: network max + headroom, but never less than
+                // priority (otherwise the node rejects). Also bumped if needed
+                // to clear the priority floor we just set.
+                const networkMax = feeData.maxFeePerGas.mul(120).div(100);
+                maxFeePerGas = networkMax.gt(maxPriorityFeePerGas)
+                    ? networkMax
+                    : maxPriorityFeePerGas.mul(120).div(100);
             } else {
                 // Legacy chains (JOC etc.) — keep the floor logic that motivated
                 // the original code: some have near-zero baseFee but high min
