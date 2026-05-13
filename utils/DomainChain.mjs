@@ -184,6 +184,16 @@ export class DomainChain {
             return result;
           })();
 
+      // Normalize ethers Result vs plain-object shape. Ethers struct arrays
+      // are Array-like, so the named `entries` field is shadowed by
+      // Array.prototype.entries (a function, not iterable). Plain-object
+      // IIFE results don't have this problem. Coerce both to {listName,
+      // entries: Array} form before iterating.
+      lists = lists.map((l) => ({
+        listName: l.listName ?? l[0],
+        entries: Array.isArray(l.entries) ? l.entries : l[1],
+      }));
+
       for (const list of lists) {
         for (const entry of list.entries) {
           try { if (JSON.parse(entry.meta)?.auto) continue; } catch {}
