@@ -9,7 +9,7 @@
     <link rel="icon" type="image/png" href="/image/favicon.png">
     <style>
         .admin-section {
-            background: var(--panel-background);
+            background: var(--bg-color-quiet-d);
             border: 1px solid var(--page-border);
             border-radius: 8px;
             padding: var(--spacer);
@@ -516,7 +516,7 @@
 
                 <!-- Edit User Modal -->
                 <div id="user-edit-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:1000; overflow:auto;" onclick="if(event.target===this)closeUserEdit()">
-                    <div style="max-width:600px; margin:5vh auto; background:var(--bg-color-d); border:1px solid var(--page-border); border-radius:8px; padding:var(--spacer2);">
+                    <div style="max-width:600px; margin:5vh auto; background:var(--bg-color); border:1px solid var(--page-border); border-radius:8px; padding:var(--spacer2);">
                         <h3 style="margin-top:0;">Edit User</h3>
                         <div id="user-edit-address" style="font-family:monospace; font-size:0.9rem; word-break:break-all; margin-bottom:var(--spacer); color:var(--page-text-secondary);"></div>
                         <div id="user-edit-badges" style="margin-bottom:var(--spacer);"></div>
@@ -534,7 +534,7 @@
                         </div>
                         <div style="display:flex; gap:10px; margin-top:var(--spacer);">
                             <button class="console-btn" onclick="saveUserEdit()">Save</button>
-                            <button class="console-btn" onclick="closeUserEdit()" style="background:var(--bg-color);">Cancel</button>
+                            <button class="console-btn" onclick="closeUserEdit()">Cancel</button>
                             <button class="console-btn danger" id="user-edit-remove" onclick="removeUserFromAll()" style="margin-left:auto;">Remove from all lists</button>
                         </div>
                         <div id="user-edit-progress" style="display:none; margin-top:var(--spacerhalf);">
