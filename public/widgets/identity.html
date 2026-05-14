@@ -237,6 +237,7 @@
         <div class="wallet-actions">
             <button class="identity-section-btn" id="id-add-web3">+ Plugin Wallet (Web3)</button>
             <button class="identity-section-btn" id="id-add-browser">+ Browser Wallet</button>
+            <button class="identity-section-btn" id="id-add-fido">+ Fido Wallet</button>
         </div>
         <div id="id-wallet-feedback"></div>
     </div>
@@ -253,6 +254,12 @@
     const walletListEl = document.getElementById('id-wallet-list');
     const addWeb3Btn = document.getElementById('id-add-web3');
     const addBrowserBtn = document.getElementById('id-add-browser');
+    const addFidoBtn = document.getElementById('id-add-fido');
+
+    // FIDO requires WebAuthn — hide the button if the browser lacks it.
+    if (!window.PublicKeyCredential || !navigator.credentials?.create) {
+        addFidoBtn.style.display = 'none';
+    }
 
     // Set domain from page title or location
     domainEl.textContent = location.hostname;
@@ -315,6 +322,7 @@
     // Determine icon class for a wallet based on source and user-agent
     function walletIconClass(source) {
         if (source === 'web3') return 'icon-key';
+        if (source === 'fido') return 'icon-lock';
         // Browser/rivet wallet — detect device from user-agent
         const ua = navigator.userAgent.toLowerCase();
         if (/android|iphone|ipad|ipod|mobile/.test(ua)) return 'icon-mobile';
@@ -456,6 +464,25 @@
         } finally {
             addWeb3Btn.textContent = '+ Web3 Wallet';
             addWeb3Btn.disabled = false;
+        }
+    });
+
+    // Add FIDO wallet button (WebAuthn / platform authenticator)
+    addFidoBtn.addEventListener('click', async () => {
+        if (!witness) return;
+        try {
+            addFidoBtn.textContent = 'Authenticating...';
+            addFidoBtn.disabled = true;
+            showFeedback('Prompting authenticator (Touch ID / Face ID / passkey)...', 'loading');
+            const newWallet = await witness.addFidoWallet();
+            showFeedback('FIDO wallet added: ' + newWallet.address, 'success');
+            renderWallets();
+        } catch (e) {
+            console.error('[identity] add fido wallet failed:', e);
+            showFeedback('Failed to add FIDO wallet: ' + e.message, 'error');
+        } finally {
+            addFidoBtn.textContent = '+ Fido Wallet';
+            addFidoBtn.disabled = false;
         }
     });
 
