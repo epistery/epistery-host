@@ -297,7 +297,8 @@ export class DomainChain {
         console.log(`[deploy] Storj: privatized storage, no object migration needed`);
       } else {
         const rootCfg = new Config();
-        const storjConfig = this.config.data.storj || rootCfg.data?.storj;
+        const rootData = rootCfg.read('/');
+        const storjConfig = this.config.data.storj || rootData?.storj;
         if (storjConfig?.ACCESS_KEY && storjConfig?.SECRET_KEY && storjConfig?.ENDPOINT && storjConfig?.BUCKET) {
           const s3 = new S3Client({
             endpoint: storjConfig.ENDPOINT,
