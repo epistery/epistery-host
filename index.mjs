@@ -308,36 +308,54 @@ let main = async function() {
                 ? ethers.utils.parseUnits("30", "gwei")
                 : ethers.utils.parseUnits("2", "gwei");
 
-            let maxFeePerGas;
-            let maxPriorityFeePerGas;
+            // gasOverrides is what we actually pass to deploy(). For EIP-1559
+            // chains: maxFeePerGas + maxPriorityFeePerGas. For legacy (JOC):
+            // gasPrice + type=0 so ethers doesn't promote it to a typed tx the
+            // chain won't honor.
+            //
+            // Note on maxFeePerGas: ethers v5's feeData.maxFeePerGas is already
+            // (2 * baseFee) + priority — so a 2x baseFee headroom is built in.
+            // Stacking another 1.2x on top, then a 1.5x balance buffer below,
+            // was inflating the wallet requirement to ~5x of actual cost. We
+            // use ethers' value as-is and rely on the smaller balance buffer.
+            let gasOverrides;
+            let feePerGasForCostEst;
             if (isEip1559) {
-                // Use the larger of ethers' suggestion (with 20% buffer) and the
-                // chain-specific minimum priority.
                 const suggestedPriority = feeData.maxPriorityFeePerGas.gt(0)
-                    ? feeData.maxPriorityFeePerGas.mul(120).div(100)
+                    ? feeData.maxPriorityFeePerGas
                     : minPriority;
-                maxPriorityFeePerGas = suggestedPriority.gt(minPriority)
+                const maxPriorityFeePerGas = suggestedPriority.gt(minPriority)
                     ? suggestedPriority
                     : minPriority;
 
-                // maxFeePerGas: network max + headroom, but never less than
-                // priority (otherwise the node rejects). Also bumped if needed
-                // to clear the priority floor we just set.
-                const networkMax = feeData.maxFeePerGas.mul(120).div(100);
-                maxFeePerGas = networkMax.gt(maxPriorityFeePerGas)
+                // maxFeePerGas must clear priority; ethers' value already
+                // carries a 2x baseFee headroom so no extra bump.
+                const networkMax = feeData.maxFeePerGas;
+                const maxFeePerGas = networkMax.gt(maxPriorityFeePerGas)
                     ? networkMax
-                    : maxPriorityFeePerGas.mul(120).div(100);
+                    : maxPriorityFeePerGas.mul(2);
+
+                gasOverrides = { maxFeePerGas, maxPriorityFeePerGas };
+                feePerGasForCostEst = maxFeePerGas;
             } else {
-                // Legacy chains (JOC etc.) — keep the floor logic that motivated
-                // the original code: some have near-zero baseFee but high min
-                // gasPrice that EIP-1559-style fees would underprice.
-                const minGasPrice = feeData.gasPrice || ethers.utils.parseUnits("30", "gwei");
-                maxFeePerGas = minGasPrice.mul(2);
-                maxPriorityFeePerGas = minGasPrice;
+                // Legacy chains (JOC etc.). Two things matter:
+                //  1. Use `gasPrice` and `type: 0` — JOC rejects/drops typed
+                //     EIP-1559 txs silently, leaving them stuck in mempool.
+                //  2. Apply the floor unconditionally — JOC's RPC reports
+                //     near-zero gasPrice from feeData, so a `||` fallback
+                //     never trips. The floor below RPC-reported value is
+                //     what stuck txs were getting set at.
+                const floor = ethers.utils.parseUnits("30", "gwei");
+                const networkPrice = feeData.gasPrice || floor;
+                const gasPrice = networkPrice.gt(floor) ? networkPrice : floor;
+
+                gasOverrides = { gasPrice, type: 0 };
+                feePerGasForCostEst = gasPrice;
             }
 
-            const estimatedTotalCost = totalGas.mul(maxFeePerGas);
-            const requiredBalance = estimatedTotalCost.mul(150).div(100); // 50% buffer
+            const estimatedTotalCost = totalGas.mul(feePerGasForCostEst);
+            // 20% buffer; per-gas already has 2x baseFee headroom from ethers.
+            const requiredBalance = estimatedTotalCost.mul(120).div(100);
 
             if (balance.lt(requiredBalance)) {
                 return res.status(400).json({
@@ -367,8 +385,7 @@ let main = async function() {
             }
 
             const contract = await factory.deploy(domain, ownerAddress, wallet.address, {
-                maxPriorityFeePerGas: maxPriorityFeePerGas,
-                maxFeePerGas: maxFeePerGas,
+                ...gasOverrides,
                 gasLimit: gasLimit
             });
             await retryWithBackoff(() => contract.deployed());
@@ -397,7 +414,7 @@ let main = async function() {
             }
             cfg.save();
 
-            const txOverrides = { maxPriorityFeePerGas, maxFeePerGas };
+            const txOverrides = { ...gasOverrides };
 
             if (oldContractAddress && oldContractAddress !== contractAddress) {
                 const chain = new DomainChain(domain);
