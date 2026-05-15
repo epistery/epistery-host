@@ -187,10 +187,14 @@ export class AIDiscovery {
         if (!agent || typeof agent.aiFeed !== 'function') {
           return res.status(404).json({ error: 'Feed not found' });
         }
+        const cfg = new Config();
+        cfg.setPath(domain);
+        const sourceContract = cfg.data?.contract_address || null;
         const envelope = await agent.aiFeed(
           domain, domain, req.params.id,
           app.locals.agentManager,
-          { since: req.query.since, limit: req.query.limit }
+          { since: req.query.since, limit: req.query.limit },
+          sourceContract
         );
         if (!envelope) return res.status(404).json({ error: 'Feed not found' });
         res.json(envelope);
