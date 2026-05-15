@@ -388,9 +388,24 @@ let main = async function() {
                 ...gasOverrides,
                 gasLimit: gasLimit
             });
-            await retryWithBackoff(() => contract.deployed());
 
+            // Persist the contract address IMMEDIATELY — it's deterministic from
+            // sender+nonce and known the instant factory.deploy() returns. If
+            // something downstream throws (RPC timeout on contract.deployed(),
+            // proxy timeout on the HTTP response, ACL init failure), the address
+            // is still recorded and the operator can resume manually instead of
+            // losing the deploy entirely.
             const contractAddress = contract.address;
+            const oldContractAddress = cfg.data?.contract_address;
+            cfg.data.contract_address = contractAddress;
+            cfg.data.contract_deployed_at = new Date().toISOString();
+            cfg.data.deploy_tx_hash = contract.deployTransaction?.hash;
+            if (oldContractAddress) {
+                cfg.data.previous_contract_address = oldContractAddress;
+            }
+            cfg.save();
+
+            await retryWithBackoff(() => contract.deployed());
 
             // Check contract version
             let version = 'Unknown';
@@ -400,18 +415,10 @@ let main = async function() {
                 version = '1.0.0';
             }
 
-            // Save old contract address before overwriting
-            const oldContractAddress = cfg.data?.contract_address;
-
-            // Finalize: promote to active contract
-            cfg.data.contract_address = contractAddress;
+            // Finalize: mark fully initialized
             delete cfg.data.agent_contract_pending;
-            cfg.data.contract_deployed_at = new Date().toISOString();
             cfg.data.contract_version = version;
             cfg.data.acl_initialized_at = new Date().toISOString();
-            if (oldContractAddress) {
-                cfg.data.previous_contract_address = oldContractAddress;
-            }
             cfg.save();
 
             const txOverrides = { ...gasOverrides };
