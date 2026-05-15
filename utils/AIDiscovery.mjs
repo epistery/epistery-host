@@ -86,7 +86,6 @@ export class AIDiscovery {
             blockchain: { available: !!hasContract },
             mcp: { available: true, url: '/mcp', auth: 'oauth2' },
             knowledge: { available: false },
-            feed: { available: false },
             content: { available: false }
           },
           agents,
@@ -100,20 +99,15 @@ export class AIDiscovery {
           }
         };
 
-        // Feed capability — flip to available when any plugin publishes a
-        // feed (queried via the ai-discovery agent's aggregator). Signal
-        // the catalog URL inline so consumers don't have to probe blind.
+        // Inline the feed catalog with recent posts. Presence of the
+        // top-level `feeds` key IS the signal — no capability flag needed.
+        // The aggregator strips heavy media; the per-feed endpoint serves
+        // full fidelity for clients that want it.
         try {
           const aiAgent = findAgent(app.locals.agentManager, 'rootz-global/ai-discovery-host');
-          if (aiAgent?.aiFeeds) {
-            const catalog = await aiAgent.aiFeeds(domain, domain, app.locals.agentManager);
-            if (catalog?.feeds?.length) {
-              discovery.capabilities.feed = {
-                available: true,
-                url: '/.well-known/ai/feeds',
-                count: catalog.feeds.length
-              };
-            }
+          if (aiAgent?.aiFeedsInline) {
+            const feeds = await aiAgent.aiFeedsInline(domain, domain, app.locals.agentManager, 5);
+            if (feeds && feeds.length) discovery.feeds = feeds;
           }
         } catch (e) {
           // Optional enrichment — never block manifest on it.
@@ -149,31 +143,6 @@ export class AIDiscovery {
       } catch (error) {
         console.error('[ai-discovery] Error:', error);
         res.status(500).json({ error: 'Failed to generate AI discovery' });
-      }
-    });
-
-    // feeds-spec-v0: catalog of feeds this host publishes. Delegates to the
-    // rootz/ai-discovery agent which aggregates contributions from each
-    // plugin's optional `aiFeeds(domain)` method. 404 if no plugin publishes
-    // anything — consumers treat that as "this source doesn't publish a
-    // feed" and won't follow.
-    app.get('/.well-known/ai/feeds', async (req, res) => {
-      try {
-        const domain = req.hostname || 'localhost';
-        const agent = findAgent(app.locals.agentManager, 'rootz-global/ai-discovery-host');
-        if (!agent || typeof agent.aiFeeds !== 'function') {
-          return res.status(404).json({ error: 'No feed catalog' });
-        }
-        const result = await agent.aiFeeds(domain, domain, app.locals.agentManager);
-        if (!result || !result.feeds || result.feeds.length === 0) {
-          return res.status(404).json({ error: 'No feed catalog' });
-        }
-        // Strip the internal routing hint before responding.
-        const feeds = result.feeds.map(({ _agentName, ...pub }) => pub);
-        res.json({ feeds });
-      } catch (e) {
-        console.error('[ai-discovery] feeds catalog error:', e);
-        res.status(500).json({ error: e.message });
       }
     });
 
