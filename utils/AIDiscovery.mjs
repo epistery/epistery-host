@@ -100,6 +100,25 @@ export class AIDiscovery {
           }
         };
 
+        // Feed capability — flip to available when any plugin publishes a
+        // feed (queried via the ai-discovery agent's aggregator). Signal
+        // the catalog URL inline so consumers don't have to probe blind.
+        try {
+          const aiAgent = findAgent(app.locals.agentManager, 'rootz-global/ai-discovery-host');
+          if (aiAgent?.aiFeeds) {
+            const catalog = await aiAgent.aiFeeds(domain, domain, app.locals.agentManager);
+            if (catalog?.feeds?.length) {
+              discovery.capabilities.feed = {
+                available: true,
+                url: '/.well-known/ai/feeds',
+                count: catalog.feeds.length
+              };
+            }
+          }
+        } catch (e) {
+          // Optional enrichment — never block manifest on it.
+        }
+
         // Sign the manifest with the domain contract identity
         if (hasContract) {
           const sortKeys = (obj) => {
@@ -132,5 +151,61 @@ export class AIDiscovery {
         res.status(500).json({ error: 'Failed to generate AI discovery' });
       }
     });
+
+    // feeds-spec-v0: catalog of feeds this host publishes. Delegates to the
+    // rootz/ai-discovery agent which aggregates contributions from each
+    // plugin's optional `aiFeeds(domain)` method. 404 if no plugin publishes
+    // anything — consumers treat that as "this source doesn't publish a
+    // feed" and won't follow.
+    app.get('/.well-known/ai/feeds', async (req, res) => {
+      try {
+        const domain = req.hostname || 'localhost';
+        const agent = findAgent(app.locals.agentManager, 'rootz-global/ai-discovery-host');
+        if (!agent || typeof agent.aiFeeds !== 'function') {
+          return res.status(404).json({ error: 'No feed catalog' });
+        }
+        const result = await agent.aiFeeds(domain, domain, app.locals.agentManager);
+        if (!result || !result.feeds || result.feeds.length === 0) {
+          return res.status(404).json({ error: 'No feed catalog' });
+        }
+        // Strip the internal routing hint before responding.
+        const feeds = result.feeds.map(({ _agentName, ...pub }) => pub);
+        res.json({ feeds });
+      } catch (e) {
+        console.error('[ai-discovery] feeds catalog error:', e);
+        res.status(500).json({ error: e.message });
+      }
+    });
+
+    // feeds-spec-v0: posts envelope for one feed id. Delegates to the
+    // rootz/ai-discovery agent which routes to whichever plugin claims
+    // the feed id and normalizes the post shape.
+    app.get('/.well-known/ai/feeds/:id', async (req, res) => {
+      try {
+        const domain = req.hostname || 'localhost';
+        const agent = findAgent(app.locals.agentManager, 'rootz-global/ai-discovery-host');
+        if (!agent || typeof agent.aiFeed !== 'function') {
+          return res.status(404).json({ error: 'Feed not found' });
+        }
+        const envelope = await agent.aiFeed(
+          domain, domain, req.params.id,
+          app.locals.agentManager,
+          { since: req.query.since, limit: req.query.limit }
+        );
+        if (!envelope) return res.status(404).json({ error: 'Feed not found' });
+        res.json(envelope);
+      } catch (e) {
+        console.error('[ai-discovery] feed proxy error:', e);
+        res.status(500).json({ error: e.message });
+      }
+    });
   }
+}
+
+function findAgent(agentManager, name) {
+  if (!agentManager) return null;
+  for (const [, agentData] of agentManager.agents) {
+    if (agentData.manifest.name === name) return agentData.instance;
+  }
+  return null;
 }
