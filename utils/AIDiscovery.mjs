@@ -105,12 +105,20 @@ export class AIDiscovery {
         // full fidelity for clients that want it.
         try {
           const aiAgent = findAgent(app.locals.agentManager, 'rootz-global/ai-discovery-host');
-          if (aiAgent?.aiFeedsInline) {
+          if (!aiAgent) {
+            console.warn('[ai-discovery] inline feeds: agent rootz-global/ai-discovery-host not loaded');
+          } else if (typeof aiAgent.aiFeedsInline !== 'function') {
+            console.warn('[ai-discovery] inline feeds: method aiFeedsInline missing on agent (stale agent code?)');
+          } else {
             const feeds = await aiAgent.aiFeedsInline(domain, domain, app.locals.agentManager, 5);
-            if (feeds && feeds.length) discovery.feeds = feeds;
+            if (!feeds || feeds.length === 0) {
+              console.warn('[ai-discovery] inline feeds: aiFeedsInline returned empty');
+            } else {
+              discovery.feeds = feeds;
+            }
           }
         } catch (e) {
-          // Optional enrichment — never block manifest on it.
+          console.error('[ai-discovery] inline feeds threw:', e.message, e.stack);
         }
 
         // Sign the manifest with the domain contract identity

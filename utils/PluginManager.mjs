@@ -300,9 +300,10 @@ export class PluginManager {
             const manifest = self._readManifest(agentDir);
             if (!manifest) continue;
 
+            const pkg = self._readPackageJson(agentDir);
             const baseInfo = {
                 name: manifest.name || entry.name,
-                version: manifest.version || '0.0.0',
+                version: pkg?.version || manifest.version || '0.0.0',
             };
 
             if (stat.isSymbolicLink()) {
@@ -331,6 +332,14 @@ export class PluginManager {
     static _readManifest(dir) {
         try {
             return JSON.parse(readFileSync(join(dir, 'epistery.json'), 'utf8'));
+        } catch {
+            return null;
+        }
+    }
+
+    static _readPackageJson(dir) {
+        try {
+            return JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
         } catch {
             return null;
         }

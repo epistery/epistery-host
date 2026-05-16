@@ -15,8 +15,14 @@
             padding: var(--spacer);
             margin-bottom: var(--spacer);
         }
-        .admin-section input {
-            background-color: var(--bg-color);
+        input[type="text"],
+        input[type="password"],
+        select {
+            padding: 8px;
+            border: 1px solid var(--page-border);
+            border-radius: 4px;
+            background: var(--bg-color);
+            color: var(--text-color);
         }
         .acl-item {
             display: grid;
@@ -41,10 +47,6 @@
         }
         .name-input {
             padding: 4px 8px;
-            border: 1px solid var(--page-border);
-            border-radius: 4px;
-            background: var(--page-background);
-            color: var(--page-text-primary);
             font-size: 14px;
         }
         .admin-toggle {
@@ -207,10 +209,6 @@
         .add-address-form input {
             flex: 1;
             padding: 8px 12px;
-            border: 1px solid var(--page-border);
-            border-radius: 4px;
-            background: var(--page-background);
-            color: var(--page-text-primary);
             font-family: monospace;
         }
         .spinner {
@@ -415,11 +413,11 @@
                         <div style="flex: 2; min-width: 200px;">
                             <label for="invite-target-path" style="font-size: 0.9em; display: block; margin-bottom: 4px;">Target Path</label>
                             <input type="text" id="invite-target-path" value="/agent/epistery/wiki/Home" placeholder="/agent/epistery/wiki/Home"
-                                   style="width: 100%; padding: 8px; border: 1px solid var(--page-border); border-radius: 4px; background: var(--page-background); color: var(--page-text-primary); font-family: monospace; font-size: 14px;">
+                                   style="width: 100%; font-family: monospace; font-size: 14px;">
                         </div>
                         <div style="flex: 1; min-width: 150px;">
                             <label for="invite-list-select" style="font-size: 0.9em; display: block; margin-bottom: 4px;">ACL List</label>
-                            <select id="invite-list-select" style="width: 100%; padding: 8px; border: 1px solid var(--page-border); border-radius: 4px; background: var(--page-background); color: var(--page-text-primary);">
+                            <select id="invite-list-select" style="width: 100%;">
                                 <option value="">Loading...</option>
                             </select>
                         </div>
@@ -428,12 +426,12 @@
                         <div style="flex: 1; min-width: 150px;">
                             <label for="invite-name" style="font-size: 0.9em; display: block; margin-bottom: 4px;">Name (optional)</label>
                             <input type="text" id="invite-name" placeholder="Who is this invite for?"
-                                   style="width: 100%; padding: 8px; border: 1px solid var(--page-border); border-radius: 4px; background: var(--page-background); color: var(--page-text-primary); font-size: 14px;">
+                                   style="width: 100%; font-size: 14px;">
                         </div>
                         <div style="flex: 2; min-width: 200px;">
                             <label for="invite-comment" style="font-size: 0.9em; display: block; margin-bottom: 4px;">Comment (optional)</label>
                             <input type="text" id="invite-comment" placeholder="Note about this invite"
-                                   style="width: 100%; padding: 8px; border: 1px solid var(--page-border); border-radius: 4px; background: var(--page-background); color: var(--page-text-primary); font-size: 14px;">
+                                   style="width: 100%; font-size: 14px;">
                         </div>
                         <button class="console-btn" id="create-invite-btn" onclick="createInvite()">Create Invite</button>
                     </div>
@@ -448,7 +446,7 @@
                             <p style="margin-bottom: 8px;"><strong>Invite link created!</strong> Copy it now — the code cannot be retrieved later.</p>
                             <div style="display: flex; gap: var(--spacerhalf);">
                                 <input type="text" id="invite-url-display" readonly
-                                       style="flex: 1; padding: 8px; border: 1px solid var(--page-border); border-radius: 4px; background: var(--page-background); color: var(--page-text-primary); font-family: monospace; font-size: 13px;">
+                                       style="flex: 1; font-family: monospace; font-size: 13px;">
                                 <button class="console-btn" onclick="copyInviteLink()">Copy</button>
                             </div>
                         </div>
@@ -496,14 +494,14 @@
                         <div class="add-user-form" style="margin-top: var(--spacer2); padding-top: var(--spacer); border-top: 1px solid var(--page-border);">
                             <h3 style="font-size: 1rem; margin: 0 0 var(--spacerhalf);">Add User</h3>
                             <div style="display: flex; gap: var(--spacerhalf); flex-wrap: wrap; align-items: center;">
-                                <input type="text" id="new-user-address" placeholder="0x..." style="flex: 2 1 320px; padding: 8px; border: 1px solid var(--page-border); border-radius: 4px; background: var(--page-background); color: var(--page-text-primary);" />
-                                <input type="text" id="new-user-name" placeholder="Identity name (optional)" style="flex: 1 1 200px; padding: 8px; border: 1px solid var(--page-border); border-radius: 4px; background: var(--page-background); color: var(--page-text-primary);" />
+                                <input type="text" id="new-user-address" placeholder="0x..." style="flex: 2 1 320px;" />
+                                <input type="text" id="new-user-name" placeholder="Identity name (optional)" style="flex: 1 1 200px;" />
                             </div>
                             <div style="margin-top: var(--spacerhalf);">
                                 <strong style="font-size: 0.9rem;">Lists:</strong>
                                 <div id="new-user-lists" class="list-checkboxes" style="margin-top: 4px;"></div>
                                 <div style="margin-top: 4px;">
-                                    <input type="text" id="new-user-newlist" placeholder="+ new list name (e.g. moderators)" style="padding: 6px; border: 1px solid var(--page-border); border-radius: 4px; background: var(--page-background); color: var(--page-text-primary); font-size: 0.85rem; width: 260px;" />
+                                    <input type="text" id="new-user-newlist" placeholder="+ new list name (e.g. moderators)" style="padding: 6px; font-size: 0.85rem; width: 260px;" />
                                 </div>
                             </div>
                             <div style="margin-top: var(--spacerhalf);">
@@ -525,14 +523,14 @@
                         <div id="user-edit-badges" style="margin-bottom:var(--spacer);"></div>
                         <label style="display:block;">
                             <span style="font-size:0.9rem; font-weight:bold;">Identity Name</span>
-                            <input type="text" id="user-edit-name" placeholder="(no name)" style="width:100%; padding:8px; margin-top:4px; border:1px solid var(--page-border); border-radius:4px; background:var(--page-background); color:var(--page-text-primary); box-sizing:border-box;" />
+                            <input type="text" id="user-edit-name" placeholder="(no name)" style="width:100%; margin-top:4px; box-sizing:border-box;" />
                         </label>
                         <div style="margin-top:var(--spacer);">
                             <strong style="font-size:0.9rem;">List Memberships</strong>
                             <div id="user-edit-lists-note" style="display:none; font-size:0.8rem; color:var(--page-text-secondary); font-style:italic; margin-top:4px;">Owner/Host memberships are managed by the agent contract and cannot be changed here.</div>
                             <div id="user-edit-lists" class="list-checkboxes" style="margin-top:4px;"></div>
                             <div style="margin-top:4px;">
-                                <input type="text" id="user-edit-newlist" placeholder="+ add to new list" style="padding: 6px; border: 1px solid var(--page-border); border-radius: 4px; background: var(--page-background); color: var(--page-text-primary); font-size: 0.85rem; width: 260px;" />
+                                <input type="text" id="user-edit-newlist" placeholder="+ add to new list" style="padding: 6px; font-size: 0.85rem; width: 260px;" />
                             </div>
                         </div>
                         <div style="display:flex; gap:10px; margin-top:var(--spacer);">

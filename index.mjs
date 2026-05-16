@@ -299,11 +299,18 @@ let main = async function() {
             // priority fee at the node level — ethers' default 1.5 gwei suggestion
             // gets rejected as "transaction gas price below minimum". Apply a
             // chain-aware priority floor for chains that need it.
-            const isEip1559 = feeData.maxFeePerGas != null && feeData.maxPriorityFeePerGas != null;
+            //
+            // JOC quirk: it returns EIP-1559 fields but reports baseFee=0, so
+            // ethers' getFeeData computes maxFeePerGas ≈ 1.5 gwei. The actual
+            // floor for inclusion comes from eth_gasPrice (legacy mechanism)
+            // and is dynamic — has been seen above 100 gwei. Force JOC down
+            // the legacy path even though feeData.maxFeePerGas != null.
             const chainId = parseInt(provider.chainId);
             // Polygon mainnet (137), Mumbai testnet (80001), Amoy testnet (80002)
             // all enforce ~25 gwei minimum priority. Use 30 gwei with headroom.
             const isPolygon = chainId === 137 || chainId === 80001 || chainId === 80002;
+            const isJoc = chainId === 81;
+            const isEip1559 = !isJoc && feeData.maxFeePerGas != null && feeData.maxPriorityFeePerGas != null;
             const minPriority = isPolygon
                 ? ethers.utils.parseUnits("30", "gwei")
                 : ethers.utils.parseUnits("2", "gwei");
@@ -338,16 +345,27 @@ let main = async function() {
                 gasOverrides = { maxFeePerGas, maxPriorityFeePerGas };
                 feePerGasForCostEst = maxFeePerGas;
             } else {
-                // Legacy chains (JOC etc.). Two things matter:
-                //  1. Use `gasPrice` and `type: 0` — JOC rejects/drops typed
-                //     EIP-1559 txs silently, leaving them stuck in mempool.
-                //  2. Apply the floor unconditionally — JOC's RPC reports
-                //     near-zero gasPrice from feeData, so a `||` fallback
-                //     never trips. The floor below RPC-reported value is
-                //     what stuck txs were getting set at.
-                const floor = ethers.utils.parseUnits("30", "gwei");
-                const networkPrice = feeData.gasPrice || floor;
-                const gasPrice = networkPrice.gt(floor) ? networkPrice : floor;
+                // Legacy chains (JOC etc.).
+                //  - Use `gasPrice` and `type: 0` so ethers doesn't promote
+                //    to a typed tx whose EIP-1559 fields the chain ignores.
+                //  - The floor is *dynamic*: JOC's eth_gasPrice reports the
+                //    current minimum required for inclusion (seen in the
+                //    100+ gwei range during normal use). A static fallback
+                //    can't keep up — txs sit in mempool indefinitely. Bump
+                //    by 10% so a small mid-block tick doesn't strand us.
+                //  - Cap at 1000 gwei to prevent runaway drain.
+                const ABS_FLOOR = ethers.utils.parseUnits("30", "gwei");
+                const ABS_CAP   = ethers.utils.parseUnits("1000", "gwei");
+                const networkPrice = (feeData.gasPrice && feeData.gasPrice.gt(0))
+                    ? feeData.gasPrice
+                    : ABS_FLOOR;
+                const bumped = networkPrice.mul(110).div(100);
+                const gasPrice = bumped.gt(ABS_FLOOR) ? bumped : ABS_FLOOR;
+                if (gasPrice.gt(ABS_CAP)) {
+                    return res.status(400).json({
+                        error: `JOC gas price ${ethers.utils.formatUnits(gasPrice, 'gwei')} gwei exceeds 1000 gwei cap`,
+                    });
+                }
 
                 gasOverrides = { gasPrice, type: 0 };
                 feePerGasForCostEst = gasPrice;
@@ -388,24 +406,9 @@ let main = async function() {
                 ...gasOverrides,
                 gasLimit: gasLimit
             });
-
-            // Persist the contract address IMMEDIATELY — it's deterministic from
-            // sender+nonce and known the instant factory.deploy() returns. If
-            // something downstream throws (RPC timeout on contract.deployed(),
-            // proxy timeout on the HTTP response, ACL init failure), the address
-            // is still recorded and the operator can resume manually instead of
-            // losing the deploy entirely.
-            const contractAddress = contract.address;
-            const oldContractAddress = cfg.data?.contract_address;
-            cfg.data.contract_address = contractAddress;
-            cfg.data.contract_deployed_at = new Date().toISOString();
-            cfg.data.deploy_tx_hash = contract.deployTransaction?.hash;
-            if (oldContractAddress) {
-                cfg.data.previous_contract_address = oldContractAddress;
-            }
-            cfg.save();
-
             await retryWithBackoff(() => contract.deployed());
+
+            const contractAddress = contract.address;
 
             // Check contract version
             let version = 'Unknown';
@@ -415,10 +418,18 @@ let main = async function() {
                 version = '1.0.0';
             }
 
-            // Finalize: mark fully initialized
+            // Save old contract address before overwriting
+            const oldContractAddress = cfg.data?.contract_address;
+
+            // Finalize: promote to active contract
+            cfg.data.contract_address = contractAddress;
             delete cfg.data.agent_contract_pending;
+            cfg.data.contract_deployed_at = new Date().toISOString();
             cfg.data.contract_version = version;
             cfg.data.acl_initialized_at = new Date().toISOString();
+            if (oldContractAddress) {
+                cfg.data.previous_contract_address = oldContractAddress;
+            }
             cfg.save();
 
             const txOverrides = { ...gasOverrides };
