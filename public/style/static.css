@@ -972,6 +972,8 @@ footer {
         border-top: none;
         width: 100%;
         max-width: 100%;
+        overflow-y: auto;
+        overflow-y: auto;
     }
 }
 

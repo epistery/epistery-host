@@ -740,6 +740,7 @@ let main = async function() {
         cfg.setPath(domain);
         const defaultAgent = cfg.data?.default_agent || null;
         const verified = cfg.data?.verified || false;
+        const contract = req.domainAcl?.chain?.contract;
 
         // Check if authenticated user is admin
         let isAdmin = false;
@@ -750,6 +751,19 @@ let main = async function() {
         let navBar = "";
         for (const [, agentData] of agentManager.agents) {
             if (agentData.manifest.noUserInterface) continue;
+
+            // Only list agents added/configured on this domain (contract attribute set)
+            let enabled = false;
+            if (contract) {
+                try {
+                    const configJson = await contract.getPublicAttribute(contract.signer.address, normalizeAgentName(agentData.manifest.name));
+                    enabled = !!configJson;
+                } catch (e) {
+                    // contract read failed — leave disabled
+                }
+            }
+            if (!enabled) continue;
+
             const displayName = agentData.manifest.title || agentData.manifest.name.split('/').pop();
             navBar += `<a href="${agentData.shortPath}">${agentData.manifest.icon ? `<img alt="${displayName}" src="${agentData.manifest.icon}">` : ''} <span>${displayName}</span></a>`;
         }

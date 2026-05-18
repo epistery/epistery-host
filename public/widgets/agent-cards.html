@@ -112,9 +112,10 @@
             return;
         }
 
-        // Fetch ACL info for all agents in parallel
+        // Fetch ACL info for all agents in parallel.
+        // Only agents added/configured on this domain (enabled) are shown — admin manages the rest.
         const aclPromises = data.agents
-            .filter(a => !a.noUserInterface)
+            .filter(a => !a.noUserInterface && a.enabled)
             .map(async agent => {
                 try {
                     const aclRes = await fetch(`/api/acl/agent/${encodeURIComponent(agent.name)}`);
@@ -139,9 +140,10 @@
         await Promise.all(aclPromises);
 
         grid.innerHTML = '';
+        let rendered = 0;
 
         for (const agent of data.agents) {
-            if (agent.noUserInterface) continue;
+            if (agent.noUserInterface || !agent.enabled) continue;
 
             const acl = agent._acl?.acl || [];
             const userAccess = agent._access || {};
@@ -199,6 +201,11 @@
             }
 
             grid.appendChild(a);
+            rendered++;
+        }
+
+        if (rendered === 0 && !isAdmin) {
+            grid.innerHTML = '<div class="agent-cards-empty">No services have been added to this domain yet.</div>';
         }
 
         // Administrate card for admins
