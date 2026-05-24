@@ -238,6 +238,7 @@
             <button class="identity-section-btn" id="id-add-web3">+ Plugin Wallet (Web3)</button>
             <button class="identity-section-btn" id="id-add-browser">+ Browser Wallet</button>
             <button class="identity-section-btn" id="id-add-fido">+ Fido Wallet</button>
+            <button class="identity-section-btn" id="id-add-epistery">+ Epistery Identity</button>
         </div>
         <div id="id-wallet-feedback"></div>
     </div>
@@ -255,6 +256,7 @@
     const addWeb3Btn = document.getElementById('id-add-web3');
     const addBrowserBtn = document.getElementById('id-add-browser');
     const addFidoBtn = document.getElementById('id-add-fido');
+    const addEpisteryBtn = document.getElementById('id-add-epistery');
 
     // FIDO requires WebAuthn — hide the button if the browser lacks it.
     if (!window.PublicKeyCredential || !navigator.credentials?.create) {
@@ -502,6 +504,34 @@
         } finally {
             addBrowserBtn.textContent = '+ Browser Wallet';
             addBrowserBtn.disabled = false;
+        }
+    });
+
+    // Bind to an existing Epistery Identity (issued by epistery.io or another
+    // epistery host). Pops the issuer's /auth page; on approval the local
+    // rivet is added to the user's IdentityContract on-chain and presented
+    // back to this host as the canonical identity. The host's /connect
+    // verifies on-chain isAuthorized before honoring the contract claim.
+    addEpisteryBtn.addEventListener('click', async () => {
+        if (!witness) return;
+        try {
+            addEpisteryBtn.textContent = 'Connecting...';
+            addEpisteryBtn.disabled = true;
+            showFeedback('Opening epistery.io to approve…', 'loading');
+            const result = await witness.bindToEpisteryIdentity({
+                issuerUrl: 'https://epistery.io',
+            });
+            const ident = result.identityName
+                ? `${result.identityName}${result.identityDomain ? '@' + result.identityDomain : ''}`
+                : result.contractAddress;
+            showFeedback(`Bound to identity: ${ident}`, 'success');
+            renderWallets();
+        } catch (e) {
+            console.error('[identity] bind epistery identity failed:', e);
+            showFeedback('Failed: ' + e.message, 'error');
+        } finally {
+            addEpisteryBtn.textContent = '+ Epistery Identity';
+            addEpisteryBtn.disabled = false;
         }
     });
 
