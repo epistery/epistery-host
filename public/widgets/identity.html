@@ -375,8 +375,9 @@
             addrRow.appendChild(addrSpan);
             addrRow.appendChild(nameSpan);
 
-            // Resolve identity name from agent contract (agent v3.2.0+ address→name mapping)
-            fetch('/whitelist/resolveName?address=' + encodeURIComponent(w.address))
+            // Resolve identity name from the domain contract (v1.2: naming moved
+            // off the epistery package onto DomainAgent.sol address→name mapping)
+            fetch('/api/acl/name?address=' + encodeURIComponent(w.address))
                 .then(r => r.ok ? r.json() : null)
                 .then(d => { if (d && d.name) nameSpan.textContent = '(' + d.name + ')'; })
                 .catch(() => {});

@@ -21,10 +21,30 @@
  */
 
 import { Config } from 'epistery';
-import { TOOLS, hasScope, createHandlers } from './MCPTools.mjs';
+import { TOOLS, createHandlers } from './MCPTools.mjs';
+import { OAuthServer } from './OAuthServer.mjs';
 
 const PROTOCOL_VERSION = '2024-11-05';
 const SERVER_INFO = { name: 'epistery', version: '0.1.0' };
+
+// Coarse permission tiers (mirrors epistery.app/lib/mcp.mjs). A tool declares
+// a `scope`; the caller carries a `role`. read < edit < admin. Fine-grained
+// OAuth scope strings (e.g. 'wiki:write') collapse to a tier; unknown/no scope
+// is unrestricted (any role with MCP access may call).
+const TIER_RANK = { read: 1, edit: 2, admin: 3 };
+
+function scopeRequiredTier(scope) {
+  if (!scope) return 0;                       // unrestricted
+  if (/:admin$/.test(scope)) return 3;
+  if (/:(write|create)$/.test(scope)) return 2;
+  return 1;                                   // :read and anything else → read
+}
+
+function roleAllows(role, scope) {
+  const need = scopeRequiredTier(scope);
+  if (!need) return true;
+  return (TIER_RANK[role] || 0) >= need;
+}
 
 export class MCPServer {
   static handlers = null;
@@ -39,8 +59,13 @@ export class MCPServer {
 
     // ── POST /mcp — JSON-RPC requests ──
     app.post('/mcp', async (req, res) => {
-      // Auth check: accept OAuth Bearer or epistery bot-auth
-      if (!req.episteryClient?.authenticated) {
+      // Resolve the calling principal to { caller, role }. Two credentials are
+      // accepted: a proven epistery identity (cookie/bot, via req.episteryClient)
+      // OR an OAuth bearer (resolved to the connection's derived address). The
+      // role is read from the contract ACL (the source of truth) for the caller.
+      // A null principal or a caller with no ACL role gets no MCP access.
+      const principal = await MCPServer._resolvePrincipal(req);
+      if (!principal || !principal.role) {
         return res.status(401)
           .set('WWW-Authenticate', `Bearer resource_metadata="https://${req.hostname}/.well-known/oauth-protected-resource"`)
           .json({
@@ -56,7 +81,7 @@ export class MCPServer {
       if (Array.isArray(body)) {
         const results = [];
         for (const msg of body) {
-          const result = await MCPServer._dispatch(msg, req);
+          const result = await MCPServer._dispatch(msg, req, principal);
           if (result !== null) results.push(result);
         }
         if (results.length === 0) return res.status(204).end();
@@ -64,7 +89,7 @@ export class MCPServer {
       }
 
       // Handle single JSON-RPC message
-      const result = await MCPServer._dispatch(body, req);
+      const result = await MCPServer._dispatch(body, req, principal);
       if (result === null) {
         res.status(204).end();
       } else {
@@ -74,8 +99,9 @@ export class MCPServer {
 
     // ── GET /mcp — SSE stream ──
     // Some MCP clients (Claude Code) open a GET SSE connection first.
-    app.get('/mcp', (req, res) => {
-      if (!req.episteryClient?.authenticated) {
+    app.get('/mcp', async (req, res) => {
+      const principal = await MCPServer._resolvePrincipal(req);
+      if (!principal || !principal.role) {
         return res.status(401)
           .set('WWW-Authenticate', `Bearer resource_metadata="https://${req.hostname}/.well-known/oauth-protected-resource"`)
           .json({ error: 'Authentication required' });
@@ -110,7 +136,7 @@ export class MCPServer {
 
   // ── JSON-RPC Dispatcher ──
 
-  static async _dispatch(msg, req) {
+  static async _dispatch(msg, req, principal) {
     if (!msg || msg.jsonrpc !== '2.0') {
       return {
         jsonrpc: '2.0',
@@ -128,11 +154,17 @@ export class MCPServer {
       case 'notifications/initialized':
         return null;
 
-      case 'tools/list':
-        return { jsonrpc: '2.0', id: msg.id, result: { tools: await MCPServer._getAllTools(req) } };
+      case 'tools/list': {
+        // Only advertise tools the caller's role can actually invoke — cleaner
+        // for the client than surfacing tools that 403 mid-call.
+        const all = await MCPServer._getAllTools(req);
+        const tools = all.filter(t => roleAllows(principal.role, t._agent?.scope))
+          .map(({ _agent, ...t }) => t);   // strip internal routing from the wire
+        return { jsonrpc: '2.0', id: msg.id, result: { tools } };
+      }
 
       case 'tools/call':
-        return await MCPServer._handleCallTool(msg, req);
+        return await MCPServer._handleCallTool(msg, req, principal);
 
       case 'ping':
         return { jsonrpc: '2.0', id: msg.id, result: {} };
@@ -172,7 +204,7 @@ export class MCPServer {
     };
   }
 
-  static async _handleCallTool(msg, req) {
+  static async _handleCallTool(msg, req, principal) {
     const { name, arguments: args } = msg.params || {};
 
     if (!name) {
@@ -183,12 +215,12 @@ export class MCPServer {
       };
     }
 
-    // Check static handlers first
+    // Check static handlers first (host-level tools like whoami)
     const handler = MCPServer.handlers[name];
 
     if (handler) {
       try {
-        const result = await handler(args || {}, req);
+        const result = await handler(args || {}, req, principal);
         return { jsonrpc: '2.0', id: msg.id, result };
       } catch (err) {
         console.error(`[mcp] Tool ${name} error:`, err);
@@ -206,7 +238,18 @@ export class MCPServer {
     // Fall back to agent registry tools
     const agentTool = MCPServer._findAgentTool(name);
     if (agentTool) {
-      return await MCPServer._proxyAgentTool(msg, req, agentTool);
+      // Role gate (defense-in-depth — tools/list already filtered).
+      if (!roleAllows(principal.role, agentTool.scope)) {
+        return {
+          jsonrpc: '2.0',
+          id: msg.id,
+          result: {
+            content: [{ type: 'text', text: `Insufficient role: '${principal.role}' cannot invoke a tool requiring '${agentTool.scope}'.` }],
+            isError: true
+          }
+        };
+      }
+      return await MCPServer._invokeAgentTool(msg, req, principal, agentTool);
     }
 
     return {
@@ -293,109 +336,174 @@ export class MCPServer {
     return tools;
   }
 
-  /**
-   * Proxy a tools/call request to an agent's internal HTTP endpoint.
-   * Uses the same loopback pattern as static tool handlers.
-   */
-  static async _proxyAgentTool(msg, req, tool) {
-    const port = MCPServer._port;
-    const args = msg.params?.arguments || {};
+  // ── Principal resolution ───────────────────────────────────────────────────
 
-    // Resolve routing info — either stashed from _getAllTools or from registry
+  /**
+   * Resolve the MCP caller to { caller, role, via }. Two credentials accepted:
+   *   - a proven epistery identity (cookie/bot) in req.episteryClient, OR
+   *   - an OAuth bearer (OAuthServer.resolveBearer → connection's derived address).
+   * The role tier is read from the contract ACL (the source of truth) for the
+   * caller — never trusted from the credential. Returns null when neither
+   * credential is present.
+   */
+  static async _resolvePrincipal(req) {
+    if (req.episteryClient?.authenticated) {
+      const caller = req.episteryClient.identityAddress;
+      return { caller, role: await MCPServer._roleTier(req, caller), via: req.episteryClient.authType };
+    }
+    const oauth = await OAuthServer.resolveBearer(req);
+    if (oauth) {
+      return { caller: oauth.caller, role: await MCPServer._roleTier(req, oauth.caller), via: 'oauth', clientId: oauth.clientId };
+    }
+    return null;
+  }
+
+  /**
+   * Map an address to its coarse role tier (admin/edit/read) using the domain
+   * contract ACL — the source of truth. Returns null when the address has no
+   * grant (no MCP access).
+   */
+  static async _roleTier(req, address) {
+    if (!address) return null;
+    try {
+      if (req.domainAcl && await req.domainAcl.isAdmin(address)) return 'admin';
+      const contract = req.domainAcl?.chain?.contract;
+      if (contract) {
+        const memberships = await contract.getListsForMember(address);
+        const max = memberships.reduce((m, e) => Math.max(m, Number(e.role) || 0), 0);
+        if (max >= 2) return 'edit';
+        if (max >= 1) return 'read';
+      }
+    } catch (e) {
+      console.error('[mcp] role resolve error:', e.message);
+    }
+    return null;
+  }
+
+  // ── In-process agent tool invocation ───────────────────────────────────────
+
+  /** Find the mounted agent whose router serves a tool's basePath. */
+  static _findAgentData(basePath) {
+    const am = MCPServer._app?.locals?.agentManager;
+    if (!am) return null;
+    for (const [, data] of am.agents) {
+      if (data.shortPath === basePath) return data;
+    }
+    return null;
+  }
+
+  /**
+   * Invoke an agent tool IN-PROCESS against the agent's mounted router — no
+   * loopback HTTP, no bearer re-forwarding, no extra trust surface (the model
+   * used by epistery.app/lib/mcp.mjs).
+   *
+   * The agent receives a synthetic request carrying the MCP principal contract:
+   *   req.mcp     = true               — this call arrived via MCP, already
+   *                                      role-gated by scope→role above.
+   *   req.caller  = principal.caller   — the acting address (authorship/ACL).
+   *   req.role    = principal.role     — coarse tier (read/edit/admin).
+   * Agents authorize MCP calls from req.role/req.caller (req.episteryClient is
+   * intentionally absent — the bearer is not a global identity).
+   */
+  static async _invokeAgentTool(msg, req, principal, tool) {
+    const args = msg.params?.arguments || {};
     const routing = tool._agent || {
       basePath: tool.basePath,
       path: tool.path,
-      method: (tool.method || 'GET').toUpperCase()
+      method: (tool.method || 'GET').toUpperCase(),
+      scope: tool.scope
     };
-
-    // Enforce OAuth scope declared in agent manifest
-    const requiredScope = routing.scope || tool.scope;
-    if (requiredScope && !hasScope(req, requiredScope)) {
-      return {
-        jsonrpc: '2.0',
-        id: msg.id,
-        result: {
-          content: [{ type: 'text', text: `Insufficient scope. Required: ${requiredScope}` }],
-          isError: true
-        }
-      };
-    }
 
     if (!routing.basePath) {
-      return {
-        jsonrpc: '2.0',
-        id: msg.id,
-        result: {
-          content: [{ type: 'text', text: `Tool "${msg.params.name}" has no route configured` }],
-          isError: true
-        }
-      };
+      return MCPServer._toolError(msg.id, `Tool "${msg.params.name}" has no route configured`);
+    }
+    const agentData = MCPServer._findAgentData(routing.basePath);
+    if (!agentData?.activeRouter) {
+      return MCPServer._toolError(msg.id, `Agent for "${msg.params.name}" is not mounted`);
     }
 
-    const headers = {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-      'X-Forwarded-Host': req.headers?.host || 'localhost'
-    };
-    const authHeader = req.headers?.authorization;
-    if (authHeader) headers['Authorization'] = authHeader;
+    const method = (routing.method || 'GET').toUpperCase();
 
-    const method = routing.method || 'GET';
-    let url;
-
-    // Substitute path parameters ({name}, {id}, etc.) from args
-    let resolvedPath = routing.path;
+    // Substitute {param} placeholders from args; remaining args become query
+    // (GET/DELETE) or body (POST/PUT/PATCH).
     const usedParams = new Set();
-    resolvedPath = resolvedPath.replace(/\{(\w+)\}/g, (match, param) => {
-      if (args[param] != null) {
-        usedParams.add(param);
-        return encodeURIComponent(args[param]);
-      }
-      return match;
+    const path = (routing.path || '/').replace(/\{(\w+)\}/g, (m, param) => {
+      if (args[param] != null) { usedParams.add(param); return encodeURIComponent(args[param]); }
+      return m;
     });
-
-    if (method === 'GET') {
-      const qs = new URLSearchParams();
-      for (const [k, v] of Object.entries(args)) {
-        if (v != null && !usedParams.has(k)) qs.set(k, v);
-      }
-      const qsStr = qs.toString();
-      url = `http://127.0.0.1:${port}${routing.basePath}${resolvedPath}${qsStr ? '?' + qsStr : ''}`;
+    const query = {};
+    let body;
+    if (method === 'GET' || method === 'DELETE') {
+      for (const [k, v] of Object.entries(args)) if (v != null && !usedParams.has(k)) query[k] = v;
     } else {
-      url = `http://127.0.0.1:${port}${routing.basePath}${resolvedPath}`;
+      body = {};
+      for (const [k, v] of Object.entries(args)) if (!usedParams.has(k)) body[k] = v;
     }
+
+    const synthReq = {
+      method,
+      url: path,
+      originalUrl: routing.basePath + path,
+      baseUrl: routing.basePath,
+      path,
+      headers: {},
+      body,
+      params: {},
+      query,
+      hostname: req.hostname,
+      app: req.app,
+      domainAcl: req.domainAcl,
+      // MCP principal contract (see method doc):
+      mcp: true,
+      caller: principal.caller,
+      role: principal.role,
+      get(name) { return this.headers[name.toLowerCase()]; }
+    };
 
     try {
-      const fetchOpts = { method, headers };
-      if (method !== 'GET') {
-        // Exclude params already substituted into the path
-        const bodyArgs = {};
-        for (const [k, v] of Object.entries(args)) {
-          if (!usedParams.has(k)) bodyArgs[k] = v;
-        }
-        fetchOpts.body = JSON.stringify(bodyArgs);
+      const { status, body: out } = await MCPServer._runRouter(agentData.activeRouter, synthReq);
+      if (status >= 400) {
+        return MCPServer._toolError(msg.id, `HTTP ${status}: ${typeof out === 'string' ? out : JSON.stringify(out)}`);
       }
-
-      const res = await fetch(url, fetchOpts);
-      const data = await res.json();
-
-      return {
-        jsonrpc: '2.0',
-        id: msg.id,
-        result: {
-          content: [{ type: 'text', text: JSON.stringify(data, null, 2) }]
-        }
-      };
+      const text = typeof out === 'string' ? out : JSON.stringify(out, null, 2);
+      return { jsonrpc: '2.0', id: msg.id, result: { content: [{ type: 'text', text }] } };
     } catch (err) {
-      console.error(`[mcp] Agent tool ${msg.params.name} proxy error:`, err);
-      return {
-        jsonrpc: '2.0',
-        id: msg.id,
-        result: {
-          content: [{ type: 'text', text: `Agent tool error: ${err.message}` }],
-          isError: true
-        }
-      };
+      console.error(`[mcp] Agent tool ${msg.params.name} error:`, err);
+      return MCPServer._toolError(msg.id, `Agent tool error: ${err.message}`);
     }
+  }
+
+  /**
+   * Run an Express router against a synthetic req. Resolves { status, body }.
+   * Router fall-through (next without a response) resolves as 404.
+   */
+  static _runRouter(router, req) {
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const finish = (status, body) => { if (!settled) { settled = true; resolve({ status, body }); } };
+      const res = {
+        statusCode: 200,
+        headersSent: false,
+        headers: {},
+        locals: {},
+        status(code) { this.statusCode = code; return this; },
+        set(name, val) { this.headers[String(name).toLowerCase()] = val; return this; },
+        setHeader(name, val) { this.headers[String(name).toLowerCase()] = val; return this; },
+        getHeader(name) { return this.headers[String(name).toLowerCase()]; },
+        json(obj) { finish(this.statusCode, obj); return this; },
+        send(b) { finish(this.statusCode, b); return this; },
+        end(b) { finish(this.statusCode, b ?? null); return this; }
+      };
+      const next = (err) => {
+        if (err) { if (!settled) { settled = true; reject(err); } return; }
+        finish(404, { error: 'not found' });
+      };
+      try { router(req, res, next); }
+      catch (e) { if (!settled) reject(e); }
+    });
+  }
+
+  static _toolError(id, text) {
+    return { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text }], isError: true } };
   }
 }

@@ -99,7 +99,7 @@ export class DomainChain {
    */
   static attach(app) {
     app.post('/rpc', async (req, res) => {
-      const session = req.episteryClient?.address;
+      const session = req.episteryClient?.identityAddress;
       if (!session) return res.status(401).json(rpcError(null, -32000, 'Not authenticated'));
       if (!rpcConsumeBudget(session)) return res.status(429).json(rpcError(null, -32005, 'Rate limit exceeded'));
 

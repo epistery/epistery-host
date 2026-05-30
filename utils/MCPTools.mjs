@@ -13,29 +13,23 @@ export const TOOLS = [
   }
 ];
 
-export function hasScope(req, required) {
-  if (!required) return true;
-  // Bot-auth access is governed by ACL lists, not OAuth scopes
-  if (req.episteryClient?.authType === 'bot') return true;
-  const granted = req.oauthScope || '';
-  return granted.split(' ').includes(required);
-}
-
 /**
- * Create tool handlers bound to an internal port.
- * @param {number} port — Internal epistery-host port
+ * Create tool handlers. Handlers receive (args, req, principal) where principal
+ * is the MCP-resolved { caller, role, via, clientId } — see MCPServer.
+ * @param {number} port — Internal epistery-host port (reserved; in-process now)
  * @returns {Object} Map of tool name -> handler function
  */
 export function createHandlers(port) {
   return {
-    async whoami(args, req) {
+    async whoami(args, req, principal) {
+      // The principal is the MCP-resolved caller: an epistery identity
+      // (cookie/bot) or an OAuth connection's derived address. `role` is the
+      // coarse tier read from the contract ACL.
       const info = {
-        wallet: req.episteryClient?.address || null,
-        clientId: req.episteryClient?.clientId || null,
-        clientName: req.episteryClient?.clientName || null,
-        authMethod: req.episteryClient?.authType || 'none',
-        oauthScope: req.oauthScope || null,
-        authenticated: !!req.episteryClient?.authenticated,
+        caller: principal?.caller || null,
+        role: principal?.role || null,
+        via: principal?.via || 'none',
+        clientId: principal?.clientId || null,
         domain: req.hostname
       };
       return { content: [{ type: 'text', text: JSON.stringify(info, null, 2) }] };

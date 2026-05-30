@@ -745,7 +745,7 @@ let main = async function() {
         // Check if authenticated user is admin
         let isAdmin = false;
         if (req.episteryClient) {
-            isAdmin = await req.domainAcl.isAdmin(req.episteryClient.address);
+            isAdmin = await req.domainAcl.isAdmin(req.episteryClient.identityAddress);
         }
 
         let navBar = "";
@@ -787,7 +787,7 @@ let main = async function() {
             }
 
             // Check if user is admin
-            const isAdmin = await req.domainAcl.isAdmin(req.episteryClient?.address);
+            const isAdmin = await req.domainAcl.isAdmin(req.episteryClient?.identityAddress);
             if (!isAdmin) {
                 return res.status(403).json({ error: 'Not authorized' });
             }
@@ -841,7 +841,7 @@ let main = async function() {
             }
 
             // Check if user is admin
-            const isAdmin = await req.domainAcl.isAdmin(req.episteryClient?.address);
+            const isAdmin = await req.domainAcl.isAdmin(req.episteryClient?.identityAddress);
             if (!isAdmin) {
                 return res.status(403).json({ error: 'Not authorized' });
             }
@@ -877,7 +877,7 @@ let main = async function() {
     // API: Get storage status (admin only)
     app.get('/api/storj-status', async (req, res) => {
         try {
-            const isAdmin = await req.domainAcl?.isAdmin(req.episteryClient?.address);
+            const isAdmin = await req.domainAcl?.isAdmin(req.episteryClient?.identityAddress);
             if (!isAdmin) return res.status(403).json({ error: 'Not authorized' });
 
             const domain = req.headers.host?.split(':')[0] || 'localhost';
@@ -922,7 +922,7 @@ let main = async function() {
     // API: Update storage configuration (admin only)
     app.post('/api/storage-config', async (req, res) => {
         try {
-            const isAdmin = await req.domainAcl?.isAdmin(req.episteryClient?.address);
+            const isAdmin = await req.domainAcl?.isAdmin(req.episteryClient?.identityAddress);
             if (!isAdmin) return res.status(403).json({ error: 'Not authorized' });
 
             const domain = req.headers.host?.split(':')[0] || 'localhost';
@@ -971,7 +971,7 @@ let main = async function() {
     // API: Get user preferences
     app.get('/api/preferences', async (req, res) => {
         try {
-            const userAddress = req.episteryClient?.address;
+            const userAddress = req.episteryClient?.identityAddress;
             if (!userAddress) {
                 return res.status(401).json({ error: 'Not authenticated' });
             }
@@ -994,7 +994,7 @@ let main = async function() {
     // API: Save user preferences
     app.post('/api/preferences', async (req, res) => {
         try {
-            const userAddress = req.episteryClient?.address;
+            const userAddress = req.episteryClient?.identityAddress;
             if (!userAddress) {
                 return res.status(401).json({ error: 'Not authenticated' });
             }

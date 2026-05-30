@@ -209,13 +209,13 @@ export class DomainAcl {
         router.use(async (req, res, next) => {
             const code = req.query.invite;
             if (!code) return next();
-            if (!req.episteryClient?.address) {
+            if (!req.episteryClient?.identityAddress) {
                 // No wallet yet — store in cookie for deferred redemption
                 res.cookie('_pending_invite', code, { maxAge: 3600000, httpOnly: true, sameSite: 'lax' });
                 return next();
             }
             try {
-                await req.domainAcl.redeemInvite(code, req.episteryClient.address);
+                await req.domainAcl.redeemInvite(code, req.episteryClient.identityAddress);
                 // Redirect without ?invite= to avoid re-processing
                 const url = new URL(req.originalUrl, `${req.protocol}://${req.get('host')}`);
                 url.searchParams.delete('invite');
@@ -230,9 +230,9 @@ export class DomainAcl {
         // Deferred: redeem cookie-stored invite after wallet creation
         router.use(async (req, res, next) => {
             const pending = req.cookies?._pending_invite;
-            if (!pending || !req.episteryClient?.address) return next();
+            if (!pending || !req.episteryClient?.identityAddress) return next();
             try {
-                await req.domainAcl.redeemInvite(pending, req.episteryClient.address);
+                await req.domainAcl.redeemInvite(pending, req.episteryClient.identityAddress);
             } catch (err) {
                 console.log('[invite] Deferred redeem failed:', err.message);
             }
@@ -242,7 +242,7 @@ export class DomainAcl {
 
         router.get("/api/acl/check-admin", async (req, res) => {
             try {
-                const address = req.episteryClient?.address;
+                const address = req.episteryClient?.identityAddress;
                 if (!address) {
                     res.clearCookie('_epistery', { path: '/', httpOnly: true, secure: true, sameSite: 'lax' });
                     return res.json({ isAdmin: false, error: 'No authenticated session' });
@@ -262,13 +262,12 @@ export class DomainAcl {
         // earliest addedAt across memberships.
         router.get('/api/users', async (req, res) => {
             try {
-                const isAdmin = await req.domainAcl.isAdmin(req.episteryClient?.address);
+                const isAdmin = await req.domainAcl.isAdmin(req.episteryClient?.identityAddress);
                 if (!isAdmin) return res.status(403).json({ error: 'Not authorized' });
 
                 const contract = req.domainAcl.chain.contract;
                 if (!contract) return res.status(400).json({ error: 'Contract not deployed' });
 
-                const epistery = req.app.locals.epistery;
                 const listNames = await contract.getListNames();
 
                 const usersMap = new Map(); // address.toLowerCase() → user record
@@ -309,9 +308,12 @@ export class DomainAcl {
                 }
 
                 const users = Array.from(usersMap.values());
-                // Resolve identity names in parallel (opportunistic; older contracts return undefined)
+                // Resolve identity names from the domain contract (the source of
+                // truth for naming in v1.2 — the epistery package no longer owns
+                // a name registry). Opportunistic; getAddressName's owner arg is
+                // ignored by DomainAgent.sol.
                 await Promise.all(users.map(async u => {
-                    try { u.name = (await epistery.resolveName(u.address)) || ''; } catch {}
+                    try { u.name = (await contract.getAddressName(contract.signer.address, u.address)) || ''; } catch {}
                 }));
 
                 users.sort((a, b) => a.address.localeCompare(b.address));
@@ -635,7 +637,7 @@ export class DomainAcl {
         // API: Create invite code (admin only)
         router.post('/api/acl/invite/create', async (req, res) => {
             try {
-                const isAdmin = await req.domainAcl.isAdmin(req.episteryClient?.address);
+                const isAdmin = await req.domainAcl.isAdmin(req.episteryClient?.identityAddress);
                 if (!isAdmin) {
                     return res.status(403).json({ error: 'Not authorized' });
                 }
@@ -683,7 +685,7 @@ export class DomainAcl {
         // API: List all invites (admin only)
         router.get('/api/acl/invites', async (req, res) => {
             try {
-                const isAdmin = await req.domainAcl.isAdmin(req.episteryClient?.address);
+                const isAdmin = await req.domainAcl.isAdmin(req.episteryClient?.identityAddress);
                 if (!isAdmin) {
                     return res.status(403).json({ error: 'Not authorized' });
                 }
@@ -727,7 +729,7 @@ export class DomainAcl {
         // API: Revoke invite (admin only)
         router.post('/api/acl/invite/revoke', async (req, res) => {
             try {
-                const isAdmin = await req.domainAcl.isAdmin(req.episteryClient?.address);
+                const isAdmin = await req.domainAcl.isAdmin(req.episteryClient?.identityAddress);
                 if (!isAdmin) {
                     return res.status(403).json({ error: 'Not authorized' });
                 }
@@ -763,16 +765,66 @@ export class DomainAcl {
                 }
 
                 // No agent → host-level check against DEFAULT_ACL_STANCE via empty agent name
-                const result = await req.domainAcl.checkAgentAccess(agent || '', req.episteryClient.address, req.hostname);
+                const result = await req.domainAcl.checkAgentAccess(agent || '', req.episteryClient.identityAddress, req.hostname);
+
+                // Identity name lives on the domain contract in v1.2 (not on
+                // episteryClient, which is pure identity). Resolve opportunistically.
+                let name = '';
+                try {
+                    const contract = req.domainAcl.chain.contract;
+                    if (contract) name = (await contract.getAddressName(contract.signer.address, req.episteryClient.identityAddress)) || '';
+                } catch {}
 
                 res.json({
                     allowed: result.allowed,
                     level: result.level,
-                    address: req.episteryClient.address,
-                    name: req.episteryClient.name
+                    address: req.episteryClient.identityAddress,
+                    name
                 });
             } catch (error) {
                 console.error('[check-access] Error:', error);
+                res.status(500).json({ error: error.message });
+            }
+        });
+
+        // API: Resolve an address → identity name. Naming is owned by the domain
+        // contract in v1.2 (the epistery package's name registry and its
+        // /whitelist routes were removed). Public read; opportunistic.
+        router.get('/api/acl/name', async (req, res) => {
+            try {
+                const address = req.query.address;
+                if (!address) return res.status(400).json({ error: 'address required' });
+                const contract = req.domainAcl?.chain?.contract;
+                let name = '';
+                if (contract) {
+                    // getAddressName's owner arg is ignored by DomainAgent.sol.
+                    name = (await contract.getAddressName(contract.signer.address, address)) || '';
+                }
+                res.json({ name });
+            } catch (error) {
+                console.error('[acl/name] Resolve error:', error);
+                res.json({ name: '' });
+            }
+        });
+
+        // API: Set an address → identity name on the domain contract (admin only).
+        router.post('/api/acl/name', async (req, res) => {
+            try {
+                const isAdmin = await req.domainAcl.isAdmin(req.episteryClient?.identityAddress);
+                if (!isAdmin) return res.status(403).json({ error: 'Not authorized' });
+
+                const { address, name } = req.body;
+                if (!address) return res.status(400).json({ error: 'address required' });
+
+                const chain = req.domainAcl.chain;
+                if (!chain?.contract) return res.status(400).json({ error: 'Contract not deployed' });
+
+                const fee = await chain.getFeeData();
+                const tx = await chain.contract.setAddressName(address, String(name || '').slice(0, 128), fee);
+                await tx.wait();
+                res.json({ ok: true });
+            } catch (error) {
+                console.error('[acl/name] Set error:', error);
                 res.status(500).json({ error: error.message });
             }
         });
@@ -789,10 +841,10 @@ export class DomainAcl {
                 if (req.episteryClient) {
                     // Has authenticated session - check via contract if available
                     if (domainChain.contract) {
-                        isAdmin = await domainChain.contract.isInACL('epistery::admin', req.episteryClient.address);
+                        isAdmin = await domainChain.contract.isInACL('epistery::admin', req.episteryClient.identityAddress);
                     } else {
                         // No contract - check against config
-                        isAdmin = adminAddress && req.episteryClient.address.toLowerCase() === adminAddress.toLowerCase();
+                        isAdmin = adminAddress && req.episteryClient.identityAddress.toLowerCase() === adminAddress.toLowerCase();
                     }
                 } else {
                     // No episteryClient (fresh rivet) - allow if we're in pre-contract state
@@ -822,7 +874,7 @@ export class DomainAcl {
         // API: Handle access request (approve/deny) (admin only)
         router.post('/api/acl/handle-request', async (req, res) => {
             try {
-                const isAdmin = await req.domainAcl.isAdmin(req.episteryClient?.address);
+                const isAdmin = await req.domainAcl.isAdmin(req.episteryClient?.identityAddress);
                 if (!isAdmin) {
                     return res.status(403).json({ error: 'Not authorized' });
                 }
@@ -868,11 +920,15 @@ export class DomainAcl {
                     await tx.wait();
 
                     // Apply identity name (optional — empty string clears).
+                    // Naming lives on the domain contract in v1.2 (the epistery
+                    // package no longer owns a name registry).
                     if (identityName.length > 0) {
                         try {
-                            await req.app.locals.epistery.setAddressName(address, identityName.slice(0, 128));
+                            const nameFee = await domainChain.getFeeData();
+                            const nameTx = await domainChain.contract.setAddressName(address, identityName.slice(0, 128), nameFee);
+                            await nameTx.wait();
                         } catch (err) {
-                            console.warn('[handle-request] setAddressName failed (older agent contract?):', err.message);
+                            console.warn('[handle-request] setAddressName failed:', err.message);
                         }
                     }
 
@@ -909,7 +965,7 @@ export function agentAccessMiddleware(agentName, customAuthFunctions = {}) {
         if (!req.episteryClient) {
             return res.status(403).json({ error: 'Authentication required' });
         }
-        const userAddress = req.episteryClient.address;
+        const userAddress = req.episteryClient.identityAddress;
 
         const result = await req.domainAcl.checkAgentAccess(agentName, userAddress, req.hostname, customAuthFunctions);
 

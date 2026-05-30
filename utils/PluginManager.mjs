@@ -47,7 +47,7 @@ export class PluginManager {
         }
 
         const adminGate = async (req, res, next) => {
-            const isAdmin = await req.domainAcl?.isAdmin(req.episteryClient?.address);
+            const isAdmin = await req.domainAcl?.isAdmin(req.episteryClient?.identityAddress);
             if (!isAdmin) return res.status(403).json({ error: 'Not authorized' });
             next();
         };

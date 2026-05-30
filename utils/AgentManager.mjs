@@ -144,7 +144,7 @@ export class AgentManager {
             const updateRouter = express.Router();
             updateRouter.get('/_update', async (req, res) => {
                 try {
-                    if (!req.domainAcl || !await req.domainAcl.isAdmin(req.episteryClient?.address)) {
+                    if (!req.domainAcl || !await req.domainAcl.isAdmin(req.episteryClient?.identityAddress)) {
                         return res.status(403).json({success: false, error: 'Not authorized'});
                     }
                     await this.updateAgent(agentInfo.path, manifest.branch || 'main');

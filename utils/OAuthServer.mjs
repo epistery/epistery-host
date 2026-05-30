@@ -130,6 +130,108 @@ export class OAuthServer {
   }
 
   /**
+   * Resolve a rootz_at_ bearer token to the CONNECTION's principal — used at
+   * the MCP boundary (MCPServer), never to set a global identity. Returns
+   * { caller, clientId, scope } or null.
+   *
+   * `caller` is the connection's OWN deterministic address (derived from
+   * domain wallet + client_id), the same value the contract ACL was granted at
+   * consent. The connection's role is NOT decided here — MCPServer reads it
+   * from the contract ACL (the source of truth) for this caller. The bearer
+   * is intentionally inert outside MCP: it confers no global episteryClient.
+   */
+  static async resolveBearer(req) {
+    const auth = req.headers?.authorization;
+    if (!auth || !auth.startsWith('Bearer rootz_at_')) return null;
+
+    const token = auth.slice(7);
+    const domain = req.hostname || 'localhost';
+    const signer = OAuthServer.getSigner(req);
+    if (!signer) return null;
+
+    try {
+      const store = await OAuthServer.getStore(domain, signer);
+      if (!store) return null;
+
+      const record = await store.validateAccessToken(token);
+      if (!record) return null;
+
+      const domainWallet = OAuthServer.getDomainWallet(domain);
+      if (!domainWallet) return null;
+      const caller = OAuthServer.deriveClientAddress(domainWallet, record.client_id);
+
+      return { caller, clientId: record.client_id || null, scope: record.scope || '' };
+    } catch (err) {
+      console.error('[oauth] Bearer resolve error:', err.message);
+      return null;
+    }
+  }
+
+  /**
+   * Map granted OAuth scope to the contract ACL list + role a connection
+   * should receive. Any write/create/admin scope ⇒ editor; otherwise reader.
+   * Connections never receive the admin role.
+   */
+  static _scopeToAcl(scope) {
+    const granted = (scope || '').split(' ').filter(Boolean);
+    const elevated = granted.some(s => /:(write|create|admin)$/.test(s));
+    return elevated
+      ? { listName: 'epistery::editor', role: 2 }
+      : { listName: 'epistery::reader', role: 1 };
+  }
+
+  /**
+   * Grant a connection address its scope-derived ACL role on the domain
+   * contract (the source of truth). Idempotent: removes any stale epistery::*
+   * grant for the address before adding the target. Best-effort when no
+   * contract is deployed (logs and returns).
+   */
+  static async _grantAcl(chain, address, name, scope, meta) {
+    if (!chain?.contract) {
+      console.warn(`[oauth] No contract deployed — cannot grant ACL for ${address}`);
+      return;
+    }
+    const { listName, role } = OAuthServer._scopeToAcl(scope);
+    const memberships = await chain.contract.getListsForMember(address);
+
+    for (const m of memberships) {
+      if ((m.listName === 'epistery::editor' || m.listName === 'epistery::reader') && m.listName !== listName) {
+        const fee = await chain.getFeeData();
+        const tx = await chain.contract.removeFromACL(m.listName, address, fee);
+        await tx.wait();
+      }
+    }
+
+    if (!memberships.some(m => m.listName === listName)) {
+      const fee = await chain.getFeeData();
+      const tx = await chain.contract.addToACL(listName, address, (name || '').slice(0, 128), role, meta, fee);
+      await tx.wait();
+      console.log(`[oauth] Granted ${listName} (role ${role}) to connection ${address}`);
+    }
+  }
+
+  /**
+   * Remove a connection address from any epistery::* ACL list. Used on
+   * connection/consent revocation.
+   */
+  static async _revokeAcl(chain, address) {
+    if (!chain?.contract || !address) return;
+    const memberships = await chain.contract.getListsForMember(address);
+    for (const m of memberships) {
+      if (m.listName === 'epistery::editor' || m.listName === 'epistery::reader') {
+        try {
+          const fee = await chain.getFeeData();
+          const tx = await chain.contract.removeFromACL(m.listName, address, fee);
+          await tx.wait();
+          console.log(`[oauth] Revoked ${m.listName} from connection ${address}`);
+        } catch (e) {
+          console.warn(`[oauth] Revoke ACL ${m.listName} for ${address}:`, e.message);
+        }
+      }
+    }
+  }
+
+  /**
    * Read/write pending-requests.json via DomainAcl pattern.
    */
   static _loadPendingRequests(domain) {
@@ -150,48 +252,15 @@ export class OAuthServer {
   }
 
   /**
-   * Attach all OAuth routes and Bearer middleware to app.
+   * Attach OAuth 2.1 routes (DCR, consent, token, revocation) to app.
+   *
+   * Note: OAuth confers NO global identity. A bearer token is inert outside
+   * the MCP endpoint — MCPServer resolves it via OAuthServer.resolveBearer()
+   * into a per-call { caller, role } principal. epistery middleware remains the
+   * sole writer of req.episteryClient (cookie/bot only).
    */
   static attach(app) {
     const self = OAuthServer;
-
-    // ── Bearer Middleware ──
-    app.use(async (req, res, next) => {
-      const auth = req.headers.authorization;
-      if (!auth || !auth.startsWith('Bearer rootz_at_')) return next();
-
-      const token = auth.slice(7);
-      const domain = req.hostname || 'localhost';
-      const signer = self.getSigner(req);
-      if (!signer) return next();
-
-      try {
-        const store = await self.getStore(domain, signer);
-        if (!store) return next();
-
-        const record = await store.validateAccessToken(token);
-        if (!record) return next();
-
-        req.episteryClient = {
-          address: record.wallet,
-          authenticated: true,
-          authType: 'oauth',
-          clientId: record.client_id || null
-        };
-        req.oauthScope = record.scope;
-
-        // Look up client name from store
-        if (record.client_id) {
-          try {
-            const client = await store.getClient(record.client_id);
-            if (client) req.episteryClient.clientName = client.name;
-          } catch {}
-        }
-      } catch (err) {
-        console.error('[oauth] Bearer validation error:', err.message);
-      }
-      next();
-    });
 
     // ── Well-Known Metadata ──
 
@@ -309,7 +378,7 @@ export class OAuthServer {
 
       // Check admin auth
       const isAdmin = req.episteryClient && req.domainAcl
-        ? await req.domainAcl.isAdmin(req.episteryClient.address)
+        ? await req.domainAcl.isAdmin(req.episteryClient.identityAddress)
         : false;
 
       if (isAdmin) {
@@ -379,7 +448,7 @@ export class OAuthServer {
 
       // Check admin auth
       const isAdmin = req.episteryClient && req.domainAcl
-        ? await req.domainAcl.isAdmin(req.episteryClient.address)
+        ? await req.domainAcl.isAdmin(req.episteryClient.identityAddress)
         : false;
 
       // If not admin: create pending request (same as GET flow but via POST)
@@ -457,29 +526,44 @@ export class OAuthServer {
       const client = await store.getClient(client_id);
       if (!client) return res.status(400).json({ error: 'invalid_client' });
 
-      // Use the authorizer's real signed address — no derived/synthetic addresses
-      const authorizerWallet = req.episteryClient.address;
+      // The authorizer is the proven admin who clicked Approve (audit only).
+      // The connection's PRINCIPAL is its own deterministic address, which we
+      // grant a scope-derived ACL role on the contract (the source of truth).
+      const authorizerWallet = req.episteryClient.identityAddress;
+      const domainWallet = self.getDomainWallet(domain);
+      const connectionAddress = self.deriveClientAddress(domainWallet, client_id);
+      const grantedScope = scope || '';
 
       try {
+        const aclMeta = JSON.stringify({
+          oauth: true,
+          clientId: client_id,
+          clientName: client.name || '',
+          authorizer: authorizerWallet,
+          scope: grantedScope,
+          addedAt: new Date().toISOString()
+        });
+        await self._grantAcl(req.domainAcl?.chain, connectionAddress, client.name, grantedScope, aclMeta);
+
         await store.recordConsent({
           client_id,
-          wallet: authorizerWallet,
-          scope: scope || '',
+          wallet: connectionAddress,
+          scope: grantedScope,
           authorizer: authorizerWallet
         });
 
         const { code } = await store.createAuthorizationCode({
           client_id,
           redirect_uri: redir,
-          scope: scope || '',
+          scope: grantedScope,
           code_challenge,
           code_challenge_method: code_challenge_method || 'S256',
-          wallet: authorizerWallet,
+          wallet: connectionAddress,
           authorizer: authorizerWallet
         });
 
-        // Persist authorizer wallet on client record
-        await store.setClientWallet(client_id, authorizerWallet);
+        // Persist the connection's principal address on the client record
+        await store.setClientWallet(client_id, connectionAddress);
 
         if (redir) {
           const sep = redir.includes('?') ? '&' : '?';
@@ -529,7 +613,7 @@ export class OAuthServer {
     // ── Handle OAuth pending requests (admin approval) ──
     app.post('/oauth/handle-request', async (req, res) => {
       const isAdmin = req.episteryClient && req.domainAcl
-        ? await req.domainAcl.isAdmin(req.episteryClient.address)
+        ? await req.domainAcl.isAdmin(req.episteryClient.identityAddress)
         : false;
 
       if (!isAdmin) {
@@ -554,7 +638,7 @@ export class OAuthServer {
       if (action === 'deny') {
         request.status = 'denied';
         request.deniedAt = new Date().toISOString();
-        request.deniedBy = req.episteryClient.address;
+        request.deniedBy = req.episteryClient.identityAddress;
         self._savePendingRequests(domain, pendingRequests);
         return res.json({ success: true, message: 'Authorization denied' });
       }
@@ -564,14 +648,28 @@ export class OAuthServer {
         const store = signer ? await self.getStore(domain, signer) : null;
         if (!store) return res.status(503).json({ error: 'Master key not initialized' });
 
-        // Use the approving admin's real signed address
-        const authorizerWallet = req.episteryClient.address;
+        // The approving admin is the authorizer (audit). The connection's
+        // principal is its own derived address, granted a scope-derived ACL
+        // role on the contract.
+        const authorizerWallet = req.episteryClient.identityAddress;
+        const domainWallet = self.getDomainWallet(domain);
+        const connectionAddress = self.deriveClientAddress(domainWallet, request.client_id);
 
         try {
+          const aclMeta = JSON.stringify({
+            oauth: true,
+            clientId: request.client_id,
+            clientName: request.client_name || '',
+            authorizer: authorizerWallet,
+            scope: request.scope || '',
+            addedAt: new Date().toISOString()
+          });
+          await self._grantAcl(req.domainAcl?.chain, connectionAddress, request.client_name, request.scope, aclMeta);
+
           // Record consent
           await store.recordConsent({
             client_id: request.client_id,
-            wallet: authorizerWallet,
+            wallet: connectionAddress,
             scope: request.scope,
             authorizer: authorizerWallet
           });
@@ -583,21 +681,21 @@ export class OAuthServer {
             scope: request.scope,
             code_challenge: request.code_challenge,
             code_challenge_method: request.code_challenge_method,
-            wallet: authorizerWallet,
+            wallet: connectionAddress,
             authorizer: authorizerWallet
           });
 
-          // Persist authorizer wallet on client record
-          await store.setClientWallet(request.client_id, authorizerWallet);
+          // Persist the connection's principal address on the client record
+          await store.setClientWallet(request.client_id, connectionAddress);
 
           // Store code on the pending request so poll can return it
           request.status = 'approved';
           request.approvedAt = new Date().toISOString();
-          request.approvedBy = req.episteryClient.address;
+          request.approvedBy = req.episteryClient.identityAddress;
           request.authorization_code = code;
           self._savePendingRequests(domain, pendingRequests);
 
-          console.log(`[oauth] Authorization approved for client ${request.client_name} by ${req.episteryClient.address}`);
+          console.log(`[oauth] Authorization approved for client ${request.client_name} by ${req.episteryClient.identityAddress}`);
           res.json({ success: true, message: 'Authorization approved' });
         } catch (err) {
           console.error('[oauth] Handle request error:', err);
@@ -742,7 +840,7 @@ export class OAuthServer {
 
     app.delete('/api/connections/:id', async (req, res) => {
       const isAdmin = req.episteryClient && req.domainAcl
-        ? await req.domainAcl.isAdmin(req.episteryClient.address)
+        ? await req.domainAcl.isAdmin(req.episteryClient.identityAddress)
         : false;
       if (!isAdmin) return res.status(403).json({ error: 'Admin access required' });
 
@@ -753,6 +851,12 @@ export class OAuthServer {
 
       const id = req.params.id;
       try {
+        // If this is an inbound consent, drop the connection's ACL grant first
+        // (the contract is the source of truth — revoking access means removing
+        // the address from the ACL, not just deleting the local record).
+        const consent = (await store.listConsent()).find(c => c.id === id);
+        if (consent?.wallet) await self._revokeAcl(req.domainAcl?.chain, consent.wallet);
+
         let removed = await store.removeConnection(id);
         if (!removed) removed = await store.revokeConsent(id);
         res.json({ ok: removed });
@@ -765,7 +869,7 @@ export class OAuthServer {
 
     app.post('/api/connections/cleanup', async (req, res) => {
       const isAdmin = req.episteryClient && req.domainAcl
-        ? await req.domainAcl.isAdmin(req.episteryClient.address)
+        ? await req.domainAcl.isAdmin(req.episteryClient.identityAddress)
         : false;
       if (!isAdmin) return res.status(403).json({ error: 'Admin access required' });
 
@@ -786,7 +890,7 @@ export class OAuthServer {
 
     app.post('/api/connections/revoke-all', async (req, res) => {
       const isAdmin = req.episteryClient && req.domainAcl
-        ? await req.domainAcl.isAdmin(req.episteryClient.address)
+        ? await req.domainAcl.isAdmin(req.episteryClient.identityAddress)
         : false;
       if (!isAdmin) return res.status(403).json({ error: 'Admin access required' });
 
@@ -796,6 +900,11 @@ export class OAuthServer {
       if (!store) return res.status(503).json({ error: 'service_unavailable' });
 
       try {
+        // Drop every connection's ACL grant before clearing local state.
+        const chain = req.domainAcl?.chain;
+        for (const c of await store.listConsent()) {
+          if (c.wallet) await self._revokeAcl(chain, c.wallet);
+        }
         const result = await store.revokeAll();
         console.log(`[oauth] Revoked all: ${result.tokens} tokens, ${result.consent} consent records for ${domain}`);
         res.json({ ok: true, ...result });
@@ -808,7 +917,7 @@ export class OAuthServer {
 
     app.post('/api/connections', async (req, res) => {
       const isAdmin = req.episteryClient && req.domainAcl
-        ? await req.domainAcl.isAdmin(req.episteryClient.address)
+        ? await req.domainAcl.isAdmin(req.episteryClient.identityAddress)
         : false;
       if (!isAdmin) return res.status(403).json({ error: 'Admin access required' });
 

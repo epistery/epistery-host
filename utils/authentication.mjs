@@ -140,7 +140,7 @@ export function createAuthRouter() {
             }
 
             // Use authenticated address from epistery middleware if available, fallback to query param
-            const clientAddress = req.episteryClient?.address || req.query.address;
+            const clientAddress = req.episteryClient?.identityAddress || req.query.address;
 
             if (!clientAddress) {
                 return res.status(401).json({ status: 'error', message: 'Client address not found - authentication required' });

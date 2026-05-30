@@ -1170,7 +1170,7 @@
                 }
                 if (name) {
                     progressText.textContent = 'Setting identity name…';
-                    const r = await fetch('/whitelist/setName', {
+                    const r = await fetch('/api/acl/name', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ address, name })
@@ -1253,7 +1253,7 @@
             try {
                 if (newName !== (user.name || '')) {
                     progressText.textContent = 'Setting identity name…';
-                    const r = await fetch('/whitelist/setName', {
+                    const r = await fetch('/api/acl/name', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ address: user.address, name: newName })
@@ -1489,7 +1489,8 @@
                     // ACL access request (from browser client). The admin reads the message
                     // and decides the user's identity name (pre-filled with the requester's
                     // self-supplied suggestion); on approve, that name is written to the
-                    // address→name mapping via /whitelist/setName.
+                    // domain contract's address→name mapping (handled server-side in
+                    // /api/acl/handle-request).
                     const shortAddress = `${request.address.substring(0, 8)}...${request.address.substring(request.address.length - 6)}`;
                     const suggestedName = (request.name || '').replace(/"/g, '&quot;');
                     const reqId = `req-${request.address}-${request.listName.replace(/[^a-zA-Z0-9]/g, '_')}`;

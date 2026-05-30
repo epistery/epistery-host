@@ -110,7 +110,7 @@ export class UserVault {
   static attach(app) {
     // Middleware: attach lazy vault accessor to every authenticated request
     app.use(async (req, res, next) => {
-      const address = req.episteryClient?.address;
+      const address = req.episteryClient?.identityAddress;
       if (!address) {
         req.userVault = null;
         return next();
