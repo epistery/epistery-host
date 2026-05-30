@@ -205,6 +205,20 @@ export class DomainAcl {
             next();
         })
 
+        // Normalized principal for HUMAN requests (cookie/bot). MCP requests
+        // get their own req.me from MCPServer (the connection's derived address).
+        // Either way agents read the same req.me — see makePrincipal().
+        router.use((req, res, next) => {
+            req.me = makePrincipal({
+                identityAddress: req.episteryClient?.identityAddress,
+                mcp: false,
+                authenticated: !!req.episteryClient?.authenticated,
+                domainAcl: req.domainAcl,
+                hostname: req.hostname
+            });
+            next();
+        })
+
         // Invite auto-redeem: check ?invite= query param
         router.use(async (req, res, next) => {
             const code = req.query.invite;
@@ -981,5 +995,65 @@ export function agentAccessMiddleware(agentName, customAuthFunctions = {}) {
         // Attach access info to request
         req.agentAccess = result;
         next();
+    };
+}
+
+/**
+ * The normalized request principal — the single identity/ACL interface agents
+ * consume, set by the host as `req.me` on EVERY request (human and MCP) so no
+ * agent re-implements identity resolution or ACL plumbing.
+ *
+ *   req.me.identityAddress         — the acting address, or null
+ *   req.me.role                    — coarse tier 'read'|'edit'|'admin' (MCP) | null
+ *   req.me.mcp / .authenticated    — channel + auth flags
+ *   await req.me.lists()           — Set<string> of the address's ACL list names
+ *   await req.me.access(agentName) — { admin, edit, read, level, enableRequestAccess }
+ *
+ * Both human (req.episteryClient.identityAddress) and MCP (the connection's
+ * derived address) resolve to the same shape; authorization always evaluates
+ * against the contract ACL for identityAddress.
+ */
+export function makePrincipal({ identityAddress = null, role = null, mcp = false, authenticated = false, domainAcl = null, hostname = null } = {}) {
+    let _lists = null;
+    const _access = new Map();
+    return {
+        identityAddress: identityAddress || null,
+        role: role || null,
+        mcp: !!mcp,
+        authenticated: !!authenticated,
+
+        async lists() {
+            if (_lists) return _lists;
+            const set = new Set();
+            try {
+                const contract = domainAcl?.chain?.contract;
+                if (contract && identityAddress) {
+                    for (const e of await contract.getListsForMember(identityAddress)) set.add(e.listName);
+                }
+            } catch (err) {
+                console.error('[principal] lists error:', err.message);
+            }
+            _lists = set;
+            return set;
+        },
+
+        async access(agentName, { customAuthFunctions = {}, defaultAclStance = null } = {}) {
+            if (_access.has(agentName)) return _access.get(agentName);
+            const result = { admin: false, edit: false, read: false, level: 0, enableRequestAccess: false };
+            if (identityAddress && domainAcl) {
+                try {
+                    const a = await domainAcl.checkAgentAccess(agentName, identityAddress, hostname, customAuthFunctions, defaultAclStance);
+                    result.level = a.level;
+                    result.admin = a.level >= 3;
+                    result.edit = a.level >= 2;
+                    result.read = a.level >= 1;
+                    result.enableRequestAccess = a.enableRequestAccess;
+                } catch (err) {
+                    console.error('[principal] access error:', err.message);
+                }
+            }
+            _access.set(agentName, result);
+            return result;
+        }
     };
 }

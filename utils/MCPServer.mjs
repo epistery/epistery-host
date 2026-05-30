@@ -23,6 +23,7 @@
 import { Config } from 'epistery';
 import { TOOLS, createHandlers } from './MCPTools.mjs';
 import { OAuthServer } from './OAuthServer.mjs';
+import { makePrincipal } from './DomainAcl.mjs';
 
 const PROTOCOL_VERSION = '2024-11-05';
 const SERVER_INFO = { name: 'epistery', version: '0.1.0' };
@@ -397,13 +398,11 @@ export class MCPServer {
    * loopback HTTP, no bearer re-forwarding, no extra trust surface (the model
    * used by epistery.app/lib/mcp.mjs).
    *
-   * The agent receives a synthetic request carrying the MCP principal contract:
-   *   req.mcp     = true               — this call arrived via MCP, already
-   *                                      role-gated by scope→role above.
-   *   req.caller  = principal.caller   — the acting address (authorship/ACL).
-   *   req.role    = principal.role     — coarse tier (read/edit/admin).
-   * Agents authorize MCP calls from req.role/req.caller (req.episteryClient is
-   * intentionally absent — the bearer is not a global identity).
+   * The agent receives the SAME normalized principal humans get — `req.me`
+   * (see makePrincipal in DomainAcl) — here carrying the MCP connection's
+   * derived address, host-gated role, and `me.mcp = true`. The scope→role gate
+   * already ran above. `req.episteryClient` is intentionally absent: the bearer
+   * is not a global identity.
    */
   static async _invokeAgentTool(msg, req, principal, tool) {
     const args = msg.params?.arguments || {};
@@ -450,14 +449,27 @@ export class MCPServer {
       body,
       params: {},
       query,
+      cookies: {},
       hostname: req.hostname,
       app: req.app,
       domainAcl: req.domainAcl,
-      // MCP principal contract (see method doc):
-      mcp: true,
-      caller: principal.caller,
-      role: principal.role,
-      get(name) { return this.headers[name.toLowerCase()]; }
+      // The crisp agent contract: the same normalized principal humans get,
+      // here carrying the MCP connection's derived address + host-gated role.
+      me: makePrincipal({
+        identityAddress: principal.caller,
+        role: principal.role,
+        mcp: true,
+        authenticated: true,
+        domainAcl: req.domainAcl,
+        hostname: req.hostname
+      }),
+      get(name) { return this.headers[String(name).toLowerCase()]; },
+      // Express compatibility for agents written against the full req API.
+      // MCP is a machine/JSON channel: never negotiate HTML.
+      accepts(types) {
+        const arr = Array.isArray(types) ? types : [types];
+        return arr.includes('json') ? 'json' : false;
+      }
     };
 
     try {
@@ -490,9 +502,17 @@ export class MCPServer {
         set(name, val) { this.headers[String(name).toLowerCase()] = val; return this; },
         setHeader(name, val) { this.headers[String(name).toLowerCase()] = val; return this; },
         getHeader(name) { return this.headers[String(name).toLowerCase()]; },
+        type() { return this; },
         json(obj) { finish(this.statusCode, obj); return this; },
         send(b) { finish(this.statusCode, b); return this; },
-        end(b) { finish(this.statusCode, b ?? null); return this; }
+        end(b) { finish(this.statusCode, b ?? null); return this; },
+        // Express compatibility — cookies/files/redirects are browser concerns
+        // with no meaning on the MCP JSON channel. Accept-and-ignore so agents
+        // written against the full res API don't crash mid-tool-call.
+        cookie() { return this; },
+        clearCookie() { return this; },
+        redirect(url) { finish(this.statusCode >= 300 ? this.statusCode : 302, { redirect: url }); return this; },
+        sendFile() { finish(415, { error: 'file responses are not available over MCP' }); return this; }
       };
       const next = (err) => {
         if (err) { if (!settled) { settled = true; reject(err); } return; }
