@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "epistery/contracts/IAddressNaming.sol";
+import "./IAddressNaming.sol";
 
 /**
  * @title DomainAgent
