@@ -607,8 +607,10 @@ export class DomainAcl {
                 console.log('[request-access] Loaded', pendingRequests.length, 'pending requests');
 
                 // Check if already requested
+                // pending-requests.json is shared with OAuthServer; OAuth records
+                // (type:'oauth') have no `address`. Only match ACL records.
                 const existing = pendingRequests.find(
-                  r => r.address.toLowerCase() === address.toLowerCase() && r.listName === listName
+                  r => r.address && r.address.toLowerCase() === address.toLowerCase() && r.listName === listName
                 );
 
                 if (existing) {
@@ -874,7 +876,8 @@ export class DomainAcl {
 
                 // Load from JSON file
                 const allRequests = req.domainAcl.loadPendingRequests(req.hostname);
-                const requests = allRequests.filter(r => r.status === 'pending');
+                // Exclude OAuth records (shared file, no `address`) from the ACL UI.
+                const requests = allRequests.filter(r => r.status === 'pending' && r.address);
 
                 res.json({ requests });
             } catch (error) {
@@ -903,7 +906,8 @@ export class DomainAcl {
                 const allRequests = req.domainAcl.loadPendingRequests(domainChain.domain);
 
                 const requestIndex = allRequests.findIndex(
-                  r => r.address.toLowerCase() === address.toLowerCase() &&
+                  r => r.address &&
+                    r.address.toLowerCase() === address.toLowerCase() &&
                     r.listName === listName &&
                     r.status === 'pending'
                 );
