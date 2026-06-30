@@ -1780,11 +1780,12 @@
                 const memAgents = agentsResp.agents || [];
                 const defaultAgent = agentsResp.defaultAgent;
 
-                // Show all agents on disk (admin needs to see disabled agents to enable them)
+                // Show all agents on disk (admin needs to see disabled agents to enable them).
+                // fsAgents is keyed by canonical manifest name (normalizeAgentName).
+                const norm = s => (s || '').replace(/^@/, '');
                 const agents = [];
                 for (const a of memAgents) {
-                    const dirName = a.name.split('/').pop();
-                    if (!fsAgents[dirName]) continue;    // not on disk — skip
+                    if (!fsAgents[norm(a.name)]) continue;    // not on disk — skip
                     agents.push(a);
                 }
 
@@ -1980,26 +1981,18 @@
                 const sources = sourcesResp.sources || [];
                 const installed = installedResp.agents || {};
 
-                // Which manifest names are enabled for this domain?
+                // Single identity everywhere: the canonical manifest name
+                // (normalizeAgentName). installed() (keyed from epistery.json),
+                // the registry, and the domain-enabled list all key on it — they
+                // join directly, with no dirName translation.
+                const norm = s => (s || '').replace(/^@/, '');
+
                 const enabledNames = new Set();
                 for (const a of (agentsResp.agents || [])) {
-                    if (a.enabled !== false) enabledNames.add(a.name);
+                    if (a.enabled !== false) enabledNames.add(norm(a.name));
                 }
 
-                // Bridge: installed() maps filesystem dirName → manifest name.
-                // Use this to build lookups that work regardless of naming mismatches
-                // between registry name, manifest name, and directory name.
-                const domainAdded = {};
-                const agentNameByDir = {};
-                for (const [dirName, fsAgent] of Object.entries(installed)) {
-                    const manifestName = fsAgent.name || dirName;
-                    const isAdded = enabledNames.has(manifestName);
-                    domainAdded[dirName] = isAdded;
-                    domainAdded[manifestName] = isAdded;
-                    agentNameByDir[dirName] = manifestName;
-                }
-
-                // Fetch all registry sources in parallel
+                // Fetch all registry sources in parallel, key by canonical name
                 const registryPlugins = {};
                 if (sources.length > 0) {
                     const fetches = sources.map(url =>
@@ -2009,45 +2002,41 @@
                     for (const result of results) {
                         if (!result?.plugins) continue;
                         for (const p of result.plugins) {
-                            if (!registryPlugins[p.name]) registryPlugins[p.name] = p;
+                            const key = norm(p.name);
+                            if (!registryPlugins[key]) registryPlugins[key] = p;
                         }
                     }
                 }
 
-                // Build combined view
+                // Build combined view, joined on the canonical name
                 const plugins = [];
                 const seen = new Set();
 
                 // Registry plugins first — merge with installed + domain state
-                for (const [name, regPlugin] of Object.entries(registryPlugins)) {
-                    const dirName = name.split('/').pop();
-                    seen.add(dirName);
-                    const local = installed[dirName];
+                for (const [key, regPlugin] of Object.entries(registryPlugins)) {
+                    seen.add(key);
+                    const local = installed[key];
                     plugins.push({
                         ...regPlugin,
-                        dirName,
+                        name: key,
                         type: local?.type || null,
                         version: local?.version || regPlugin.version,
                         target: local?.target || null,
-                        addedToDomain: domainAdded[name] === true || domainAdded[dirName] === true,
-                        agentName: agentNameByDir[dirName] || name
+                        addedToDomain: enabledNames.has(key)
                     });
                 }
 
                 // Installed agents not in any registry
-                for (const [dirName, agent] of Object.entries(installed)) {
-                    if (seen.has(dirName)) continue;
-                    const name = agent.name || dirName;
+                for (const [key, agent] of Object.entries(installed)) {
+                    if (seen.has(key)) continue;
                     plugins.push({
-                        name,
-                        dirName,
+                        name: key,
                         type: agent.type,
                         version: agent.version,
                         target: agent.target || null,
                         description: '',
                         category: '',
-                        addedToDomain: domainAdded[name] === true || domainAdded[dirName] === true,
-                        agentName: agentNameByDir[dirName] || name
+                        addedToDomain: enabledNames.has(key)
                     });
                 }
 
@@ -2093,12 +2082,12 @@
                     if (plugin.type === 'linked') {
                         statusLabel += `<br><small style="color: var(--text-color-quiet); font-size: 0.75em;" title="${plugin.target}">linked</small>`;
                     }
-                    actions += `<button class="console-btn small danger" onclick="removeAgentFromStore('${plugin.agentName}')" id="btn-remove-${displayName}">Remove</button>`;
+                    actions += `<button class="console-btn small danger" onclick="removeAgentFromStore('${plugin.name}')" id="btn-remove-${displayName}">Remove</button>`;
                 } else {
                     // Installed but not added to this domain
                     statusLabel = `<span style="color: var(--text-color-quiet);">Installed</span>`
                         + `<small style="color: var(--text-color-quiet);"> v${plugin.version || '?'}</small>`;
-                    actions = `<button class="console-btn small" onclick="addAgentFromStore('${plugin.agentName}')" id="btn-add-${displayName}">Add</button>`;
+                    actions = `<button class="console-btn small" onclick="addAgentFromStore('${plugin.name}')" id="btn-add-${displayName}">Add</button>`;
                     if (plugin.type === 'linked') {
                         statusLabel += `<br><small style="color: var(--text-color-quiet); font-size: 0.75em;" title="${plugin.target}">linked</small>`;
                     }

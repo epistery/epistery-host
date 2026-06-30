@@ -9,6 +9,7 @@ import keyManager from './KeyManager.mjs';
 import { MasterKey } from './crypto/master-key.mjs';
 import { ECDH } from './crypto/ecdh.mjs';
 import { PACKAGE_TYPES, VERSIONS } from './crypto/types.mjs';
+import { normalizeAgentName } from './DomainAcl.mjs';
 
 /**
  * AgentManager - Discovers and loads epistery agent modules
@@ -72,11 +73,14 @@ export class AgentManager {
             }
 
             try {
-                let result = readFileSync(manifestPath, 'utf8');
-                const manifest = JSON.parse(result);
+                const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+                if (!manifest.name) {
+                    console.warn(`Agent ${entry.name} has no name in epistery.json, skipping`);
+                    continue;
+                }
                 discovered.push({
-                    name: entry.name,
-                    path: agentDir,
+                    name: normalizeAgentName(manifest.name),  // identity comes from the manifest, not the folder
+                    path: agentDir,                            // folder location (basename = entry.name)
                     manifest,
                     entryPath
                 });
@@ -245,6 +249,19 @@ export class AgentManager {
         agentData.activeRouter = newRouter;
         agentData.instance = newRouter._agentInstance;
 
+        // Re-attach WebSocket servers to the fresh instance. initializeWebSockets
+        // only runs at boot, so without this a reloaded agent loses its live
+        // sockets (cleanup() above already closed the old instance's servers).
+        if (typeof agentData.instance.initWebSocket === 'function' && this.wsServers) {
+            for (const server of this.wsServers) {
+                try {
+                    agentData.instance.initWebSocket(server);
+                } catch (error) {
+                    console.error(`[AgentManager] WebSocket re-init failed for ${name}:`, error.message);
+                }
+            }
+        }
+
         this._rebuildToolRegistry();
         console.log(`[AgentManager] Reloaded ${agentData.manifest.name}`);
     }
@@ -321,6 +338,13 @@ export class AgentManager {
     }
 
     initializeWebSockets(server) {
+        // Remember the HTTP server(s) (called once per http/https server at boot)
+        // so a hot-reloaded agent instance can re-attach its WebSocket — otherwise
+        // reloadAgent() builds a fresh instance whose wss is null and live updates
+        // silently die until a full process restart.
+        if (!this.wsServers) this.wsServers = [];
+        if (!this.wsServers.includes(server)) this.wsServers.push(server);
+
         for (const [name, { instance }] of this.agents) {
             if (typeof instance.initWebSocket === 'function') {
                 try {
@@ -350,7 +374,11 @@ export class AgentManager {
             console.log(`[AgentManager] ${cwd}: ${command} ${args.join(' ')}`);
             const child = spawn(command, args, {
                 stdio: ['ignore', 'inherit', 'inherit'],
-                cwd
+                cwd,
+                // Never let git block on an interactive credential prompt — stdin
+                // is closed, so a prompt would hang the host forever. Missing/expired
+                // credentials must fail fast with a non-zero exit, not stall.
+                env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' }
             });
             child.on('close', (code) => {
                 if (code === 0) resolve();
@@ -361,37 +389,42 @@ export class AgentManager {
     }
 
     /**
-     * Load a single agent by its directory name into the running system.
-     * Used by PluginManager to hot-load a newly installed plugin.
+     * Load a single agent from its .agents/ folder into the running system.
+     * Identity is taken from epistery.json — the folder is just the location.
+     * Returns the canonical agent name. Used to hot-load a freshly cloned or
+     * newly symlinked plugin.
      */
-    async loadAgentByName(dirName) {
-        const agentDir = join(this.agentsPath, dirName);
+    async loadAgentFromDir(dir) {
+        const agentDir = join(this.agentsPath, dir);
         const manifestPath = join(agentDir, 'epistery.json');
         const entryPath = join(agentDir, 'index.mjs');
 
-        if (!existsSync(manifestPath)) throw new Error(`${dirName} missing epistery.json`);
-        if (!existsSync(entryPath)) throw new Error(`${dirName} missing index.mjs`);
+        if (!existsSync(manifestPath)) throw new Error(`${dir} missing epistery.json`);
+        if (!existsSync(entryPath)) throw new Error(`${dir} missing index.mjs`);
 
         const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-        const agentInfo = { name: dirName, path: agentDir, manifest, entryPath };
+        if (!manifest.name) throw new Error(`${dir}/epistery.json has no name`);
+
+        const agentInfo = { name: normalizeAgentName(manifest.name), path: agentDir, manifest, entryPath };
         await this.loadAgent(agentInfo, this.app);
+        return agentInfo.name;
     }
 
     /**
      * Unload a running agent: cleanup instance, remove from agents Map,
      * and rebuild tool registry. Used by PluginManager on plugin removal.
      */
-    async unloadAgent(dirName) {
-        const agentData = this.agents.get(dirName);
-        if (!agentData) throw new Error(`Agent ${dirName} not loaded`);
+    async unloadAgent(name) {
+        const agentData = this.agents.get(name);
+        if (!agentData) throw new Error(`Agent ${name} not loaded`);
 
         if (typeof agentData.instance.cleanup === 'function') {
             await agentData.instance.cleanup();
         }
 
-        this.agents.delete(dirName);
+        this.agents.delete(name);
         this._rebuildToolRegistry();
-        console.log(`[AgentManager] Unloaded ${dirName}`);
+        console.log(`[AgentManager] Unloaded ${name}`);
     }
 
     /**

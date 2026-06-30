@@ -26,6 +26,7 @@ import { existsSync, readFileSync, rmSync, readdirSync, lstatSync, readlinkSync 
 import { join } from 'path';
 import { spawn, spawnSync } from 'child_process';
 import { Config } from 'epistery';
+import { normalizeAgentName } from './DomainAcl.mjs';
 
 export class PluginManager {
 
@@ -123,15 +124,32 @@ export class PluginManager {
      */
     static async install(name, repository, branch = 'main') {
         const self = PluginManager;
-        const dirName = self._dirName(name);
-        const targetDir = join(self._agentsDir, dirName);
+        const canonical = normalizeAgentName(name);
         const agentManager = self._app.locals.agentManager;
 
-        if (existsSync(targetDir)) {
-            throw new Error(`${dirName} already exists in .agents/. Remove it first (or use update).`);
+        // Identity is the manifest name (epistery.json), read at discovery —
+        // never the folder name. If an agent declaring this name is already
+        // present (a dev symlink or a prior clone), install is a no-op: we never
+        // re-clone or verify repo access for code that's already here.
+        if (agentManager.agents.has(canonical)) {
+            console.log(`[PluginManager] ${canonical} already loaded — no clone needed`);
+            return;
+        }
+        const present = self.installed()[canonical];
+        if (present) {
+            await agentManager.loadAgentFromDir(present.dir);
+            console.log(`[PluginManager] ${canonical} present in .agents/${present.dir} — loaded without clone`);
+            return;
         }
 
-        console.log(`[PluginManager] Installing ${name} from ${repository} (${branch})`);
+        // Genuinely absent → clone into a folder mirroring the canonical name.
+        const dir = self._folderName(name);
+        const targetDir = join(self._agentsDir, dir);
+        if (existsSync(targetDir)) {
+            throw new Error(`.agents/${dir} exists but declares no agent named ${canonical} — resolve by hand.`);
+        }
+
+        console.log(`[PluginManager] Installing ${canonical} from ${repository} (${branch})`);
 
         // Clone — inject PAT if configured, log only the public URL
         const authRepo = self._authUrl(repository);
@@ -147,7 +165,7 @@ export class PluginManager {
             );
         } catch (err) {
             if (authRepo === repository && repository.includes('github.com')) {
-                throw new Error(`Clone failed for ${name}. If the repo is private, configure a GitHub PAT: [plugins.github] in ~/.epistery/config.ini. Original error: ${err.message}`);
+                throw new Error(`Clone failed for ${canonical}. If the repo is private, configure a GitHub PAT: [plugins.github] in ~/.epistery/config.ini. Original error: ${err.message}`);
             }
             throw err;
         }
@@ -157,16 +175,21 @@ export class PluginManager {
             targetDir
         );
 
-        const manifestPath = join(targetDir, 'epistery.json');
-        const entryPath = join(targetDir, 'index.mjs');
-        if (!existsSync(manifestPath) || !existsSync(entryPath)) {
+        // Validate against the source of truth: a real plugin that declares the
+        // name we asked for. A mismatch is a registry/manifest error — fail.
+        const manifest = self._readManifest(targetDir);
+        if (!manifest?.name || !existsSync(join(targetDir, 'index.mjs'))) {
             rmSync(targetDir, { recursive: true, force: true });
-            throw new Error(`${name} is missing epistery.json or index.mjs — not a valid plugin`);
+            throw new Error(`${name} is missing epistery.json name or index.mjs — not a valid plugin`);
+        }
+        if (normalizeAgentName(manifest.name) !== canonical) {
+            rmSync(targetDir, { recursive: true, force: true });
+            throw new Error(`${repository} declares "${manifest.name}", expected "${name}" — registry/manifest mismatch.`);
         }
 
-        await agentManager.loadAgentByName(dirName);
+        await agentManager.loadAgentFromDir(dir);
 
-        console.log(`[PluginManager] ${name} installed and loaded`);
+        console.log(`[PluginManager] ${canonical} installed and loaded`);
     }
 
     /**
@@ -175,25 +198,24 @@ export class PluginManager {
      */
     static async update(name) {
         const self = PluginManager;
-        const dirName = self._dirName(name);
-        const targetDir = join(self._agentsDir, dirName);
+        const canonical = normalizeAgentName(name);
+        const info = self.installed()[canonical];
 
-        if (!existsSync(targetDir)) {
-            throw new Error(`${name} is not installed`);
-        }
-        if (lstatSync(targetDir).isSymbolicLink()) {
+        if (!info) throw new Error(`${name} is not installed`);
+        if (info.type === 'linked') {
             throw new Error(`${name} is a symlink (linked plugin). Update its source manually.`);
         }
 
-        const branch = self._gitBranch(targetDir) || 'main';
+        const targetDir = join(self._agentsDir, info.dir);
+        const branch = info.branch || 'main';
         const agentManager = self._app.locals.agentManager;
 
-        console.log(`[PluginManager] Updating ${name} on branch ${branch}`);
+        console.log(`[PluginManager] Updating ${canonical} on branch ${branch}`);
 
         await agentManager.updateAgent(targetDir, branch);
-        await agentManager.reloadAgent(dirName);
+        await agentManager.reloadAgent(canonical);
 
-        console.log(`[PluginManager] ${name} updated and reloaded`);
+        console.log(`[PluginManager] ${canonical} updated and reloaded`);
     }
 
     /**
@@ -202,31 +224,30 @@ export class PluginManager {
      */
     static async remove(name) {
         const self = PluginManager;
-        const dirName = self._dirName(name);
-        const targetDir = join(self._agentsDir, dirName);
+        const canonical = normalizeAgentName(name);
+        const info = self.installed()[canonical];
 
-        if (!existsSync(targetDir)) {
-            throw new Error(`${name} is not installed`);
-        }
-        if (lstatSync(targetDir).isSymbolicLink()) {
+        if (!info) throw new Error(`${name} is not installed`);
+        if (info.type === 'linked') {
             throw new Error(
-                `${name} is a symlink (linked plugin). Remove it by hand: rm ${targetDir}`
+                `${name} is a symlink (linked plugin). Remove it by hand: rm ${join(self._agentsDir, info.dir)}`
             );
         }
 
+        const targetDir = join(self._agentsDir, info.dir);
         const agentManager = self._app.locals.agentManager;
 
-        console.log(`[PluginManager] Removing ${name}`);
+        console.log(`[PluginManager] Removing ${canonical}`);
 
         try {
-            await agentManager.unloadAgent(dirName);
+            await agentManager.unloadAgent(canonical);
         } catch (err) {
             console.warn(`[PluginManager] Unload warning: ${err.message}`);
         }
 
         rmSync(targetDir, { recursive: true, force: true });
 
-        console.log(`[PluginManager] ${name} removed`);
+        console.log(`[PluginManager] ${canonical} removed`);
     }
 
     /**
@@ -238,14 +259,15 @@ export class PluginManager {
         const self = PluginManager;
         const agentManager = self._app.locals.agentManager;
         const allInstalled = self.installed();
-        const targets = name
-            ? { [self._dirName(name)]: allInstalled[self._dirName(name)] }
+        const canonical = name ? normalizeAgentName(name) : null;
+        const targets = canonical
+            ? { [canonical]: allInstalled[canonical] }
             : allInstalled;
 
         const results = [];
-        for (const [dirName, info] of Object.entries(targets)) {
+        for (const [, info] of Object.entries(targets)) {
             if (!info || info.type !== 'managed') continue;
-            const targetDir = join(self._agentsDir, dirName);
+            const targetDir = join(self._agentsDir, info.dir);
 
             try {
                 const branch = info.branch || 'main';
@@ -256,7 +278,6 @@ export class PluginManager {
 
                 results.push({
                     name: info.name,
-                    dirName,
                     hasUpdate: localHead !== remoteHead,
                     localHead: localHead?.slice(0, 8),
                     remoteHead: remoteHead?.slice(0, 8),
@@ -265,7 +286,6 @@ export class PluginManager {
             } catch (err) {
                 results.push({
                     name: info.name,
-                    dirName,
                     hasUpdate: false,
                     error: err.message
                 });
@@ -295,25 +315,27 @@ export class PluginManager {
         for (const entry of entries) {
             if (entry.name.startsWith('.')) continue;
             const agentDir = join(self._agentsDir, entry.name);
-            const stat = lstatSync(agentDir);
 
             const manifest = self._readManifest(agentDir);
-            if (!manifest) continue;
+            if (!manifest?.name) continue;   // epistery.json name is the identity; no name → not an agent
 
+            const stat = lstatSync(agentDir);
             const pkg = self._readPackageJson(agentDir);
+            const key = normalizeAgentName(manifest.name);
             const baseInfo = {
-                name: manifest.name || entry.name,
+                name: manifest.name,   // canonical, as declared in epistery.json
+                dir: entry.name,       // filesystem location
                 version: pkg?.version || manifest.version || '0.0.0',
             };
 
             if (stat.isSymbolicLink()) {
-                agents[entry.name] = {
+                agents[key] = {
                     ...baseInfo,
                     type: 'linked',
                     target: readlinkSync(agentDir),
                 };
             } else if (stat.isDirectory()) {
-                agents[entry.name] = {
+                agents[key] = {
                     ...baseInfo,
                     type: 'managed',
                     repository: self._gitOrigin(agentDir),
@@ -362,11 +384,12 @@ export class PluginManager {
     }
 
     /**
-     * Derive directory name from package name.
-     * "@epistery/wiki" → "wiki", "@geistm/adnet-agent" → "adnet-agent"
+     * Filesystem folder name for a fresh clone — the canonical name with the
+     * org separator flattened. "@geistm/adnet-agent" → "geistm-adnet-agent".
+     * Only used to choose where to write a new clone; identity is the manifest.
      */
-    static _dirName(name) {
-        return name.split('/').pop();
+    static _folderName(name) {
+        return normalizeAgentName(name).replace(/\//g, '-');
     }
 
     // ── git helpers ────────────────────────────────────────────────────────
@@ -448,7 +471,11 @@ export class PluginManager {
             console.log(`[PluginManager] ${logStr}`);
             const child = spawn(command, args, {
                 stdio: ['ignore', 'inherit', 'inherit'],
-                cwd
+                cwd,
+                // Never let git block on an interactive credential prompt — stdin
+                // is closed, so a prompt would hang the host forever. Missing/expired
+                // credentials must fail fast with a non-zero exit, not stall.
+                env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' }
             });
             child.on('close', (code) => {
                 if (code === 0) resolve();
