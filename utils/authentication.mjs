@@ -27,7 +27,7 @@ export function createAuthRouter() {
             }
 
             const config = new Config();
-            config.setPath(domain);
+            await config.setPath(domain);
 
             if (config.data && config.data.verified) {
                 return res.status(400).json({ status: 'error', message: 'Domain already claimed' });
@@ -78,7 +78,7 @@ export function createAuthRouter() {
             }
 
             const config = new Config();
-            config.setPath(domain);
+            await config.setPath(domain);
 
             if (config.data && config.data.verified) {
                 return res.status(400).json({ status: 'error', message: 'Domain already claimed' });
@@ -93,8 +93,8 @@ export function createAuthRouter() {
             const normalizedClientAddress = clientAddress.toLowerCase();
 
             // Merge provider: configuredChains() carries registry defaults
-            // with root-config privateRpc overlaid per chainId.
-            const entry = configuredChains().find(c => String(c.chainId) === String(providerConfig.chainId));
+            // with root-config privateRpc overlaid per chainId. (async in epistery 2.2)
+            const entry = (await configuredChains()).find(c => String(c.chainId) === String(providerConfig.chainId));
             const mergedProvider = {
                 ...providerConfig,
                 publicRpc: providerConfig.rpc,
@@ -111,7 +111,7 @@ export function createAuthRouter() {
             config.data.challenge_requester_ip = req.ip;
             config.data.provider = mergedProvider;
 
-            config.save();
+            await config.save();
             console.log(`Domain claim initiated: ${domain} by ${normalizedClientAddress}`);
 
             res.send(challengeToken);
@@ -133,7 +133,7 @@ export function createAuthRouter() {
             }
 
             const config = new Config();
-            config.setPath(domain);
+            await config.setPath(domain);
 
             if (!config.data.pending) {
                 return res.status(400).json({ status: 'error', message: 'No pending claim for this domain' });
@@ -167,7 +167,7 @@ export function createAuthRouter() {
             delete config.data.challenge_token;
             delete config.data.challenge_address;
             delete config.data.challenge_requester_ip;
-            config.save();
+            await config.save();
 
             res.json({ status: 'success', message: 'Domain claimed successfully' });
         } catch (error) {

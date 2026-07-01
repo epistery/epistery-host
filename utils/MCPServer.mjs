@@ -288,7 +288,7 @@ export class MCPServer {
     let aiNotes = '';
     try {
       const cfg = new Config();
-      cfg.setPath(domain);
+      await cfg.setPath(domain);
       aiNotes = cfg.data?.ai_notes || '';
     } catch (e) { /* ignore */ }
 

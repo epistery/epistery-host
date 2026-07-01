@@ -122,7 +122,7 @@ let main = async function() {
         try {
             const domain = req.hostname || 'localhost';
             const cfg = new Config();
-            cfg.setPath(domain);
+            await cfg.setPath(domain);
 
             // Check if client wants JSON (API request)
             const acceptsJson = req.accepts('json') && !req.accepts('html');
@@ -177,10 +177,10 @@ let main = async function() {
     });
 
     // Dev tools page route (old diagnostic view)
-    app.get('/devtools', (req, res) => {
+    app.get('/devtools', async (req, res) => {
         const domain = req.hostname || 'localhost';
         const cfg = new Config();
-        cfg.setPath(domain);
+        await cfg.setPath(domain);
         const wallet = cfg.data?.wallet || {};
         res.send(TEMPLATES.devtools.replace(/{DOMAIN}/g, domain).replace(/{SERVER_WALLET}/g, wallet.address || 'Not configured'));
     });
@@ -191,14 +191,14 @@ let main = async function() {
     });
 
     // Admin page route
-    app.get('/admin', (req, res) => {
+    app.get('/admin', async (req, res) => {
         const acceptsJson = req.accepts('json') && !req.accepts('html');
 
         if (acceptsJson) {
             // Return JSON status
             const domain = req.hostname || 'localhost';
             const cfg = new Config();
-            cfg.setPath(domain);
+            await cfg.setPath(domain);
 
             const status = buildStatus(domain, cfg);
             return res.json(status);
@@ -212,7 +212,7 @@ let main = async function() {
         try {
             const domain = req.hostname || req.body.domain || 'localhost';
             const cfg = new Config();
-            cfg.setPath(domain);
+            await cfg.setPath(domain);
 
             const serverWallet = cfg.data?.wallet;
             const provider = cfg.data?.provider;
@@ -430,12 +430,12 @@ let main = async function() {
             if (oldContractAddress) {
                 cfg.data.previous_contract_address = oldContractAddress;
             }
-            cfg.save();
+            await cfg.save();
 
             const txOverrides = { ...gasOverrides };
 
             if (oldContractAddress && oldContractAddress !== contractAddress) {
-                const chain = new DomainChain(domain);
+                const chain = await DomainChain.create(domain);
                 await chain.migrateContract(oldContractAddress, contract, ownerAddress, txOverrides);
             } else {
                 // Fresh deploy — initialize default agent ACL configs
@@ -512,7 +512,7 @@ let main = async function() {
     app.post('/api/check-deploy-balance', async (req, res) => {
         try {
             const domain = req.hostname || req.body.domain || 'localhost';
-            const domainChain = new DomainChain(domain);
+            const domainChain = await DomainChain.create(domain);
 
             // Get current balance
             const balance = await domainChain.provider.getBalance(domainChain.wallet.address);
@@ -559,7 +559,7 @@ let main = async function() {
         try {
             const domain = req.hostname || 'localhost';
             const cfg = new Config();
-            cfg.setPath(domain);
+            await cfg.setPath(domain);
 
             // Read expected version from DomainAgent.sol source file (source of truth)
             let DOMAIN_AGENT_VERSION = '1.0.0'; // fallback
@@ -589,7 +589,7 @@ let main = async function() {
             // Query the on-chain VERSION() constant — the config can be stale
             let deployedVersion = null;
             try {
-                const chain = new DomainChain(domain);
+                const chain = await DomainChain.create(domain);
                 if (chain.contract) {
                     deployedVersion = await chain.contract.VERSION();
                 }
@@ -620,8 +620,9 @@ let main = async function() {
     // API: Provider list for claim page UI.
     // configuredChains() returns registry defaults with root-config privateRpc overlaid.
     // Only public info is exposed to the client.
-    app.get('/api/provider-defaults', (req, res) => {
-        const providers = configuredChains().map(p => ({
+    app.get('/api/provider-defaults', async (req, res) => {
+        // configuredChains() and defaultChainId() became async in epistery 2.2.
+        const providers = (await configuredChains()).map(p => ({
             name: p.name,
             chainId: String(p.chainId),
             rpc: p.rpc,
@@ -629,7 +630,7 @@ let main = async function() {
             nativeCurrencySymbol: p.nativeCurrencySymbol,
             nativeCurrencyDecimals: p.nativeCurrencyDecimals,
         }));
-        res.json({ providers, defaultChainId: defaultChainId() });
+        res.json({ providers, defaultChainId: await defaultChainId() });
     });
 
     // Static files (after specific routes)
@@ -693,7 +694,7 @@ let main = async function() {
 
         const domain = req.headers.host?.split(':')[0] || 'localhost';
         const cfg = new Config();
-        cfg.setPath(domain);
+        await cfg.setPath(domain);
 
         const defaultAgent = cfg.data?.default_agent || null;
         const contract = req.domainAcl?.chain?.contract;
@@ -737,7 +738,7 @@ let main = async function() {
         }
         const domain = req.headers.host?.split(':')[0] || 'localhost';
         const cfg = new Config();
-        cfg.setPath(domain);
+        await cfg.setPath(domain);
         const defaultAgent = cfg.data?.default_agent || null;
         const verified = cfg.data?.verified || false;
         const contract = req.domainAcl?.chain?.contract;
@@ -795,9 +796,9 @@ let main = async function() {
             // If agentName is empty string, clear the default
             if (agentName === '') {
                 const cfg = new Config();
-                cfg.setPath(domain);
+                await cfg.setPath(domain);
                 delete cfg.data.default_agent;
-                cfg.save();
+                await cfg.save();
                 return res.json({ success: true });
             }
 
@@ -820,9 +821,9 @@ let main = async function() {
 
             // Save to config
             const cfg = new Config();
-            cfg.setPath(domain);
+            await cfg.setPath(domain);
             cfg.data.default_agent = agentName;
-            cfg.save();
+            await cfg.save();
 
             res.json({ success: true });
         } catch (error) {
@@ -882,10 +883,10 @@ let main = async function() {
 
             const domain = req.headers.host?.split(':')[0] || 'localhost';
             const cfg = new Config();
-            cfg.setPath(domain);
+            await cfg.setPath(domain);
 
             const rootCfg = new Config();
-            const rootData = rootCfg.read('/');
+            const rootData = await rootCfg.read('/');
 
             // Check for S3 credentials (domain-level or root-level)
             const domainStorj = cfg.data.storj;
@@ -899,7 +900,7 @@ let main = async function() {
             // Check if domain has a master key initialized
             let hasMasterKey = false;
             try {
-                const raw = cfg.readFile('master-key.json');
+                const raw = await cfg.readFile('master-key.json');
                 hasMasterKey = !!JSON.parse(raw);
             } catch {}
 
@@ -927,7 +928,7 @@ let main = async function() {
 
             const domain = req.headers.host?.split(':')[0] || 'localhost';
             const cfg = new Config();
-            cfg.setPath(domain);
+            await cfg.setPath(domain);
 
             const { action, storj, encrypted } = req.body;
 
@@ -942,21 +943,21 @@ let main = async function() {
                     BUCKET: storj.BUCKET,
                     REGION: storj.REGION || ''
                 };
-                cfg.save();
+                await cfg.save();
                 console.log(`[storage-config] Updated S3 credentials for ${domain}`);
                 return res.json({ success: true, message: 'Storage credentials updated. Restart agents to apply.' });
             }
 
             if (action === 'clear-credentials') {
                 delete cfg.data.storj;
-                cfg.save();
+                await cfg.save();
                 console.log(`[storage-config] Cleared custom S3 credentials for ${domain}`);
                 return res.json({ success: true, message: 'Custom credentials removed. Using host defaults.' });
             }
 
             if (action === 'set-encryption') {
                 cfg.data.storage_encrypted = encrypted ? 'true' : 'false';
-                cfg.save();
+                await cfg.save();
                 console.log(`[storage-config] Encryption ${encrypted ? 'enabled' : 'disabled'} for ${domain}`);
                 return res.json({ success: true, message: `Encryption ${encrypted ? 'enabled' : 'disabled'}. New writes will use this setting.` });
             }
@@ -978,7 +979,7 @@ let main = async function() {
 
             const domain = req.headers.host?.split(':')[0] || 'localhost';
             const cfg = new Config();
-            cfg.setPath(domain);
+            await cfg.setPath(domain);
 
             // Get preferences for this user
             const prefsKey = `user_preferences.${userAddress}`;
@@ -1001,7 +1002,7 @@ let main = async function() {
 
             const domain = req.headers.host?.split(':')[0] || 'localhost';
             const cfg = new Config();
-            cfg.setPath(domain);
+            await cfg.setPath(domain);
 
             // Save preferences for this user
             const prefsKey = `user_preferences.${userAddress}`;
@@ -1010,7 +1011,7 @@ let main = async function() {
                 ...req.body,
                 updated_at: new Date().toISOString()
             };
-            cfg.save();
+            await cfg.save();
 
             res.json({ success: true, preferences: cfg.data[prefsKey] });
         } catch (error) {

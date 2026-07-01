@@ -46,7 +46,26 @@ export class DomainChain {
   constructor(domain) {
     this.domain = domain;
     this.config = new Config();
-    this.config.setPath(domain);
+  }
+  /**
+   * Async factory. Config IO is async as of epistery 2.1, so the per-domain
+   * config must be loaded (await) before the synchronous getters below
+   * (chain/wallet/contract, which read config.data) are touched. Construct via
+   * `await DomainChain.create(domain)`, not `new DomainChain(domain)`.
+   */
+  static async create(domain) {
+    const dc = new DomainChain(domain);
+    await dc.config.setPath(domain);
+    // configuredChains() became async in epistery 2.2. Resolve the root-config
+    // privateRpc overlay here in the async factory and cache it, so the sync
+    // `chain` getter below can stay synchronous.
+    const p = { ...(dc.config.data.provider || {}) };
+    if (p.chainId != null) {
+      const entry = (await configuredChains()).find(c => String(c.chainId) === String(p.chainId));
+      if (entry?.privateRpc) p.privateRpc = entry.privateRpc;
+    }
+    dc._providerConfig = p;
+    return dc;
   }
   get artifact() {
     if (!this._artifact) {
@@ -59,9 +78,10 @@ export class DomainChain {
   /** Chain object — owns the provider, fee policy, and contract wrapping. */
   get chain() {
     if (!this._chain) {
-      const p = { ...this.config.data.provider };
-      const entry = configuredChains().find(c => String(c.chainId) === String(p.chainId));
-      if (entry?.privateRpc) p.privateRpc = entry.privateRpc;
+      // _providerConfig is resolved in create() (includes the async
+      // configuredChains privateRpc overlay). Fall back to the raw provider
+      // config if ever constructed without the async factory.
+      const p = this._providerConfig || { ...this.config.data.provider };
       this._chain = chainFor(p);
     }
     return this._chain;
@@ -116,7 +136,7 @@ export class DomainChain {
 
       let chain;
       try {
-        chain = new DomainChain(req.hostname);
+        chain = await DomainChain.create(req.hostname);
       } catch (e) {
         return res.status(500).json(rpcError(null, -32603, 'Domain not configured'));
       }
@@ -297,7 +317,7 @@ export class DomainChain {
         console.log(`[deploy] Storj: privatized storage, no object migration needed`);
       } else {
         const rootCfg = new Config();
-        const rootData = rootCfg.read('/');
+        const rootData = await rootCfg.read('/');
         const storjConfig = this.config.data.storj || rootData?.storj;
         if (storjConfig?.ACCESS_KEY && storjConfig?.SECRET_KEY && storjConfig?.ENDPOINT && storjConfig?.BUCKET) {
           const s3 = new S3Client({

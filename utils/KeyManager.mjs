@@ -24,7 +24,7 @@ class KeyManager {
    * @returns {Promise<object>} package metadata (not the key)
    */
   async initMasterKey(domain, signer) {
-    const existing = this.hasMasterKey(domain);
+    const existing = await this.hasMasterKey(domain);
     if (existing) {
       throw new Error(`Master key already initialized for ${domain}. Delete it first to re-initialize.`);
     }
@@ -36,9 +36,9 @@ class KeyManager {
 
     // Store encrypted package in config
     const config = new Config();
-    config.setPath(`/${domain}/secret-agent`);
-    config.save();
-    config.writeFile('master-key.json', JSON.stringify(pkg, null, 2));
+    await config.setPath(`/${domain}/secret-agent`);
+    await config.save();
+    await config.writeFile('master-key.json', JSON.stringify(pkg, null, 2));
 
     // Cache decrypted key
     this.cache.set(domain, masterKey);
@@ -66,7 +66,7 @@ class KeyManager {
       return this.cache.get(domain);
     }
 
-    const { pkg, legacy } = this._readPackage(domain);
+    const { pkg, legacy } = await this._readPackage(domain);
     if (!pkg) {
       if (autoInit && signer) {
         await this.initMasterKey(domain, signer);
@@ -96,9 +96,9 @@ class KeyManager {
     if (legacy) {
       try {
         const config = new Config();
-        config.setPath(`/${domain}/secret-agent`);
-        config.save();
-        config.writeFile('master-key.json', JSON.stringify(pkg, null, 2));
+        await config.setPath(`/${domain}/secret-agent`);
+        await config.save();
+        await config.writeFile('master-key.json', JSON.stringify(pkg, null, 2));
         console.log(`[key-manager] Migrated legacy master key for ${domain} to secret-agent/`);
       } catch (err) {
         console.warn(`[key-manager] Failed to migrate legacy key for ${domain}:`, err.message);
@@ -113,8 +113,8 @@ class KeyManager {
    * @param {string} domain
    * @returns {boolean}
    */
-  hasMasterKey(domain) {
-    return !!this._readPackage(domain).pkg;
+  async hasMasterKey(domain) {
+    return !!(await this._readPackage(domain)).pkg;
   }
 
   /**
@@ -122,8 +122,8 @@ class KeyManager {
    * @param {string} domain
    * @returns {object|null}
    */
-  getKeyInfo(domain) {
-    const { pkg } = this._readPackage(domain);
+  async getKeyInfo(domain) {
+    const { pkg } = await this._readPackage(domain);
     if (!pkg) return null;
 
     // Fat package or single-device package
@@ -165,7 +165,7 @@ class KeyManager {
    * takes priority since it was created first and has more data encrypted with it.
    * @private
    */
-  _readPackage(domain) {
+  async _readPackage(domain) {
     const result = { pkg: null, legacy: false };
     const locations = [
       { path: `/${domain}/secret-agent`, legacy: false },
@@ -174,8 +174,8 @@ class KeyManager {
     for (const loc of locations) {
       try {
         const config = new Config();
-        config.setPath(loc.path);
-        const raw = config.readFile('master-key.json');
+        await config.setPath(loc.path);
+        const raw = await config.readFile('master-key.json');
         const pkg = JSON.parse(raw);
         if (pkg && MasterKey.isValidPackage(pkg)) {
           if (loc.legacy && result.pkg) {

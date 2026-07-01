@@ -29,11 +29,11 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.980.0",
-    "@metric-im/administrate": "^1.2.3",
+    "@metric-im/administrate": "^2.1.0",
     "compression": "^1.8.1",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
-    "epistery": "^2.0.0",
+    "epistery": "2.2",
     "ethers": "^5.7.2",
     "express": "^5.1.0",
     "hardhat": "^3.1.3",

@@ -33,8 +33,18 @@ export class DomainAcl {
     constructor(domain) {
         this.domain = domain;
         this.config = new Config();
-        this.config.setPath(domain);
-        this.chain = new DomainChain(domain);
+        this.chain = null;
+    }
+    /**
+     * Async factory — Config IO and DomainChain are async under epistery 2.1,
+     * so load both before the instance is used. Construct via
+     * `await DomainAcl.create(domain)`, not `new DomainAcl(domain)`.
+     */
+    static async create(domain) {
+        const acl = new DomainAcl(domain);
+        await acl.config.setPath(domain);
+        acl.chain = await DomainChain.create(domain);
+        return acl;
     }
 
     /**
@@ -76,28 +86,28 @@ export class DomainAcl {
         const map = await this.getNameMap();
         return map.get(address.toLowerCase()) || null;
     }
-    loadPendingRequests() {
+    async loadPendingRequests() {
         try {
-            const data = this.config.readFile('pending-requests.json');
+            const data = await this.config.readFile('pending-requests.json');
             return JSON.parse(data.toString('utf8'));
         } catch (e) {
             // File doesn't exist or invalid JSON
             return [];
         }
     }
-    savePendingRequests(domain, requests) {
-        this.config.writeFile('pending-requests.json', JSON.stringify(requests, null, 2));
+    async savePendingRequests(domain, requests) {
+        await this.config.writeFile('pending-requests.json', JSON.stringify(requests, null, 2));
     }
-    loadInviteMetadata() {
+    async loadInviteMetadata() {
         try {
-            const data = this.config.readFile('invite-metadata.json');
+            const data = await this.config.readFile('invite-metadata.json');
             return JSON.parse(data.toString('utf8'));
         } catch (e) {
             return {};
         }
     }
-    saveInviteMetadata(metadata) {
-        this.config.writeFile('invite-metadata.json', JSON.stringify(metadata, null, 2));
+    async saveInviteMetadata(metadata) {
+        await this.config.writeFile('invite-metadata.json', JSON.stringify(metadata, null, 2));
     }
     async isAdmin(address) {
         try {
@@ -186,7 +196,7 @@ export class DomainAcl {
         if (invite.consumed) throw new Error('Invite already used or revoked');
 
         // Look up the name from invite metadata
-        const metadata = this.loadInviteMetadata();
+        const metadata = await this.loadInviteMetadata();
         const name = metadata[codeHash]?.name || '';
 
         // Redeem on-chain (atomically adds to ACL)
@@ -198,9 +208,9 @@ export class DomainAcl {
     }
 
     static attach(router) {
-        router.use((req, res, next) => {
+        router.use(async (req, res, next) => {
             try {
-                req.domainAcl = new DomainAcl(req.hostname);
+                req.domainAcl = await DomainAcl.create(req.hostname);
             } catch(e) {}
             next();
         })
@@ -603,7 +613,7 @@ export class DomainAcl {
                 }
 
                 // Load pending requests from JSON file
-                const pendingRequests = req.domainAcl.loadPendingRequests(domain);
+                const pendingRequests = await req.domainAcl.loadPendingRequests(domain);
                 console.log('[request-access] Loaded', pendingRequests.length, 'pending requests');
 
                 // Check if already requested
@@ -637,7 +647,7 @@ export class DomainAcl {
                 pendingRequests.push(newRequest);
 
                 // Save to JSON file
-                req.domainAcl.savePendingRequests(domain, pendingRequests);
+                await req.domainAcl.savePendingRequests(domain, pendingRequests);
                 console.log('[request-access] Saved', pendingRequests.length, 'pending requests');
 
                 res.json({ success: true, message: 'Access request submitted' });
@@ -677,9 +687,9 @@ export class DomainAcl {
                 await tx.wait();
 
                 // Store metadata locally (not on-chain)
-                const metadata = req.domainAcl.loadInviteMetadata();
+                const metadata = await req.domainAcl.loadInviteMetadata();
                 metadata[codeHash] = { name: name || '', comment: comment || '', code, targetPath: path };
-                req.domainAcl.saveInviteMetadata(metadata);
+                await req.domainAcl.saveInviteMetadata(metadata);
 
                 // Build invite URL
                 const inviteUrl = `${req.protocol}://${req.get('host')}${path}${path.includes('?') ? '&' : '?'}invite=${code}`;
@@ -712,7 +722,7 @@ export class DomainAcl {
                 }
 
                 const invites = await domainChain.contract.getInvites();
-                const metadata = req.domainAcl.loadInviteMetadata();
+                const metadata = await req.domainAcl.loadInviteMetadata();
                 const baseUrl = `${req.protocol}://${req.get('host')}`;
                 const formatted = invites.map(inv => {
                     const meta = metadata[inv.codeHash] || {};
@@ -875,7 +885,7 @@ export class DomainAcl {
                 }
 
                 // Load from JSON file
-                const allRequests = req.domainAcl.loadPendingRequests(req.hostname);
+                const allRequests = await req.domainAcl.loadPendingRequests(req.hostname);
                 // Exclude OAuth records (shared file, no `address`) from the ACL UI.
                 const requests = allRequests.filter(r => r.status === 'pending' && r.address);
 
@@ -903,7 +913,7 @@ export class DomainAcl {
                 const domainChain = req.domainAcl.chain;
 
                 // Load from JSON file
-                const allRequests = req.domainAcl.loadPendingRequests(domainChain.domain);
+                const allRequests = await req.domainAcl.loadPendingRequests(domainChain.domain);
 
                 const requestIndex = allRequests.findIndex(
                   r => r.address &&
@@ -960,7 +970,7 @@ export class DomainAcl {
                 }
 
                 // Save back to JSON file
-                req.domainAcl.savePendingRequests(domainChain.domain, allRequests);
+                await req.domainAcl.savePendingRequests(domainChain.domain, allRequests);
 
                 res.json({
                     success: true,

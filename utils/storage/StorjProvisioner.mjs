@@ -28,9 +28,9 @@ export default class StorjProvisioner {
     this.authService = satelliteConfig.auth_service || 'https://auth.storjshare.io';
   }
 
-  static fromRootConfig() {
+  static async fromRootConfig() {
     const config = new Config();
-    const rootData = config.read('/');
+    const rootData = await config.read('/');
     if (!rootData?.storj_satellite) {
       throw new Error('storj_satellite not configured in root epistery config. Set access name.');
     }

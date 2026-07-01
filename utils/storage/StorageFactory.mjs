@@ -26,8 +26,8 @@ export default class StorageFactory {
 
       try {
         const config = new Config();
-        const domainConfig = config.read(`/${domain}`);
-        const rootConfig = config.read('/');
+        const domainConfig = await config.read(`/${domain}`);
+        const rootConfig = await config.read('/');
 
         // Check if Storj credentials are present in domain config, fallback to root config
         const storjConfig = domainConfig.storj || rootConfig.storj;
@@ -55,7 +55,7 @@ export default class StorageFactory {
         break;
 
       case 'config':
-        storage = StorageFactory.createConfig(domain, agentName);
+        storage = await StorageFactory.createConfig(domain, agentName);
         break;
 
       case 'ipfs':
@@ -68,7 +68,7 @@ export default class StorageFactory {
     // Wrap with encryption if signer is available and encryption not disabled
     if (signer) {
       const config = new Config();
-      const domainConfig = config.read(`/${domain}`);
+      const domainConfig = await config.read(`/${domain}`);
       const encryptionDisabled = domainConfig.storage_encrypted === 'false';
 
       if (!encryptionDisabled) {
@@ -103,40 +103,42 @@ export default class StorageFactory {
    * @param {string} domain - Domain name for path prefix
    * @param {string} agentName - Agent name for storage path prefix
    */
-  static createConfig(domain = 'localhost', agentName = 'wiki') {
+  static async createConfig(domain = 'localhost', agentName = 'wiki') {
     const config = new Config();
-    config.setPath(`/${domain}/${agentName}`);
+    await config.setPath(`/${domain}/${agentName}`);
 
     // Wrap Config with the same interface as other storage backends
     return {
-      writeFile: (key, content) => {
+      writeFile: async (key, content) => {
         // Ensure the base directory exists
-        config.save();
+        await config.save();
 
         // If key contains subdirectories, ensure they exist
         const keyParts = key.split('/');
         if (keyParts.length > 1) {
           const subdirPath = keyParts.slice(0, -1).join('/');
-          const fullSubdirPath = path.join(config.currentDir, subdirPath);
+          // The Config facade doesn't expose currentDir; derive it from the
+          // public configDir + the current normalized path (getPath()).
+          const fullSubdirPath = path.join(config.configDir, config.getPath().slice(1), subdirPath);
           if (!fs.existsSync(fullSubdirPath)) {
             fs.mkdirSync(fullSubdirPath, { recursive: true });
           }
         }
 
-        config.writeFile(key, content);
-        return Promise.resolve(true);
+        await config.writeFile(key, content);
+        return true;
       },
 
       readFile: (key) => {
-        return Promise.resolve(config.readFile(key));
+        return config.readFile(key);
       },
 
-      exists: (key) => {
+      exists: async (key) => {
         try {
-          config.readFile(key);
-          return Promise.resolve(true);
+          await config.readFile(key);
+          return true;
         } catch (error) {
-          return Promise.resolve(false);
+          return false;
         }
       },
 

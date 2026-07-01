@@ -26,8 +26,8 @@ export default class StorjStorage {
 
     try {
       const config = new Config();
-      const domainConfig = config.read(this.domain);
-      const rootConfig = config.read('/');
+      const domainConfig = await config.read(this.domain);
+      const rootConfig = await config.read('/');
 
       const storjConfig = domainConfig.storj || rootConfig.storj;
       if (!storjConfig) {

@@ -59,7 +59,7 @@ async function getDomains() {
         // Must have a config.ini to be a real domain
         try {
             const cfg = new Config();
-            cfg.setPath(entry);
+            await cfg.setPath(entry);
             if (cfg.data.contract_address) {
                 domains.push(entry);
             }
@@ -71,7 +71,7 @@ async function getDomains() {
 async function migrateDomain(domain) {
     console.log(`\n── ${domain} ──`);
 
-    const chain = new DomainChain(domain);
+    const chain = await DomainChain.create(domain);
     const contract = chain.contract;
     if (!contract) {
         console.log('  No contract deployed, skipping.');

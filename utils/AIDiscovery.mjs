@@ -17,7 +17,7 @@ export class AIDiscovery {
       try {
         const domain = req.hostname || 'localhost';
         const cfg = new Config();
-        cfg.setPath(domain);
+        await cfg.setPath(domain);
 
         const wallet = cfg.data?.wallet || {};
         const provider = cfg.data?.provider || {};
@@ -165,7 +165,7 @@ export class AIDiscovery {
           return res.status(404).json({ error: 'Feed not found' });
         }
         const cfg = new Config();
-        cfg.setPath(domain);
+        await cfg.setPath(domain);
         const sourceContract = cfg.data?.contract_address || null;
         const envelope = await agent.aiFeed(
           domain, domain, req.params.id,

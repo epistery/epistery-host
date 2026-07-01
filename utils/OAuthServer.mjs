@@ -102,9 +102,9 @@ export class OAuthServer {
     }
   }
 
-  static getDomainWallet(domain) {
+  static async getDomainWallet(domain) {
     const cfg = new Config();
-    cfg.setPath(domain);
+    await cfg.setPath(domain);
     return cfg.data?.wallet?.address || null;
   }
 
@@ -156,7 +156,7 @@ export class OAuthServer {
       const record = await store.validateAccessToken(token);
       if (!record) return null;
 
-      const domainWallet = OAuthServer.getDomainWallet(domain);
+      const domainWallet = await OAuthServer.getDomainWallet(domain);
       if (!domainWallet) return null;
       const caller = OAuthServer.deriveClientAddress(domainWallet, record.client_id);
 
@@ -234,21 +234,21 @@ export class OAuthServer {
   /**
    * Read/write pending-requests.json via DomainAcl pattern.
    */
-  static _loadPendingRequests(domain) {
+  static async _loadPendingRequests(domain) {
     try {
       const cfg = new Config();
-      cfg.setPath(domain);
-      const data = cfg.readFile('pending-requests.json');
+      await cfg.setPath(domain);
+      const data = await cfg.readFile('pending-requests.json');
       return JSON.parse(data.toString('utf8'));
     } catch {
       return [];
     }
   }
 
-  static _savePendingRequests(domain, requests) {
+  static async _savePendingRequests(domain, requests) {
     const cfg = new Config();
-    cfg.setPath(domain);
-    cfg.writeFile('pending-requests.json', JSON.stringify(requests, null, 2));
+    await cfg.setPath(domain);
+    await cfg.writeFile('pending-requests.json', JSON.stringify(requests, null, 2));
   }
 
   /**
@@ -402,7 +402,7 @@ export class OAuthServer {
       const requestedScope = scope || client.scope || '';
       const request_id = crypto.randomUUID();
 
-      const pendingRequests = self._loadPendingRequests(domain);
+      const pendingRequests = await self._loadPendingRequests(domain);
 
       // Check for existing pending request from same client
       const existing = pendingRequests.find(
@@ -431,7 +431,7 @@ export class OAuthServer {
         status: 'pending'
       });
 
-      self._savePendingRequests(domain, pendingRequests);
+      await self._savePendingRequests(domain, pendingRequests);
       console.log(`[oauth] Pending authorization created for client ${client.name} (${request_id})`);
 
       res.json({
@@ -462,7 +462,7 @@ export class OAuthServer {
         if (!client) return res.status(400).json({ error: 'invalid_client' });
 
         const request_id = crypto.randomUUID();
-        const pendingRequests = self._loadPendingRequests(domain);
+        const pendingRequests = await self._loadPendingRequests(domain);
 
         // Check for existing
         const existing = pendingRequests.find(
@@ -491,7 +491,7 @@ export class OAuthServer {
           status: 'pending'
         });
 
-        self._savePendingRequests(domain, pendingRequests);
+        await self._savePendingRequests(domain, pendingRequests);
         console.log(`[oauth] Pending authorization created for client ${client.name} (${request_id})`);
 
         return res.json({
@@ -530,7 +530,7 @@ export class OAuthServer {
       // The connection's PRINCIPAL is its own deterministic address, which we
       // grant a scope-derived ACL role on the contract (the source of truth).
       const authorizerWallet = req.episteryClient.identityAddress;
-      const domainWallet = self.getDomainWallet(domain);
+      const domainWallet = await self.getDomainWallet(domain);
       const connectionAddress = self.deriveClientAddress(domainWallet, client_id);
       const grantedScope = scope || '';
 
@@ -583,7 +583,7 @@ export class OAuthServer {
       if (!request_id) return res.status(400).json({ error: 'request_id required' });
 
       const domain = req.hostname || 'localhost';
-      const pendingRequests = self._loadPendingRequests(domain);
+      const pendingRequests = await self._loadPendingRequests(domain);
       const request = pendingRequests.find(r => r.request_id === request_id);
 
       if (!request) {
@@ -626,7 +626,7 @@ export class OAuthServer {
       }
 
       const domain = req.hostname || 'localhost';
-      const pendingRequests = self._loadPendingRequests(domain);
+      const pendingRequests = await self._loadPendingRequests(domain);
       const request = pendingRequests.find(
         r => r.request_id === request_id && r.type === 'oauth' && r.status === 'pending'
       );
@@ -639,7 +639,7 @@ export class OAuthServer {
         request.status = 'denied';
         request.deniedAt = new Date().toISOString();
         request.deniedBy = req.episteryClient.identityAddress;
-        self._savePendingRequests(domain, pendingRequests);
+        await self._savePendingRequests(domain, pendingRequests);
         return res.json({ success: true, message: 'Authorization denied' });
       }
 
@@ -652,7 +652,7 @@ export class OAuthServer {
         // principal is its own derived address, granted a scope-derived ACL
         // role on the contract.
         const authorizerWallet = req.episteryClient.identityAddress;
-        const domainWallet = self.getDomainWallet(domain);
+        const domainWallet = await self.getDomainWallet(domain);
         const connectionAddress = self.deriveClientAddress(domainWallet, request.client_id);
 
         try {
@@ -693,7 +693,7 @@ export class OAuthServer {
           request.approvedAt = new Date().toISOString();
           request.approvedBy = req.episteryClient.identityAddress;
           request.authorization_code = code;
-          self._savePendingRequests(domain, pendingRequests);
+          await self._savePendingRequests(domain, pendingRequests);
 
           console.log(`[oauth] Authorization approved for client ${request.client_name} by ${req.episteryClient.identityAddress}`);
           res.json({ success: true, message: 'Authorization approved' });

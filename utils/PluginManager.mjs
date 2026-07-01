@@ -59,8 +59,8 @@ export class PluginManager {
         });
 
         // ── GET /api/plugins/sources ──
-        app.get('/api/plugins/sources', adminGate, (req, res) => {
-            res.json({ sources: self.sources() });
+        app.get('/api/plugins/sources', adminGate, async (req, res) => {
+            res.json({ sources: await self.sources() });
         });
 
         // ── POST /api/plugins/install ──
@@ -152,7 +152,7 @@ export class PluginManager {
         console.log(`[PluginManager] Installing ${canonical} from ${repository} (${branch})`);
 
         // Clone — inject PAT if configured, log only the public URL
-        const authRepo = self._authUrl(repository);
+        const authRepo = await self._authUrl(repository);
         if (authRepo === repository && repository.includes('github.com')) {
             const org = new URL(repository).pathname.split('/').filter(Boolean)[0];
             console.warn(`[PluginManager] No GitHub PAT for org "${org}". If repo is private, add [plugins.github] ${org}=ghp_xxx to ~/.epistery/config.ini`);
@@ -371,11 +371,11 @@ export class PluginManager {
      * Read registry source URLs from root config.
      * Configured in ~/.epistery/config.ini as [plugins] registry=url1,url2
      */
-    static sources() {
+    static async sources() {
         const DEFAULT_REGISTRY = 'https://epistery.host/agent/epistery/registry/api/plugins';
         try {
             const cfg = new Config();
-            const rootData = cfg.read('/');
+            const rootData = await cfg.read('/');
             const raw = rootData?.plugins?.registry || DEFAULT_REGISTRY;
             return raw.split(',').map(s => s.trim()).filter(Boolean);
         } catch {
@@ -497,7 +497,7 @@ export class PluginManager {
      *
      * Returns the original URL unchanged for non-GitHub repos or if no PAT is found.
      */
-    static _authUrl(repository) {
+    static async _authUrl(repository) {
         try {
             const url = new URL(repository);
             if (url.hostname !== 'github.com') return repository;
@@ -506,7 +506,7 @@ export class PluginManager {
             if (!org) return repository;
 
             const cfg = new Config();
-            const rootData = cfg.read('/');
+            const rootData = await cfg.read('/');
             const token = rootData?.plugins?.github?.[org];
             if (!token) return repository;
 
