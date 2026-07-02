@@ -1034,6 +1034,17 @@ let main = async function() {
     await agentManager.loadAll(app);
     app.locals.agentManager = agentManager;
 
+    // API/JSON requests get a JSON error, not Express's default HTML page
+    // (which makes the browser's JSON.parse fail with "Unexpected token '<'").
+    app.use((err, req, res, next) => {
+        if (res.headersSent) return next(err);
+        const wantsJson = req.path.startsWith('/api') || req.path.startsWith('/agent')
+            || req.get('accept')?.includes('application/json') || req.xhr;
+        if (!wantsJson) return next(err);
+        console.error(`[error] ${req.method} ${req.originalUrl}:`, err.message);
+        res.status(err.status || err.statusCode || 500).json({ error: err.message || 'Internal error' });
+    });
+
     https_server = https.createServer({...certify.SNI},app);
     https_server.listen(https_port);
     https_server.on('error', console.error);
