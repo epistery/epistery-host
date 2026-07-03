@@ -6,7 +6,7 @@ import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { readFileSync } from 'fs';
+import { readFileSync, lstatSync, readlinkSync, symlinkSync, rmSync } from 'fs';
 import { createRequire } from 'module';
 import { Certify } from '@metric-im/administrate';
 import { Epistery, Config, configuredChains, defaultChainId } from 'epistery';
@@ -1027,6 +1027,27 @@ let main = async function() {
 
     // Mount plugin management API (before agents load so routes are ready)
     PluginManager.attach(app);
+
+    // Agents live under ~/.epistery/.agents and don't bundle their own epistery
+    // (they use the host's, so every agent shares one Config + authority). Node
+    // resolves an agent's `import 'epistery'` (and 'ethers', etc.) by walking up
+    // node_modules — which never reaches the host's install. Bridge that with one
+    // symlink: ~/.epistery/node_modules -> <host>/node_modules. Then every agent
+    // (including runtime-installed plugins) resolves the host's epistery 2.2 and
+    // shared deps. Idempotent; survives relaunch because it's re-ensured at boot.
+    const sharedModules = path.join(config.configDir, 'node_modules');
+    const hostModules = path.join(__dirname, 'node_modules');
+    try {
+        const st = lstatSync(sharedModules, { throwIfNoEntry: false });
+        const linked = st?.isSymbolicLink() && readlinkSync(sharedModules) === hostModules;
+        if (!linked) {
+            if (st) rmSync(sharedModules, { recursive: true, force: true });
+            symlinkSync(hostModules, sharedModules);
+            console.log(`[agents] linked ${sharedModules} -> ${hostModules}`);
+        }
+    } catch (e) {
+        console.warn('[agents] could not link shared node_modules:', e.message);
+    }
 
     // Load and attach agent modules from ~/.epistery/.agents
     const agentsPath = path.join(config.configDir, '.agents');
