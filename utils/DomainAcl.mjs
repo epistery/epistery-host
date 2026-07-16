@@ -170,9 +170,13 @@ export class DomainAcl {
 
         const aclStance = agentConfig.aclStance || fallback;
         const acl = aclStance.acl || fallback.acl;
-        // get lists and access for this address. default stance included automatically
-        const membershipEntries = await contract.getListsForMember(userAddress);
-        const userLists = membershipEntries.map(entry => entry.listName);
+        // get lists and access for this address. default stance included
+        // automatically. An anonymous caller (no address) is a member of the
+        // 'default' pseudo-list only — so a stance entry {list:'default',
+        // access:N} deliberately publishes the agent to sessionless callers.
+        const userLists = userAddress
+            ? (await contract.getListsForMember(userAddress)).map(entry => entry.listName)
+            : [];
         const userTests = ['default',...userLists];
         const accessLevel = acl.reduce((level,entry)=>{
             if (userTests.includes(entry.list) && entry.access > level) level = entry.access;
@@ -1054,7 +1058,11 @@ export function makePrincipal({ identityAddress = null, role = null, mcp = false
         async access(agentName, { customAuthFunctions = {}, defaultAclStance = null } = {}) {
             if (_access.has(agentName)) return _access.get(agentName);
             const result = { admin: false, edit: false, read: false, level: 0, enableRequestAccess: false };
-            if (identityAddress && domainAcl) {
+            // Anonymous principals resolve too: checkAgentAccess evaluates the
+            // 'default' pseudo-list for a null address, so a domain's declared
+            // public stance reaches sessionless callers instead of silently
+            // reading as level 0.
+            if (domainAcl) {
                 try {
                     const a = await domainAcl.checkAgentAccess(agentName, identityAddress, hostname, customAuthFunctions, defaultAclStance);
                     result.level = a.level;
