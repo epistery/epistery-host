@@ -27,6 +27,7 @@ import { join } from 'path';
 import { spawn, spawnSync } from 'child_process';
 import { Config } from 'epistery';
 import { normalizeAgentName } from './DomainAcl.mjs';
+import { gitCredential } from './gitCredentials.mjs';
 
 export class PluginManager {
 
@@ -151,21 +152,33 @@ export class PluginManager {
 
         console.log(`[PluginManager] Installing ${canonical} from ${repository} (${branch})`);
 
-        // Clone — inject PAT if configured, log only the public URL
-        const authRepo = await self._authUrl(repository);
-        if (authRepo === repository && repository.includes('github.com')) {
-            const org = new URL(repository).pathname.split('/').filter(Boolean)[0];
-            console.warn(`[PluginManager] No GitHub PAT for org "${org}". If repo is private, add [plugins.github] ${org}=ghp_xxx to ~/.epistery/config.ini`);
+        // Clone with the credential supplied for this command only — the token is
+        // never written into the clone's remote. Embedding it there was how a
+        // rotated PAT silently broke `update` for every clone made with the old
+        // one; see utils/gitCredentials.mjs.
+        let host = null, org = null;
+        try {
+            const u = new URL(repository);
+            host = u.hostname;
+            org = u.pathname.split('/').filter(Boolean)[0] || null;
+        } catch { /* ssh-style remote — no credential to resolve */ }
+
+        const token = await self.gitToken(host, org);
+        if (host === 'github.com' && org && !token) {
+            console.warn(`[PluginManager] No GitHub PAT for org "${org}" — cloning unauthenticated. If the repo is private, add [plugins.github] ${org}=… to the host's config.`);
         }
+        const cred = gitCredential(token);
+
         try {
             await self._exec(
-                'git', ['clone', '--branch', branch, '--single-branch', authRepo, targetDir],
+                'git', [...cred.args, 'clone', '--branch', branch, '--single-branch', repository, targetDir],
                 self._agentsDir,
-                `git clone --branch ${branch} --single-branch ${repository} ${targetDir}`
+                `git clone --branch ${branch} --single-branch ${repository} ${targetDir}`,
+                cred.env
             );
         } catch (err) {
-            if (authRepo === repository && repository.includes('github.com')) {
-                throw new Error(`Clone failed for ${canonical}. If the repo is private, configure a GitHub PAT: [plugins.github] in ~/.epistery/config.ini. Original error: ${err.message}`);
+            if (!token && host === 'github.com') {
+                throw new Error(`Clone failed for ${canonical}. No PAT was sent for "${org}" — if the repo is private, configure [plugins.github] ${org}=… . Original error: ${err.message}`);
             }
             throw err;
         }
@@ -465,7 +478,7 @@ export class PluginManager {
      * Run a command with token-safe logging.
      * safeLog replaces the command in log/error output so PATs never leak.
      */
-    static _exec(command, args, cwd, safeLog) {
+    static _exec(command, args, cwd, safeLog, extraEnv = {}) {
         return new Promise((resolve, reject) => {
             const logStr = safeLog || `${command} ${args.join(' ')}`;
             console.log(`[PluginManager] ${logStr}`);
@@ -475,7 +488,7 @@ export class PluginManager {
                 // Never let git block on an interactive credential prompt — stdin
                 // is closed, so a prompt would hang the host forever. Missing/expired
                 // credentials must fail fast with a non-zero exit, not stall.
-                env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' }
+                env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never', ...extraEnv }
             });
             child.on('close', (code) => {
                 if (code === 0) resolve();
@@ -486,35 +499,22 @@ export class PluginManager {
     }
 
     /**
-     * Inject a GitHub PAT into a repository URL if one is configured.
+     * The configured credential for one host/org, or null.
      *
-     * Config in ~/.epistery/config.ini:
-     *   [plugins.github]
-     *   rootz-global=ghp_xxxxxxxxxxxx
-     *   epistery=ghp_yyyyyyyyyyyy
-     *
-     * Parsed as: plugins.github['rootz-global'], plugins.github.epistery
-     *
-     * Returns the original URL unchanged for non-GitHub repos or if no PAT is found.
+     * The single place that knows where git credentials live. AgentManager
+     * re-derives the token through this on every fetch instead of reusing the
+     * one baked into a clone's remote at install time — so rotating a PAT takes
+     * effect immediately rather than silently breaking `update` for that org's
+     * plugins. Wired in index.mjs; see AgentManager.updateAgent.
      */
-    static async _authUrl(repository) {
+    static async gitToken(host, org) {
+        if (host !== 'github.com' || !org) return null;
         try {
-            const url = new URL(repository);
-            if (url.hostname !== 'github.com') return repository;
-
-            const org = url.pathname.split('/').filter(Boolean)[0];
-            if (!org) return repository;
-
             const cfg = new Config();
             const rootData = await cfg.read('/');
-            const token = rootData?.plugins?.github?.[org];
-            if (!token) return repository;
-
-            url.username = 'x-access-token';
-            url.password = token;
-            return url.toString();
+            return rootData?.plugins?.github?.[org] || null;
         } catch {
-            return repository;
+            return null;
         }
     }
 }

@@ -1051,7 +1051,13 @@ let main = async function() {
 
     // Load and attach agent modules from ~/.epistery/.agents
     const agentsPath = path.join(config.configDir, '.agents');
-    agentManager = new AgentManager(agentsPath, { contractArtifact: DomainAgentArtifact });
+    // gitAuth lets updateAgent re-derive a git credential from config at fetch
+    // time instead of reusing the one baked into a clone's remote at install
+    // time — so rotating a PAT takes effect immediately.
+    agentManager = new AgentManager(agentsPath, {
+        contractArtifact: DomainAgentArtifact,
+        gitAuth: (host, org) => PluginManager.gitToken(host, org)
+    });
     await agentManager.loadAll(app);
     app.locals.agentManager = agentManager;
 

@@ -10,6 +10,7 @@ import { MasterKey } from './crypto/master-key.mjs';
 import { ECDH } from './crypto/ecdh.mjs';
 import { PACKAGE_TYPES, VERSIONS } from './crypto/types.mjs';
 import { normalizeAgentName } from './DomainAcl.mjs';
+import { gitCredential } from './gitCredentials.mjs';
 
 /**
  * AgentManager - Discovers and loads epistery agent modules
@@ -40,6 +41,10 @@ export class AgentManager {
         this.toolRegistry = []; // collected from agent manifests
         this.externalTools = new Map(); // peerId -> tools[] (from bridge peers)
         this.contractArtifact = options.contractArtifact || null;
+        // Resolves a git credential for a host/org at fetch time: (host, org) =>
+        // Promise<token|null>. Injected so this class stays ignorant of where
+        // GitHub PATs are configured — see index.mjs.
+        this.gitAuth = options.gitAuth || null;
     }
 
     /**
@@ -361,15 +366,90 @@ export class AgentManager {
      * Pull latest code for an agent and install dependencies.
      * Remote is whatever .git/config says - no URL override.
      */
+    /**
+     * The clone's `origin`, with any embedded credentials removed.
+     *
+     * `git clone https://x-access-token:TOKEN@host/org/repo` persists that URL —
+     * token and all — into .git/config. That is how credentials went stale here:
+     * rotating a PAT left every existing clone fetching with the old one, and
+     * `git fetch` exits 128 with no hint that the token is the problem.
+     *
+     * Returns { url, host, org } for the credential-free URL, or null for a
+     * non-HTTP remote (ssh), which carries no credentials to refresh.
+     */
+    async gitOrigin(agentPath) {
+        const raw = await this.captureCommand('git', ['remote', 'get-url', 'origin'], agentPath);
+        if (!raw) return null;
+        let url;
+        try {
+            url = new URL(raw.trim());
+        } catch {
+            return null;                       // scp-style ssh remote (git@host:org/repo)
+        }
+        if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+        url.username = '';
+        url.password = '';
+        const org = url.pathname.split('/').filter(Boolean)[0] || null;
+        return { url: url.toString(), host: url.hostname, org };
+    }
+
+    /**
+     * Update a managed agent checkout.
+     *
+     * Credentials are re-derived from config on every fetch rather than read
+     * back out of .git/config. Two consequences, both wanted: rotating a PAT
+     * takes effect immediately instead of silently breaking update for that
+     * org's plugins, and the secret is scrubbed from .git/config rather than
+     * living on disk in every clone.
+     *
+     * The token reaches git through a credential helper that reads it from the
+     * environment, so it appears in neither the process arguments (visible to
+     * any user via `ps`) nor the repository config.
+     */
     async updateAgent(agentPath, branch) {
         console.log(`[AgentManager] Updating ${agentPath} on branch ${branch}`);
-        await this.executeCommand('git', ['fetch', 'origin', branch], agentPath);
+
+        const args = ['fetch', 'origin', branch];
+        const env = {};
+        const origin = await this.gitOrigin(agentPath);
+
+        if (origin) {
+            // Persist the credential-free URL; any stale embedded token is gone
+            // for good, not just bypassed for this fetch.
+            await this.executeCommand('git', ['remote', 'set-url', 'origin', origin.url], agentPath);
+
+            const token = this.gitAuth ? await this.gitAuth(origin.host, origin.org) : null;
+            if (token) {
+                const cred = gitCredential(token);
+                Object.assign(env, cred.env);
+                args.unshift(...cred.args);
+            } else if (origin.org) {
+                console.warn(`[AgentManager] No git credential configured for ${origin.host}/${origin.org} — fetching unauthenticated.`);
+            }
+        }
+
+        await this.executeCommand('git', args, agentPath, env);
         await this.executeCommand('git', ['reset', '--hard', `origin/${branch}`], agentPath);
         await this.executeCommand('npm', ['install', '--no-audit', '--no-fund'], agentPath);
         console.log(`[AgentManager] Update complete for ${agentPath}`);
     }
 
-    executeCommand(command, args, cwd) {
+    /** Run a command and return its stdout, or null if it fails. */
+    captureCommand(command, args, cwd) {
+        return new Promise((resolve) => {
+            const child = spawn(command, args, {
+                stdio: ['ignore', 'pipe', 'inherit'],
+                cwd,
+                env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' }
+            });
+            let out = '';
+            child.stdout.on('data', (d) => { out += d; });
+            child.on('close', (code) => resolve(code === 0 ? out : null));
+            child.on('error', () => resolve(null));
+        });
+    }
+
+    executeCommand(command, args, cwd, extraEnv = {}) {
         return new Promise((resolve, reject) => {
             console.log(`[AgentManager] ${cwd}: ${command} ${args.join(' ')}`);
             const child = spawn(command, args, {
@@ -378,7 +458,7 @@ export class AgentManager {
                 // Never let git block on an interactive credential prompt — stdin
                 // is closed, so a prompt would hang the host forever. Missing/expired
                 // credentials must fail fast with a non-zero exit, not stall.
-                env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' }
+                env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never', ...extraEnv }
             });
             child.on('close', (code) => {
                 if (code === 0) resolve();
