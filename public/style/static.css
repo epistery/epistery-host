@@ -973,7 +973,6 @@ footer {
         width: 100%;
         max-width: 100%;
         overflow-y: auto;
-        overflow-y: auto;
     }
 }
 
@@ -1247,6 +1246,7 @@ footer {
     background: var(--bg-color-d);
     border-left: 1px solid var(--page-border);
     padding: var(--spacer2);
+    overflow-y: auto;
 }
 
 .console-header {
