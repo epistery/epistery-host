@@ -309,6 +309,7 @@ export class DomainAcl {
                                 address: entry.addr,
                                 name: '',
                                 addressType: '',
+                                comment: '',
                                 isVirtual: false,
                                 ownerRole: 0,
                                 lists: [],
@@ -325,6 +326,9 @@ export class DomainAcl {
                         }
                         if (metaObj.walletSource && !user.addressType) {
                             user.addressType = metaObj.walletSource;
+                        }
+                        if (metaObj.comment && !user.comment) {
+                            user.comment = metaObj.comment;
                         }
                         if (metaObj.addedAt) {
                             if (!user.createdAt || metaObj.addedAt < user.createdAt) {
@@ -411,7 +415,7 @@ export class DomainAcl {
         // API: Add address to acl
         router.post('/api/acl/add', async (req, res) => {
             try {
-                const { address, name, listName: reqListName, contractAddress: reqContractAddress, addressType, role: reqRole } = req.body;
+                const { address, name, listName: reqListName, contractAddress: reqContractAddress, addressType, comment, role: reqRole } = req.body;
                 const domainChain = req.domainAcl.chain;
                 if (!domainChain.contract) {
                     return res.status(400).json({ error: 'Contract not deployed' });
@@ -427,7 +431,8 @@ export class DomainAcl {
                 const meta = JSON.stringify({
                     addedBy: 'admin-ui',
                     addedAt: new Date().toISOString(),
-                    ...(addressType ? { walletSource: addressType } : {})
+                    ...(addressType ? { walletSource: addressType } : {}),
+                    ...(comment ? { comment: String(comment).slice(0, 128) } : {})
                 });
 
                 const feeData = await domainChain.getFeeData();
@@ -855,6 +860,48 @@ export class DomainAcl {
                 res.json({ ok: true });
             } catch (error) {
                 console.error('[acl/name] Set error:', error);
+                res.status(500).json({ error: error.message });
+            }
+        });
+
+        // API: Set an arbitrary admin comment (~128 chars) on an address (admin only).
+        // The comment is address-level metadata; it is merged into the `meta` of each
+        // of the address's real ACL entries (preserving addedBy/addedAt/walletSource),
+        // matching how walletSource is stored/read. Auto (virtual owner/host) entries
+        // are contract-managed and left untouched.
+        router.post('/api/acl/comment', async (req, res) => {
+            try {
+                const isAdmin = await req.domainAcl.isAdmin(req.episteryClient?.identityAddress);
+                if (!isAdmin) return res.status(403).json({ error: 'Not authorized' });
+
+                const { address, comment } = req.body;
+                if (!address) return res.status(400).json({ error: 'address required' });
+
+                const chain = req.domainAcl.chain;
+                if (!chain?.contract) return res.status(400).json({ error: 'Contract not deployed' });
+
+                const trimmed = String(comment || '').slice(0, 128);
+                const listNames = await chain.contract.getListNames();
+                let updated = 0;
+                for (const listName of listNames) {
+                    const entries = await chain.contract.getACL(listName);
+                    const entry = entries.find(e => e.addr.toLowerCase() === address.toLowerCase());
+                    if (!entry) continue;
+                    let metaObj = {};
+                    try { metaObj = JSON.parse(entry.meta) || {}; } catch {}
+                    if (metaObj.auto) continue; // contract-managed virtual entry
+                    if ((metaObj.comment || '') === trimmed) continue; // no change
+                    if (trimmed) metaObj.comment = trimmed; else delete metaObj.comment;
+                    const fee = await chain.getFeeData();
+                    // '\x00KEEP' name + role 255 = update meta only, keep name/role.
+                    const tx = await chain.contract.updateACLEntry(listName, address, '\x00KEEP', 255, JSON.stringify(metaObj), fee);
+                    await tx.wait();
+                    updated++;
+                }
+                NAME_MAP_CACHE.delete(chain.domain);
+                res.json({ ok: true, updated });
+            } catch (error) {
+                console.error('[acl/comment] Set error:', error);
                 res.status(500).json({ error: error.message });
             }
         });

@@ -498,6 +498,9 @@
                                 <input type="text" id="new-user-name" placeholder="Identity name (optional)" style="flex: 1 1 200px;" />
                             </div>
                             <div style="margin-top: var(--spacerhalf);">
+                                <input type="text" id="new-user-comment" placeholder="Comment (optional)" maxlength="128" style="width: 100%; box-sizing: border-box;" />
+                            </div>
+                            <div style="margin-top: var(--spacerhalf);">
                                 <strong style="font-size: 0.9rem;">Lists:</strong>
                                 <div id="new-user-lists" class="list-checkboxes" style="margin-top: 4px;"></div>
                                 <div style="margin-top: 4px;">
@@ -524,6 +527,10 @@
                         <label style="display:block;">
                             <span style="font-size:0.9rem; font-weight:bold;">Identity Name</span>
                             <input type="text" id="user-edit-name" placeholder="(no name)" style="width:100%; margin-top:4px; box-sizing:border-box;" />
+                        </label>
+                        <label style="display:block; margin-top:var(--spacer);">
+                            <span style="font-size:0.9rem; font-weight:bold;">Comment</span>
+                            <input type="text" id="user-edit-comment" placeholder="(no comment)" maxlength="128" style="width:100%; margin-top:4px; box-sizing:border-box;" />
                         </label>
                         <div style="margin-top:var(--spacer);">
                             <strong style="font-size:0.9rem;">List Memberships</strong>
@@ -715,7 +722,7 @@
     <script type="module">
         let currentPolicy = 'public';
         let contractAddress = null;
-        let users = []; // Array of {address, name, addressType, isVirtual, ownerRole, lists:[{listName,role}], createdAt}
+        let users = []; // Array of {address, name, addressType, comment, isVirtual, ownerRole, lists:[{listName,role}], createdAt}
         let allLists = []; // Known list names on this contract
         let userSort = { by: 'address', dir: 1 }; // 1 asc, -1 desc
         let editingUser = null;
@@ -1081,6 +1088,9 @@
             const sorted = users.slice().sort(compareUsers);
             tbody.innerHTML = sorted.map(u => {
                 const name = u.name ? escHtml(u.name) : '<span style="color:var(--page-text-secondary);">—</span>';
+                const commentMark = u.comment
+                    ? ` <span title="${escHtml(u.comment)}" style="cursor:help; color:var(--page-text-secondary); font-size:0.8rem;">🗨</span>`
+                    : '';
                 const type = u.addressType ? escHtml(u.addressType) : '<span style="color:var(--page-text-secondary);">—</span>';
                 const ownerBadge = u.isVirtual
                     ? `<span class="role-badge" style="margin-left:6px;">${u.ownerRole === 4 ? 'Owner' : u.ownerRole === 3 ? 'Host' : 'Auto'}</span>`
@@ -1093,7 +1103,7 @@
                 return `
                     <tr>
                         <td class="col-address" title="${escHtml(u.address)}">${abbrevAddr(u.address)}${ownerBadge}</td>
-                        <td>${name}</td>
+                        <td>${name}${commentMark}</td>
                         <td>${type}</td>
                         <td class="col-lists">${listBadges || '<span style="color:var(--page-text-secondary);">—</span>'}</td>
                         <td class="col-created">${fmtDate(u.createdAt)}</td>
@@ -1130,6 +1140,7 @@
         window.addUser = async function() {
             const addrEl = document.getElementById('new-user-address');
             const nameEl = document.getElementById('new-user-name');
+            const commentEl = document.getElementById('new-user-comment');
             const newListEl = document.getElementById('new-user-newlist');
             const btn = document.getElementById('add-user-btn');
             const progressDiv = document.getElementById('add-user-progress');
@@ -1137,6 +1148,7 @@
 
             const address = addrEl.value.trim();
             const name = nameEl.value.trim();
+            const comment = commentEl.value.trim();
             if (!address || !/^0x[a-fA-F0-9]{40}$/.test(address)) {
                 alert('Please enter a valid Ethereum address (0x + 40 hex chars)');
                 return;
@@ -1161,7 +1173,7 @@
                     const r = await fetch('/api/acl/add', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ address, listName, name: '' })
+                        body: JSON.stringify({ address, listName, name: '', addressType: 'manual', comment })
                     });
                     if (!r.ok) {
                         const data = await r.json().catch(() => ({}));
@@ -1184,6 +1196,7 @@
                 await loadUsers();
                 addrEl.value = '';
                 nameEl.value = '';
+                commentEl.value = '';
                 newListEl.value = '';
                 setTimeout(() => { progressDiv.style.display = 'none'; }, 800);
             } catch (error) {
@@ -1202,6 +1215,7 @@
 
             document.getElementById('user-edit-address').textContent = user.address;
             document.getElementById('user-edit-name').value = user.name || '';
+            document.getElementById('user-edit-comment').value = user.comment || '';
 
             const badges = document.getElementById('user-edit-badges');
             if (user.isVirtual) {
@@ -1246,6 +1260,7 @@
             if (!editingUser) return;
             const user = editingUser;
             const newName = document.getElementById('user-edit-name').value.trim();
+            const newComment = document.getElementById('user-edit-comment').value.trim();
             const progressDiv = document.getElementById('user-edit-progress');
             const progressText = document.getElementById('user-edit-progress-text');
             progressDiv.style.display = 'block';
@@ -1261,6 +1276,19 @@
                     if (!r.ok) {
                         const data = await r.json().catch(() => ({}));
                         throw new Error(data.error || 'Failed to set identity name');
+                    }
+                }
+
+                if (newComment !== (user.comment || '')) {
+                    progressText.textContent = 'Saving comment…';
+                    const r = await fetch('/api/acl/comment', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ address: user.address, comment: newComment })
+                    });
+                    if (!r.ok) {
+                        const data = await r.json().catch(() => ({}));
+                        throw new Error(data.error || 'Failed to save comment');
                     }
                 }
 
