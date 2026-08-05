@@ -639,6 +639,10 @@ let main = async function() {
     app.use('/image', express.static(path.join(__dirname, 'public/image'), staticOpts));
     app.use('/script', express.static(path.join(__dirname, 'public/script'), staticOpts));
     app.use('/widgets', express.static(path.join(__dirname, 'public/widgets'), staticOpts));
+    // Brand kit (@epistery/art) — logos, favicons, tokens, and the identicon
+    // utility, served straight from the package so there is exactly one copy.
+    // Client: import { identiconDataUrl } from '/art/identicon.mjs'.
+    app.use('/art', express.static(path.dirname(require.resolve('@epistery/art')), staticOpts));
     // /.well-known/ai is now served dynamically by AIDiscovery (mounted after MCPServer)
 
     // Serve service worker (must be at root for scope)

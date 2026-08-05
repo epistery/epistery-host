@@ -114,6 +114,7 @@
         .users-table th.sortable.sort-asc::after { content: ' ↑'; opacity: 1; }
         .users-table th.sortable.sort-desc::after { content: ' ↓'; opacity: 1; }
         .users-table td.col-address { font-family: monospace; font-size: 0.85rem; white-space: nowrap; }
+        .users-table td.col-address .identicon { vertical-align: middle; margin-right: 8px; border-radius: 3px; background: #fffffe; }
         .users-table td.col-lists { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
         .users-table td.col-created { font-size: 0.85rem; color: var(--page-text-secondary); white-space: nowrap; }
         .list-badge {
@@ -720,6 +721,8 @@
     </div>
 
     <script type="module">
+        import { identiconDataUrl } from '/art/identicon.mjs';
+
         let currentPolicy = 'public';
         let contractAddress = null;
         let users = []; // Array of {address, name, addressType, comment, isVirtual, ownerRole, lists:[{listName,role}], createdAt}
@@ -1102,7 +1105,7 @@
                 }).join('');
                 return `
                     <tr>
-                        <td class="col-address" title="${escHtml(u.address)}">${abbrevAddr(u.address)}${ownerBadge}</td>
+                        <td class="col-address" title="${escHtml(u.address)}"><img class="identicon" src="${identiconDataUrl(u.address, 20)}" width="20" height="20" alt="" />${abbrevAddr(u.address)}${ownerBadge}</td>
                         <td>${name}${commentMark}</td>
                         <td>${type}</td>
                         <td class="col-lists">${listBadges || '<span style="color:var(--page-text-secondary);">—</span>'}</td>
