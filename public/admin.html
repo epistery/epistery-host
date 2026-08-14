@@ -644,34 +644,10 @@
                                 <div><strong>Credentials:</strong> <span id="storage-creds-source" style="font-family: monospace;"></span></div>
                             </div>
 
-                            <!-- Encryption toggle -->
-                            <div style="display: flex; align-items: center; gap: var(--spacerhalf); margin-bottom: var(--spacer);">
-                                <label style="font-size: 0.9em; cursor: pointer; display: flex; align-items: center; gap: 6px;">
-                                    <input type="checkbox" id="storage-encrypt-toggle" onchange="toggleEncryption(this.checked)">
-                                    <strong>Encrypt at rest</strong>
-                                </label>
-                                <span style="font-size: 0.8em; color: var(--text-secondary);">(AES-256-GCM, not retroactive)</span>
+                            <div style="font-size: 0.8em; color: var(--text-secondary);">
+                                Encrypted at rest. Storage is provisioned by the host — data ownership
+                                lives in your device keys, not in these settings.
                             </div>
-
-                            <!-- Custom credentials form -->
-                            <details style="margin-top: var(--spacer);">
-                                <summary style="cursor: pointer; font-size: 0.9em; font-weight: bold;">Change storage server</summary>
-                                <div style="margin-top: var(--spacerhalf); font-size: 0.85em; color: var(--text-secondary); margin-bottom: var(--spacerhalf);">
-                                    Any S3-compatible provider: Storj, AWS S3, Backblaze B2, MinIO, etc.
-                                </div>
-                                <div style="display: flex; flex-direction: column; gap: 6px; margin-top: var(--spacerhalf);">
-                                    <input type="text" id="s3-endpoint" placeholder="Endpoint (e.g. https://gateway.storjshare.io or leave blank for AWS)" style="font-family: monospace; font-size: 0.85em; padding: 4px 8px;">
-                                    <input type="text" id="s3-region" placeholder="Region (default: us-east-1)" style="font-family: monospace; font-size: 0.85em; padding: 4px 8px;">
-                                    <input type="text" id="s3-bucket" placeholder="Bucket name" style="font-family: monospace; font-size: 0.85em; padding: 4px 8px;">
-                                    <input type="text" id="s3-access-key" placeholder="Access Key ID" style="font-family: monospace; font-size: 0.85em; padding: 4px 8px;">
-                                    <input type="password" id="s3-secret-key" placeholder="Secret Access Key" style="font-family: monospace; font-size: 0.85em; padding: 4px 8px;">
-                                    <div style="display: flex; gap: var(--spacerhalf); margin-top: 4px;">
-                                        <button class="console-btn" onclick="saveStorageCredentials()">Save</button>
-                                        <button class="console-btn" id="storage-clear-btn" onclick="clearStorageCredentials()" style="display: none;">Use host defaults</button>
-                                        <span id="storage-config-status" style="font-size: 0.85em; color: var(--text-secondary); align-self: center;"></span>
-                                    </div>
-                                </div>
-                            </details>
                         </div>
                     </div>
                 </section>
@@ -2420,102 +2396,10 @@
                     document.getElementById('storage-bucket-row').style.display = 'none';
                     document.getElementById('storage-creds-source').textContent = 'none';
                 }
-
-                // Encryption toggle
-                document.getElementById('storage-encrypt-toggle').checked = data.encryptionEnabled;
-
-                // Show clear button if custom credentials are set
-                if (data.customCredentials) {
-                    document.getElementById('storage-clear-btn').style.display = '';
-                }
-
-                // Pre-fill form if custom credentials
-                if (data.customCredentials) {
-                    document.getElementById('s3-endpoint').value = data.endpoint || '';
-                    document.getElementById('s3-region').value = data.region || '';
-                    document.getElementById('s3-bucket').value = data.bucket || '';
-                }
             } catch (error) {
                 console.error('Failed to load storage status:', error);
             }
         }
-
-        window.toggleEncryption = async function(enabled) {
-            try {
-                const response = await fetch('/api/storage-config', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    credentials: 'include',
-                    body: JSON.stringify({ action: 'set-encryption', encrypted: enabled })
-                });
-                const data = await response.json();
-                if (!response.ok) throw new Error(data.error);
-                document.getElementById('storage-config-status').textContent = data.message;
-            } catch (error) {
-                document.getElementById('storage-config-status').textContent = 'Error: ' + error.message;
-                document.getElementById('storage-encrypt-toggle').checked = !enabled;
-            }
-        };
-
-        window.saveStorageCredentials = async function() {
-            const status = document.getElementById('storage-config-status');
-            const storj = {
-                ENDPOINT: document.getElementById('s3-endpoint').value.trim(),
-                REGION: document.getElementById('s3-region').value.trim(),
-                BUCKET: document.getElementById('s3-bucket').value.trim(),
-                ACCESS_KEY: document.getElementById('s3-access-key').value.trim(),
-                SECRET_KEY: document.getElementById('s3-secret-key').value.trim()
-            };
-
-            if (!storj.BUCKET || !storj.ACCESS_KEY || !storj.SECRET_KEY) {
-                status.textContent = 'Bucket, Access Key, and Secret Key are required.';
-                status.style.color = '#dc3545';
-                return;
-            }
-
-            try {
-                status.textContent = 'Saving...';
-                status.style.color = '';
-                const response = await fetch('/api/storage-config', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    credentials: 'include',
-                    body: JSON.stringify({ action: 'set-credentials', storj })
-                });
-                const data = await response.json();
-                if (!response.ok) throw new Error(data.error);
-                status.textContent = data.message;
-                status.style.color = '#28a745';
-                // Clear sensitive fields
-                document.getElementById('s3-access-key').value = '';
-                document.getElementById('s3-secret-key').value = '';
-                setTimeout(() => loadStorjStatus(), 1000);
-            } catch (error) {
-                status.textContent = 'Error: ' + error.message;
-                status.style.color = '#dc3545';
-            }
-        };
-
-        window.clearStorageCredentials = async function() {
-            if (!confirm('Remove custom credentials and use host defaults?')) return;
-            const status = document.getElementById('storage-config-status');
-            try {
-                const response = await fetch('/api/storage-config', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    credentials: 'include',
-                    body: JSON.stringify({ action: 'clear-credentials' })
-                });
-                const data = await response.json();
-                if (!response.ok) throw new Error(data.error);
-                status.textContent = data.message;
-                status.style.color = '#28a745';
-                setTimeout(() => loadStorjStatus(), 1000);
-            } catch (error) {
-                status.textContent = 'Error: ' + error.message;
-                status.style.color = '#dc3545';
-            }
-        };
 
         // Expose notification function for agents
         window.episteryNotify = function(title, body, options = {}) {

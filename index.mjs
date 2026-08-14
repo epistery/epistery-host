@@ -898,8 +898,9 @@ let main = async function() {
             const storjConfig = domainStorj || rootStorj;
             const hasStorage = !!(storjConfig?.ACCESS_KEY);
 
-            // Encryption: on by default, off only if explicitly disabled
-            const encryptionEnabled = cfg.data.storage_encrypted !== 'false';
+            // Encryption at rest is unconditional now — the opt-out was retired with
+            // the storage-settings vector (see wiki EpisteryData). Report the truth.
+            const encryptionEnabled = true;
 
             // Check if domain has a master key initialized
             let hasMasterKey = false;
@@ -925,53 +926,13 @@ let main = async function() {
     });
 
     // API: Update storage configuration (admin only)
-    app.post('/api/storage-config', async (req, res) => {
-        try {
-            const isAdmin = await req.domainAcl?.isAdmin(req.episteryClient?.identityAddress);
-            if (!isAdmin) return res.status(403).json({ error: 'Not authorized' });
-
-            const domain = req.headers.host?.split(':')[0] || 'localhost';
-            const cfg = new Config();
-            await cfg.setPath(domain);
-
-            const { action, storj, encrypted } = req.body;
-
-            if (action === 'set-credentials') {
-                if (!storj?.ACCESS_KEY || !storj?.SECRET_KEY || !storj?.BUCKET) {
-                    return res.status(400).json({ error: 'ACCESS_KEY, SECRET_KEY, and BUCKET are required' });
-                }
-                cfg.data.storj = {
-                    ACCESS_KEY: storj.ACCESS_KEY,
-                    SECRET_KEY: storj.SECRET_KEY,
-                    ENDPOINT: storj.ENDPOINT || '',
-                    BUCKET: storj.BUCKET,
-                    REGION: storj.REGION || ''
-                };
-                await cfg.save();
-                console.log(`[storage-config] Updated S3 credentials for ${domain}`);
-                return res.json({ success: true, message: 'Storage credentials updated. Restart agents to apply.' });
-            }
-
-            if (action === 'clear-credentials') {
-                delete cfg.data.storj;
-                await cfg.save();
-                console.log(`[storage-config] Cleared custom S3 credentials for ${domain}`);
-                return res.json({ success: true, message: 'Custom credentials removed. Using host defaults.' });
-            }
-
-            if (action === 'set-encryption') {
-                cfg.data.storage_encrypted = encrypted ? 'true' : 'false';
-                await cfg.save();
-                console.log(`[storage-config] Encryption ${encrypted ? 'enabled' : 'disabled'} for ${domain}`);
-                return res.json({ success: true, message: `Encryption ${encrypted ? 'enabled' : 'disabled'}. New writes will use this setting.` });
-            }
-
-            res.status(400).json({ error: 'Unknown action' });
-        } catch (error) {
-            console.error('[storage-config] Error:', error);
-            res.status(500).json({ error: error.message });
-        }
-    });
+    // The storage-settings write vector (set-credentials / clear-credentials /
+    // set-encryption) was retired — see wiki EpisteryData. It presented a parallel
+    // access path: data ownership lives in device-key wraps (Layer 1), not in a
+    // host-editable storage passphrase. Storj access credentials are provisioned by
+    // the host (StorjProvisioner) and read from Config; they are no longer
+    // user-editable, and at-rest encryption is not an opt-out. GET /api/storj-status
+    // remains as read-only transparency.
 
     // API: Get user preferences
     app.get('/api/preferences', async (req, res) => {

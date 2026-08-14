@@ -65,22 +65,20 @@ export default class StorageFactory {
         throw new Error(`Unknown storage type: ${type}`);
     }
 
-    // Wrap with encryption if signer is available and encryption not disabled
+    // Wrap with encryption whenever a signer is available. There is no plaintext
+    // MODE — the per-domain storage_encrypted='false' opt-out was retired with the
+    // admin storage-settings vector (see wiki EpisteryData); encryption at rest is
+    // not a choice. Reads stay lenient: EncryptedStorage reads any pre-existing
+    // plaintext as-is, so no human is ever locked out of data written before
+    // encryption. This is a human system, not a security system — a key-init failure
+    // logs and proceeds rather than blocking the write.
     if (signer) {
-      const config = new Config();
-      const domainConfig = await config.read(`/${domain}`);
-      const encryptionDisabled = domainConfig.storage_encrypted === 'false';
-
-      if (!encryptionDisabled) {
-        try {
-          const masterKey = await keyManager.getMasterKey(domain, signer, true);
-          storage = new EncryptedStorage(storage, masterKey);
-          console.log(`[${agentName}:storage] Encrypted storage enabled`);
-        } catch (err) {
-          console.error(`[${agentName}:storage] Failed to initialize encryption, using plaintext:`, err.message);
-        }
-      } else {
-        console.log(`[${agentName}:storage] Encryption disabled by domain config`);
+      try {
+        const masterKey = await keyManager.getMasterKey(domain, signer, true);
+        storage = new EncryptedStorage(storage, masterKey);
+        console.log(`[${agentName}:storage] Encrypted storage enabled`);
+      } catch (err) {
+        console.error(`[${agentName}:storage] Failed to initialize encryption, using plaintext:`, err.message);
       }
     }
 
